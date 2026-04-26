@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "AbJVCeBYBaGbXB9qhKJxK"
+uri = "file://exports/bos-omega-governance-layer.pdf"
+type = "pdf"
+title = "BOS-OMEGA — Governance Layer (PDF)"
