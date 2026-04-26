@@ -1050,7 +1050,15 @@ export const ResetUserPasswordResponse = zod.object({
 });
 
 /**
- * @summary Force-release a HOLD-state task (super_admin only, audited)
+ * Operator approval path for tasks parked on HOLD by the safety / tri-state
+gate. The pipeline has already finished its model attempts before the
+task lands on HOLD, so there is nothing to "resume" — operator review is
+itself the terminal event. Sets tri_state=GO and final_status=COMPLETED
+and records the actor, prior state, and reason in the audit log. To
+explicitly reject a held task instead, use POST /overrides/force-tri-state
+with decision="ABORT".
+
+ * @summary Approve and release a HOLD-state task (super_admin only, audited)
  */
 export const overrideUnlockTaskBodyReasonMin = 3;
 export const overrideUnlockTaskBodyReasonMax = 2000;
@@ -1090,7 +1098,15 @@ export const OverrideForceTriStateResponse = zod.object({
 });
 
 /**
- * @summary Cancel / reset a stuck execution run (super_admin only, audited)
+ * Operator-initiated reset for an execution_run wedged in `running`
+(e.g. provider hang or process restart with no observer to mark it
+terminal). A multi-provider run cannot be safely "rewound and replayed"
+because some attempts have already cost money and emitted side-effects,
+so reset = clean cancel: the run is stamped status="aborted" with
+completed_at set, and the actor/reason are written to the audit log.
+The owner can resubmit a fresh task afterwards.
+
+ * @summary Reset (cancel) a stuck execution run (super_admin only, audited)
  */
 export const overrideResetRunBodyReasonMin = 3;
 export const overrideResetRunBodyReasonMax = 2000;

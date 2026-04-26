@@ -65,20 +65,31 @@ router.post("/unlock-task", async (req, res) => {
     return;
   }
 
+  // Semantics: this is the super-admin "approve and release" path for a
+  // task the safety/tri-state pipeline parked on HOLD pending human
+  // review. The pipeline has already finished its execution by the time
+  // a task lands on HOLD — there is nothing to "resume". The operator's
+  // review is itself the terminal event, so we promote tri_state to GO
+  // and final_status to COMPLETED. The operator's reason and the prior
+  // state are recorded in the audit log so the provenance stays honest.
+  // (To explicitly reject a held task, the operator uses force-tri-state
+  //  with decision = "ABORT" instead.)
   await db
     .update(tasksTable)
     .set({ tri_state: "GO", final_status: "COMPLETED" })
     .where(eq(tasksTable.id, task.id));
 
-  await auditLog(task.id, "OVERRIDE_TASK_UNLOCKED", `HOLD released by super_admin override`, {
+  await auditLog(task.id, "OVERRIDE_TASK_UNLOCKED", `HOLD released by super_admin (operator approval; marked COMPLETED)`, {
     actor_user_id: actor.id,
     target_task_id: task.id,
     previous_tri_state: task.tri_state,
     previous_final_status: task.final_status,
+    new_tri_state: "GO",
+    new_final_status: "COMPLETED",
     reason: parsed.data.reason,
   });
 
-  res.json({ ok: true, task_id: task.id });
+  res.json({ ok: true, task_id: task.id, tri_state: "GO", final_status: "COMPLETED" });
 });
 
 router.post("/force-tri-state", async (req, res) => {
@@ -163,20 +174,31 @@ router.post("/reset-run", async (req, res) => {
     return;
   }
 
+  // Semantics: this is the super-admin "reset a stuck execution_run"
+  // path. A run can get wedged in `running` if a provider call hangs or
+  // a process restart leaves no observer to mark it terminal. We can't
+  // safely "rewind and replay" a partially-spent multi-provider run
+  // (some attempts already cost money and emitted side-effects), so
+  // reset = cancel-the-stuck-run cleanly: stamp status="aborted" and
+  // set completed_at so dashboards stop counting it as in-flight. The
+  // owner can then resubmit a fresh task. The audit row records this
+  // is an operator-driven reset (not a model-driven failure).
   await db
     .update(executionRunsTable)
     .set({ status: "aborted", completed_at: new Date() })
     .where(eq(executionRunsTable.id, run.id));
 
-  await auditLog(run.task_id ?? undefined, "OVERRIDE_RUN_RESET", `Run ${run.id} aborted by super_admin override`, {
+  await auditLog(run.task_id ?? undefined, "OVERRIDE_RUN_RESET", `Run ${run.id} reset by super_admin (stuck run cancelled, status -> aborted)`, {
     actor_user_id: actor.id,
     target_run_id: run.id,
     target_task_id: run.task_id ?? null,
     previous_status: run.status,
+    new_status: "aborted",
+    operator_initiated: true,
     reason: parsed.data.reason,
   });
 
-  res.json({ ok: true, run_id: run.id });
+  res.json({ ok: true, run_id: run.id, status: "aborted" });
 });
 
 export default router;
