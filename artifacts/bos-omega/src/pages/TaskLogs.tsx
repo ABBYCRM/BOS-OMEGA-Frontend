@@ -19,7 +19,7 @@ export function TaskLogs() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <List className="w-4 h-4 text-primary" />
-          <h1 className="text-sm font-mono font-bold tracking-wider">TASK LOGS</h1>
+          <h1 className="text-xl font-serif font-semibold text-foreground tracking-tight">Task logs</h1>
           <span className="text-[11px] font-mono text-muted-foreground">({total} total)</span>
         </div>
         <div className="flex items-center gap-2">
@@ -59,7 +59,7 @@ export function TaskLogs() {
               <tr><td colSpan={8} className="px-3 py-8 text-muted-foreground text-center">No tasks yet. Submit one from the Task Console.</td></tr>
             ) : (
               tasks.map((t) => (
-                <tr key={t.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors cursor-pointer group">
+                <tr key={t.id} className="border-b border-border/50 hover:bg-secondary transition-colors cursor-pointer group">
                   <td className="px-3 py-2.5">
                     <Link href={`/tasks/${t.id}`}>
                       <span className="text-primary hover:underline text-[11px]">{t.id.slice(0, 8)}...</span>

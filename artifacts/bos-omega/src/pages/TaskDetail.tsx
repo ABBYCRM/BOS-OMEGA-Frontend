@@ -17,7 +17,7 @@ export function TaskDetail() {
 
   if (!data) {
     return (
-      <div className="text-xs font-mono text-red-400">
+      <div className="text-xs font-mono text-red-700">
         Task not found.{" "}
         <Link href="/tasks"><span className="text-primary hover:underline">Back to Task Logs</span></Link>
       </div>
@@ -49,7 +49,7 @@ export function TaskDetail() {
           <span className="font-mono text-xs text-muted-foreground">MODE: <span className="text-foreground">{task.mode || "single"}</span></span>
           <span className="ml-auto font-mono text-[10px] text-muted-foreground">{formatDate(task.created_at)}</span>
         </div>
-        <div className="bg-muted/30 border border-border rounded p-3 text-xs font-mono text-foreground leading-relaxed">
+        <div className="bg-secondary border border-border rounded p-3 text-xs font-mono text-foreground leading-relaxed">
           {task.input_text}
         </div>
         {task.selected_provider && (
@@ -85,9 +85,9 @@ export function TaskDetail() {
           <h3 className="text-[10px] font-mono text-muted-foreground tracking-wider mb-4">MODEL ATTEMPTS ({attempts.length})</h3>
           <div className="space-y-2">
             {attempts.map((a) => (
-              <div key={a.id} className={`border rounded p-3 ${a.status === "success" ? "border-green-500/30 bg-green-500/5" : "border-red-500/30 bg-red-500/5"}`}>
+              <div key={a.id} className={`border rounded p-3 ${a.status === "success" ? "border-green-200 bg-green-500/5" : "border-red-200 bg-red-500/5"}`}>
                 <div className="flex items-center gap-3 mb-1">
-                  <span className={`font-mono text-xs font-bold ${a.status === "success" ? "text-green-400" : "text-red-400"}`}>
+                  <span className={`font-mono text-xs font-bold ${a.status === "success" ? "text-green-700" : "text-red-700"}`}>
                     #{a.attempt_number} {a.provider}/{a.model}
                   </span>
                   {a.is_parallel && (
@@ -98,7 +98,7 @@ export function TaskDetail() {
                   </span>
                 </div>
                 {a.error_type && (
-                  <span className="text-[11px] font-mono text-red-400">ERROR: {a.error_type}</span>
+                  <span className="text-[11px] font-mono text-red-700">ERROR: {a.error_type}</span>
                 )}
               </div>
             ))}
@@ -118,14 +118,14 @@ export function TaskDetail() {
                 { label: "INSTRUCTION", pass: v.instruction_pass },
                 { label: "COMPLETENESS", pass: v.completeness_pass },
               ].map((check) => (
-                <div key={check.label} className={`p-3 rounded border text-center ${check.pass ? "border-green-500/30 bg-green-500/10" : "border-red-500/30 bg-red-500/10"}`}>
+                <div key={check.label} className={`p-3 rounded border text-center ${check.pass ? "border-green-200 bg-green-500/10" : "border-red-200 bg-red-500/10"}`}>
                   {check.pass
-                    ? <CheckCircle className="w-4 h-4 text-green-400 mx-auto mb-1" />
-                    : <XCircle className="w-4 h-4 text-red-400 mx-auto mb-1" />}
+                    ? <CheckCircle className="w-4 h-4 text-green-700 mx-auto mb-1" />
+                    : <XCircle className="w-4 h-4 text-red-700 mx-auto mb-1" />}
                   <div className="text-[10px] font-mono text-muted-foreground">{check.label}</div>
                 </div>
               ))}
-              <div className="p-3 rounded border border-primary/30 bg-primary/10 text-center">
+              <div className="p-3 rounded border border-border bg-secondary text-center">
                 <div className="text-lg font-mono font-bold text-primary">{((v.confidence_score || 0) * 100).toFixed(0)}%</div>
                 <div className="text-[10px] font-mono text-muted-foreground">CONFIDENCE</div>
               </div>
@@ -138,7 +138,7 @@ export function TaskDetail() {
       {bos_output && (
         <div className="bg-card border border-card-border rounded-lg p-5">
           <h3 className="text-[10px] font-mono text-muted-foreground tracking-wider mb-4">BOS OUTPUT</h3>
-          <pre className="bg-muted/20 border border-border rounded p-4 text-[11px] font-mono text-muted-foreground overflow-x-auto">
+          <pre className="bg-secondary border border-border rounded p-4 text-[11px] font-mono text-muted-foreground overflow-x-auto">
             {JSON.stringify(bos_output, null, 2)}
           </pre>
         </div>
@@ -147,12 +147,12 @@ export function TaskDetail() {
       {/* Fallbacks */}
       {fallbacks.length > 0 && (
         <div className="bg-card border border-card-border rounded-lg p-5">
-          <h3 className="text-[10px] font-mono text-muted-foreground tracking-wider mb-4">FALLBACK EVENTS ({fallbacks.length})</h3>
+          <h3 className="text-[12px] font-medium text-foreground mb-3">Fallback events ({fallbacks.length})</h3>
           {fallbacks.map((f) => (
             <div key={f.id} className="flex items-center gap-3 py-2 border-b border-border/30 last:border-0 text-xs font-mono">
-              <span className="text-red-400">{f.from_provider}/{f.from_model}</span>
+              <span className="text-red-700">{f.from_provider}/{f.from_model}</span>
               <span className="text-muted-foreground">→</span>
-              <span className="text-green-400">{f.to_provider}/{f.to_model}</span>
+              <span className="text-green-700">{f.to_provider}/{f.to_model}</span>
               <span className="text-muted-foreground flex-1">REASON: {f.reason}</span>
               <span className="text-muted-foreground text-[10px]">{formatDate(f.created_at)}</span>
             </div>

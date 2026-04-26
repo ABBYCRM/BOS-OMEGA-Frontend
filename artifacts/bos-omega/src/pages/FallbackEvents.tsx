@@ -9,7 +9,7 @@ export function FallbackEvents() {
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <GitBranch className="w-4 h-4 text-primary" />
-        <h1 className="text-sm font-mono font-bold tracking-wider">FALLBACK EVENTS</h1>
+        <h1 className="text-xl font-serif font-semibold text-foreground tracking-tight">Fallback events</h1>
         <span className="text-[11px] font-mono text-muted-foreground">({data.length} events)</span>
       </div>
 
@@ -27,14 +27,14 @@ export function FallbackEvents() {
             <div key={event.id} className="bg-card border border-card-border rounded-lg px-5 py-3 flex items-center gap-4">
               <div className="flex items-center gap-2 flex-1">
                 <div className="text-xs font-mono">
-                  <span className="text-red-400 font-semibold">{event.from_provider || "—"}/{event.from_model || "—"}</span>
+                  <span className="text-red-700 font-semibold">{event.from_provider || "—"}/{event.from_model || "—"}</span>
                   <span className="text-muted-foreground mx-2">→</span>
-                  <span className="text-green-400 font-semibold">{event.to_provider || "—"}/{event.to_model || "—"}</span>
+                  <span className="text-green-700 font-semibold">{event.to_provider || "—"}/{event.to_model || "—"}</span>
                 </div>
               </div>
               <div className="flex-1">
                 <span className="text-[11px] font-mono text-muted-foreground">REASON: </span>
-                <span className="text-[11px] font-mono text-amber-400">{event.reason}</span>
+                <span className="text-[11px] font-mono text-amber-700">{event.reason}</span>
               </div>
               <div className="text-[10px] font-mono text-muted-foreground flex-shrink-0">{formatDate(event.created_at)}</div>
               {event.task_id && (

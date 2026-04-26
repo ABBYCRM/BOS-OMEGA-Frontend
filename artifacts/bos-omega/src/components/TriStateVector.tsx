@@ -19,13 +19,13 @@ const CATEGORY_ICONS: Record<string, string> = {
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
-  safety: "text-red-400 border-red-500/30 bg-red-500/5",
-  completeness: "text-amber-400 border-amber-500/30 bg-amber-500/5",
-  confidence: "text-sky-400 border-sky-500/30 bg-sky-500/5",
-  source_quality: "text-purple-400 border-purple-500/30 bg-purple-500/5",
-  tool_availability: "text-green-400 border-green-500/30 bg-green-500/5",
-  intent_clarity: "text-blue-400 border-blue-500/30 bg-blue-500/5",
-  risk: "text-orange-400 border-orange-500/30 bg-orange-500/5",
+  safety: "text-red-700 border-red-200 bg-red-500/5",
+  completeness: "text-amber-700 border-amber-200 bg-amber-500/5",
+  confidence: "text-sky-700 border-sky-500/30 bg-sky-500/5",
+  source_quality: "text-violet-700 border-violet-200 bg-purple-500/5",
+  tool_availability: "text-green-700 border-green-200 bg-green-500/5",
+  intent_clarity: "text-blue-700 border-blue-200 bg-blue-500/5",
+  risk: "text-orange-700 border-orange-200 bg-orange-500/5",
 };
 
 function formatImpact(impact: { go: number; hold: number; abort: number }): string {
@@ -41,7 +41,7 @@ export function TriStateVector({ task_id }: { task_id: string }) {
 
   if (isLoading) {
     return (
-      <div className="border border-primary/25 rounded-lg p-4 bg-primary/5">
+      <div className="border border-border rounded-lg p-4 bg-primary/5">
         <div className="text-[10px] font-mono text-muted-foreground">Loading qubit decision vector…</div>
       </div>
     );
@@ -62,20 +62,20 @@ export function TriStateVector({ task_id }: { task_id: string }) {
   } catch {}
 
   const final_color =
-    decision.final_state === "GO" ? "text-green-400 border-green-500/40 bg-green-500/10" :
-    decision.final_state === "HOLD" ? "text-amber-400 border-amber-500/40 bg-amber-500/10" :
-    "text-red-400 border-red-500/40 bg-red-500/10";
+    decision.final_state === "GO" ? "text-green-700 border-green-500/40 bg-green-500/10" :
+    decision.final_state === "HOLD" ? "text-amber-700 border-amber-500/40 bg-amber-500/10" :
+    "text-red-700 border-red-200 bg-red-500/10";
 
   return (
-    <div className="border border-primary/25 rounded-lg overflow-hidden">
+    <div className="border border-border rounded-lg overflow-hidden">
       {/* Header */}
-      <div className="bg-primary/10 border-b border-primary/25 px-4 py-2.5 flex items-center gap-3">
+      <div className="bg-secondary border-b border-border px-4 py-2.5 flex items-center gap-3">
         <Atom className="w-4 h-4 text-primary animate-pulse" />
         <span className="text-[10px] font-mono font-bold text-primary tracking-wider">QUBIT-INSPIRED TRI-STATE DECISION</span>
         <span className="text-[10px] font-mono text-muted-foreground">vector → collapse</span>
         <div className="ml-auto flex items-center gap-2">
           <span className="text-[10px] font-mono text-muted-foreground">CONFIDENCE</span>
-          <div className="w-16 h-1 bg-muted/50 rounded-full overflow-hidden">
+          <div className="w-16 h-1 bg-muted rounded-full overflow-hidden">
             <div className="h-full bg-primary" style={{ width: `${Math.round(confidence * 100)}%` }} />
           </div>
           <span className="text-[10px] font-mono text-primary w-7">{Math.round(confidence * 100)}%</span>
@@ -86,13 +86,13 @@ export function TriStateVector({ task_id }: { task_id: string }) {
         {/* State vector bar — proportional 3-segment */}
         <div>
           <div className="text-[10px] font-mono text-muted-foreground tracking-wider mb-1.5">PRE-COLLAPSE AMPLITUDE VECTOR</div>
-          <div className="flex h-7 rounded overflow-hidden border border-border bg-muted/20">
+          <div className="flex h-7 rounded overflow-hidden border border-border bg-secondary">
             {goPct > 0 && (
               <div
                 className="bg-green-500/40 border-r border-green-500/60 flex items-center justify-center transition-all"
                 style={{ width: `${goPct}%` }}
               >
-                {goPct >= 12 && <span className="text-[10px] font-mono font-bold text-green-300">GO {goPct}%</span>}
+                {goPct >= 12 && <span className="text-[10px] font-mono font-bold text-green-800">GO {goPct}%</span>}
               </div>
             )}
             {holdPct > 0 && (
@@ -100,7 +100,7 @@ export function TriStateVector({ task_id }: { task_id: string }) {
                 className="bg-amber-500/40 border-r border-amber-500/60 flex items-center justify-center transition-all"
                 style={{ width: `${holdPct}%` }}
               >
-                {holdPct >= 12 && <span className="text-[10px] font-mono font-bold text-amber-300">HOLD {holdPct}%</span>}
+                {holdPct >= 12 && <span className="text-[10px] font-mono font-bold text-amber-800">HOLD {holdPct}%</span>}
               </div>
             )}
             {abortPct > 0 && (
@@ -108,15 +108,15 @@ export function TriStateVector({ task_id }: { task_id: string }) {
                 className="bg-red-500/40 flex items-center justify-center transition-all"
                 style={{ width: `${abortPct}%` }}
               >
-                {abortPct >= 12 && <span className="text-[10px] font-mono font-bold text-red-300">ABORT {abortPct}%</span>}
+                {abortPct >= 12 && <span className="text-[10px] font-mono font-bold text-red-800">ABORT {abortPct}%</span>}
               </div>
             )}
           </div>
           {/* Per-state breakdown row for small slices */}
           <div className="grid grid-cols-3 gap-2 mt-2">
-            <div className="text-[10px] font-mono text-green-400">GO {(go * 100).toFixed(1)}%</div>
-            <div className="text-[10px] font-mono text-amber-400 text-center">HOLD {(hold * 100).toFixed(1)}%</div>
-            <div className="text-[10px] font-mono text-red-400 text-right">ABORT {(abort * 100).toFixed(1)}%</div>
+            <div className="text-[10px] font-mono text-green-700">GO {(go * 100).toFixed(1)}%</div>
+            <div className="text-[10px] font-mono text-amber-700 text-center">HOLD {(hold * 100).toFixed(1)}%</div>
+            <div className="text-[10px] font-mono text-red-700 text-right">ABORT {(abort * 100).toFixed(1)}%</div>
           </div>
         </div>
 
@@ -136,7 +136,7 @@ export function TriStateVector({ task_id }: { task_id: string }) {
             </div>
             <div className="grid grid-cols-2 gap-1.5">
               {signals.map((sig, i) => {
-                const colorClass = CATEGORY_COLORS[sig.category] || "text-muted-foreground border-border bg-muted/20";
+                const colorClass = CATEGORY_COLORS[sig.category] || "text-muted-foreground border-border bg-secondary";
                 return (
                   <div key={i} className={`p-2 rounded border text-[10px] font-mono ${colorClass}`}>
                     <div className="flex items-center gap-1.5 mb-0.5">

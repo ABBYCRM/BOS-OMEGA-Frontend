@@ -8,10 +8,10 @@ const LAYERS = ["canon", "patches", "continuity", "logs", "scratchpad"] as const
 type Layer = typeof LAYERS[number];
 
 const layerColors: Record<string, string> = {
-  canon: "bg-red-500/15 text-red-400 border-red-500/30",
-  patches: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  continuity: "bg-blue-500/15 text-blue-400 border-blue-500/30",
-  logs: "bg-purple-500/15 text-purple-400 border-purple-500/30",
+  canon: "bg-red-50 text-red-700 border-red-200",
+  patches: "bg-amber-50 text-amber-700 border-amber-200",
+  continuity: "bg-blue-50 text-blue-700 border-blue-200",
+  logs: "bg-violet-50 text-violet-700 border-violet-200",
   scratchpad: "bg-muted text-muted-foreground border-border",
 };
 
@@ -59,12 +59,12 @@ export function MemoryManager() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Brain className="w-4 h-4 text-primary" />
-          <h1 className="text-sm font-mono font-bold tracking-wider">MEMORY MANAGER</h1>
+          <h1 className="text-xl font-serif font-semibold text-foreground tracking-tight">Memory manager</h1>
           <span className="text-[11px] font-mono text-muted-foreground">({items.length} items)</span>
         </div>
         <button
           onClick={() => setShowAdd(!showAdd)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/15 border border-primary/30 rounded text-xs font-mono text-primary hover:bg-primary/25 transition-all"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary border border-border rounded text-xs font-mono text-primary hover:bg-primary/25 transition-all"
         >
           <Plus className="w-3 h-3" />
           ADD MEMORY
@@ -79,8 +79,8 @@ export function MemoryManager() {
             onClick={() => setActiveLayer(l)}
             className={`px-3 py-1 rounded border text-[11px] font-mono transition-all ${
               activeLayer === l
-                ? "bg-primary/20 border-primary/50 text-primary"
-                : l !== "all" ? `${layerColors[l]} opacity-60 hover:opacity-100` : "border-border text-muted-foreground hover:border-primary/30"
+                ? "bg-secondary border-primary text-primary"
+                : l !== "all" ? `${layerColors[l]} opacity-60 hover:opacity-100` : "border-border text-muted-foreground hover:border-border"
             }`}
           >
             {l.toUpperCase()}
@@ -89,7 +89,7 @@ export function MemoryManager() {
       </div>
 
       {showAdd && (
-        <div className="bg-card border border-primary/30 rounded-lg p-5 space-y-3">
+        <div className="bg-card border border-border rounded-lg p-5 space-y-3">
           <h3 className="text-xs font-mono text-primary tracking-wider">NEW MEMORY ITEM</h3>
           <div className="grid grid-cols-3 gap-3">
             <div>
@@ -97,7 +97,7 @@ export function MemoryManager() {
               <select
                 value={newItem.layer}
                 onChange={(e) => setNewItem((p) => ({ ...p, layer: e.target.value as Layer }))}
-                className="w-full mt-1 bg-muted/30 border border-input rounded px-2 py-1.5 text-xs font-mono text-foreground"
+                className="w-full mt-1 bg-secondary border border-input rounded px-2 py-1.5 text-xs font-mono text-foreground"
               >
                 {LAYERS.map((l) => <option key={l} value={l}>{l}</option>)}
               </select>
@@ -108,7 +108,7 @@ export function MemoryManager() {
                 value={newItem.title}
                 onChange={(e) => setNewItem((p) => ({ ...p, title: e.target.value }))}
                 placeholder="Memory title..."
-                className="w-full mt-1 bg-muted/30 border border-input rounded px-2 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground"
+                className="w-full mt-1 bg-secondary border border-input rounded px-2 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground"
               />
             </div>
             <div>
@@ -117,7 +117,7 @@ export function MemoryManager() {
                 type="number" min={1} max={10}
                 value={newItem.authority_level}
                 onChange={(e) => setNewItem((p) => ({ ...p, authority_level: +e.target.value }))}
-                className="w-full mt-1 bg-muted/30 border border-input rounded px-2 py-1.5 text-xs font-mono text-foreground"
+                className="w-full mt-1 bg-secondary border border-input rounded px-2 py-1.5 text-xs font-mono text-foreground"
               />
             </div>
           </div>
@@ -126,7 +126,7 @@ export function MemoryManager() {
             onChange={(e) => setNewItem((p) => ({ ...p, content: e.target.value }))}
             placeholder="Memory content..."
             rows={4}
-            className="w-full bg-muted/30 border border-input rounded px-3 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground resize-none"
+            className="w-full bg-secondary border border-input rounded px-3 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground resize-none"
           />
           <div className="flex gap-2">
             <button onClick={handleCreate} className="px-4 py-1.5 bg-primary text-primary-foreground rounded text-xs font-mono font-semibold hover:opacity-90 transition-all">
@@ -155,13 +155,13 @@ export function MemoryManager() {
                   <input
                     value={editData.title}
                     onChange={(e) => setEditData((p) => ({ ...p, title: e.target.value }))}
-                    className="w-full bg-muted/30 border border-input rounded px-2 py-1 text-xs font-mono text-foreground"
+                    className="w-full bg-secondary border border-input rounded px-2 py-1 text-xs font-mono text-foreground"
                   />
                   <textarea
                     value={editData.content}
                     onChange={(e) => setEditData((p) => ({ ...p, content: e.target.value }))}
                     rows={3}
-                    className="w-full bg-muted/30 border border-input rounded px-2 py-1 text-xs font-mono text-foreground resize-none"
+                    className="w-full bg-secondary border border-input rounded px-2 py-1 text-xs font-mono text-foreground resize-none"
                   />
                   <div className="flex gap-2">
                     <button onClick={handleUpdate} className="flex items-center gap-1 px-3 py-1 bg-primary text-primary-foreground rounded text-[11px] font-mono">
@@ -187,7 +187,7 @@ export function MemoryManager() {
                   </div>
                   <button
                     onClick={() => startEdit(item)}
-                    className="p-1.5 border border-border rounded text-muted-foreground hover:text-foreground hover:border-primary/30 transition-all"
+                    className="p-1.5 border border-border rounded text-muted-foreground hover:text-foreground hover:border-border transition-all"
                   >
                     <Edit2 className="w-3 h-3" />
                   </button>

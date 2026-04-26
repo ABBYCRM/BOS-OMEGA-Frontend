@@ -47,7 +47,15 @@ pnpm monorepo
 - **API codegen**: Orval (OpenAPI → Zod + React Query hooks)
 - **Validation**: Zod v4, drizzle-zod
 - **Build**: esbuild (CJS bundle)
-- **Theme**: Dark mission-control style (deep navy + cyan primary)
+- **Theme**: Claude-grade enterprise — warm cream background (`hsl(40 25% 97%)`), deep slate primary (`hsl(220 28% 18%)`), clay coral accent for agentic CTAs (`hsl(15 60% 50%)`). Source Serif 4 headlines, Inter body, JetBrains Mono only for IDs/code. Light mode default with optional `.dark` warm-slate variant.
+
+## UI design system
+
+- **Surfaces**: warm cream bg, pure white cards with soft warm borders, `shadow-card` for elevation (no neon glows).
+- **Type**: serif for page titles + section headers, sans for body, sentence-case labels (no all-caps headers). Mono reserved for IDs, env var names, base URLs, code.
+- **Color tokens**: status badges use `bg-{color}-50 / text-{color}-800 / border-{color}-200` for light-mode contrast. Avoid hardcoded `text-*-400` (dark-only).
+- **CTAs**: deep slate (`bg-primary`) for primary destructive/save actions; clay coral (`bg-accent`) for agentic actions (Discover models, Submit task).
+- **Trust signals**: badge-secure pill ("All systems operational"), top bar shows "SOC2-ready · encrypted", sidebar footer surfaces Tri-State + AES-256-GCM.
 
 ## Key Commands
 
