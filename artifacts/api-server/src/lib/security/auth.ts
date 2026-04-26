@@ -91,14 +91,14 @@ function normalizeEmail(email: string): string {
  *   3. Random 24-char password printed once to the boot log + ADMIN_EMAIL
  */
 export async function seedSuperAdminIfEmpty(): Promise<void> {
-  try {
-    const [{ c }] = await db.select({ c: count() }).from(usersTable);
-    if ((c ?? 0) > 0) {
-      logger.info({ users: c }, "Users table populated; skipping super_admin seed");
-      return;
-    }
-  } catch (err) {
-    logger.error({ err }, "Failed to count users; skipping seed");
+  // Fail-fast on count or insert errors. The whole point of this seed is to
+  // guarantee at least one super_admin exists so operators are never locked
+  // out — silently skipping on failure defeats that guarantee. Let the caller
+  // (boot path) crash so the orchestrator surfaces the real error instead of
+  // booting into a state where nobody can sign in.
+  const [{ c }] = await db.select({ c: count() }).from(usersTable);
+  if ((c ?? 0) > 0) {
+    logger.info({ users: c }, "Users table populated; skipping super_admin seed");
     return;
   }
 
@@ -126,18 +126,13 @@ export async function seedSuperAdminIfEmpty(): Promise<void> {
     source = "GENERATED";
   }
 
-  try {
-    await db.insert(usersTable).values({
-      id: randomUUID(),
-      email,
-      password_hash,
-      role: "super_admin",
-      status: "active",
-    });
-  } catch (err) {
-    logger.error({ err }, "Failed to seed super_admin user");
-    return;
-  }
+  await db.insert(usersTable).values({
+    id: randomUUID(),
+    email,
+    password_hash,
+    role: "super_admin",
+    status: "active",
+  });
 
   logger.warn("================================================================");
   logger.warn("  BOS-Omega super_admin seeded.");

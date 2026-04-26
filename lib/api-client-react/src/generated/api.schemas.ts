@@ -684,6 +684,11 @@ export interface CreateUserBody {
    */
   password: string;
   role: CreateUserBodyRole;
+  /**
+   * @minLength 3
+   * @maxLength 2000
+   */
+  reason: string;
 }
 
 export type UpdateUserBodyRole =
@@ -706,6 +711,19 @@ export const UpdateUserBodyStatus = {
 export interface UpdateUserBody {
   role?: UpdateUserBodyRole;
   status?: UpdateUserBodyStatus;
+  /**
+   * @minLength 3
+   * @maxLength 2000
+   */
+  reason: string;
+}
+
+export interface ResetPasswordBody {
+  /**
+   * @minLength 3
+   * @maxLength 2000
+   */
+  reason: string;
 }
 
 export interface ResetPasswordResponse {

@@ -4,7 +4,6 @@ import { eq } from "drizzle-orm";
 import {
   db,
   tasksTable,
-  triStateDecisionsTable,
   executionRunsTable,
 } from "@workspace/db";
 import { requireRole, type AuthenticatedUser } from "../lib/security/auth.js";
@@ -165,19 +164,6 @@ router.post("/reset-run", async (req, res) => {
     .update(executionRunsTable)
     .set({ status: "aborted", completed_at: new Date() })
     .where(eq(executionRunsTable.id, run.id));
-
-  // tri_state_decisions table referenced for cleanliness — we use it to look
-  // up associated tri-state decisions when present so the audit metadata is
-  // self-contained.
-  let trace_task_id: string | null = run.task_id ?? null;
-  if (trace_task_id) {
-    await db
-      .select({ id: triStateDecisionsTable.id })
-      .from(triStateDecisionsTable)
-      .where(eq(triStateDecisionsTable.task_id, trace_task_id))
-      .limit(1)
-      .catch(() => []);
-  }
 
   await auditLog(run.task_id ?? undefined, "OVERRIDE_RUN_RESET", `Run ${run.id} aborted by super_admin override`, {
     actor_user_id: actor.id,

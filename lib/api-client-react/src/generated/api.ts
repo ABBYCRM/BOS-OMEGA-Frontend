@@ -52,6 +52,7 @@ import type {
   ProviderDiscoveryResult,
   ProviderHealth,
   ProviderTestResult,
+  ResetPasswordBody,
   ResetPasswordResponse,
   ResetRunBody,
   RunDetail,
@@ -3358,11 +3359,14 @@ export const getResetUserPasswordUrl = (id: string) => {
 
 export const resetUserPassword = async (
   id: string,
+  resetPasswordBody: ResetPasswordBody,
   options?: RequestInit,
 ): Promise<ResetPasswordResponse> => {
   return customFetch<ResetPasswordResponse>(getResetUserPasswordUrl(id), {
     ...options,
     method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(resetPasswordBody),
   });
 };
 
@@ -3373,14 +3377,14 @@ export const getResetUserPasswordMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof resetUserPassword>>,
     TError,
-    { id: string },
+    { id: string; data: BodyType<ResetPasswordBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof resetUserPassword>>,
   TError,
-  { id: string },
+  { id: string; data: BodyType<ResetPasswordBody> },
   TContext
 > => {
   const mutationKey = ["resetUserPassword"];
@@ -3394,11 +3398,11 @@ export const getResetUserPasswordMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof resetUserPassword>>,
-    { id: string }
+    { id: string; data: BodyType<ResetPasswordBody> }
   > = (props) => {
-    const { id } = props ?? {};
+    const { id, data } = props ?? {};
 
-    return resetUserPassword(id, requestOptions);
+    return resetUserPassword(id, data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -3407,7 +3411,7 @@ export const getResetUserPasswordMutationOptions = <
 export type ResetUserPasswordMutationResult = NonNullable<
   Awaited<ReturnType<typeof resetUserPassword>>
 >;
-
+export type ResetUserPasswordMutationBody = BodyType<ResetPasswordBody>;
 export type ResetUserPasswordMutationError = ErrorType<ErrorResponse>;
 
 /**
@@ -3420,14 +3424,14 @@ export const useResetUserPassword = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof resetUserPassword>>,
     TError,
-    { id: string },
+    { id: string; data: BodyType<ResetPasswordBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof resetUserPassword>>,
   TError,
-  { id: string },
+  { id: string; data: BodyType<ResetPasswordBody> },
   TContext
 > => {
   return useMutation(getResetUserPasswordMutationOptions(options));

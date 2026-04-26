@@ -27,7 +27,7 @@ export interface UploadInput {
   buffer: Buffer;
   original_name: string;
   mime: string;
-  user_id?: string;
+  user_id?: string | null;
   task_id?: string;
 }
 

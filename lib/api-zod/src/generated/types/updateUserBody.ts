@@ -11,4 +11,9 @@ import type { UpdateUserBodyStatus } from "./updateUserBodyStatus";
 export interface UpdateUserBody {
   role?: UpdateUserBodyRole;
   status?: UpdateUserBodyStatus;
+  /**
+   * @minLength 3
+   * @maxLength 2000
+   */
+  reason: string;
 }

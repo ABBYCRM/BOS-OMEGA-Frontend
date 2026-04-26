@@ -92,20 +92,56 @@ export function Users() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [tempPasswordModal, setTempPasswordModal] = useState<{ email: string; password: string } | null>(null);
+  // Every mutating action against a user account requires a typed reason
+  // that lands in the audit log. We collect it through a single dialog so
+  // the operator always knows why they're changing something.
+  const [reasonModal, setReasonModal] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    onConfirm: (reason: string) => Promise<void>;
+  } | null>(null);
+  const [reason, setReason] = useState("");
+  const [reasonBusy, setReasonBusy] = useState(false);
+  const [reasonError, setReasonError] = useState<string | null>(null);
 
   // Create form state
   const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState<Role>("user");
+  const [newReason, setNewReason] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
+
+  const closeReason = () => {
+    setReasonModal(null);
+    setReason("");
+    setReasonBusy(false);
+    setReasonError(null);
+  };
+
+  const submitReason = async () => {
+    if (!reasonModal) return;
+    setReasonError(null);
+    setReasonBusy(true);
+    try {
+      await reasonModal.onConfirm(reason.trim());
+      closeReason();
+    } catch (e) {
+      setReasonBusy(false);
+      setReasonError((e as { data?: { error?: string } })?.data?.error || (e as Error).message || "Action failed");
+    }
+  };
 
   const onCreate = async () => {
     setCreateError(null);
     try {
-      await createMut.mutateAsync({ data: { email: newEmail, password: newPassword, role: newRole } });
+      await createMut.mutateAsync({
+        data: { email: newEmail, password: newPassword, role: newRole, reason: newReason.trim() },
+      });
       setNewEmail("");
       setNewPassword("");
       setNewRole("user");
+      setNewReason("");
       setCreateOpen(false);
     } catch (e) {
       const msg = (e as { message?: string; status?: number; data?: { error?: string } })?.data?.error
@@ -115,28 +151,40 @@ export function Users() {
     }
   };
 
-  const onChangeRole = async (id: string, role: Role) => {
-    await updateMut.mutateAsync({ id, data: { role } }).catch((e) => {
-      alert((e as { data?: { error?: string } })?.data?.error || "Failed to update role");
+  const onChangeRole = (id: string, email: string, fromRole: Role, toRole: Role) => {
+    setReasonModal({
+      title: `Change role for ${email}`,
+      description: `Role will change from ${roleLabels[fromRole]} to ${roleLabels[toRole]}. This is recorded in the audit log with your reason.`,
+      confirmLabel: "Change role",
+      onConfirm: async (reasonText) => {
+        await updateMut.mutateAsync({ id, data: { role: toRole, reason: reasonText } });
+      },
     });
   };
 
-  const onToggleStatus = async (id: string, currentStatus: Status) => {
+  const onToggleStatus = (id: string, email: string, currentStatus: Status) => {
     const next: Status = currentStatus === "active" ? "disabled" : "active";
-    await updateMut.mutateAsync({ id, data: { status: next } }).catch((e) => {
-      alert((e as { data?: { error?: string } })?.data?.error || "Failed to update status");
+    setReasonModal({
+      title: `${next === "disabled" ? "Disable" : "Enable"} ${email}`,
+      description: `The account will be ${next}. This is recorded in the audit log with your reason.`,
+      confirmLabel: next === "disabled" ? "Disable account" : "Enable account",
+      onConfirm: async (reasonText) => {
+        await updateMut.mutateAsync({ id, data: { status: next, reason: reasonText } });
+      },
     });
   };
 
-  const onResetPassword = async (id: string, email: string) => {
-    if (!confirm(`Reset password for ${email}? A one-time temporary password will be shown.`)) return;
-    try {
-      const res = await resetMut.mutateAsync({ id });
-      const tp = (res as { temporary_password?: string }).temporary_password;
-      if (tp) setTempPasswordModal({ email, password: tp });
-    } catch (e) {
-      alert((e as { data?: { error?: string } })?.data?.error || "Failed to reset password");
-    }
+  const onResetPassword = (id: string, email: string) => {
+    setReasonModal({
+      title: `Reset password for ${email}`,
+      description: "A one-time temporary password will be shown after you confirm. The reason is recorded in the audit log.",
+      confirmLabel: "Reset password",
+      onConfirm: async (reasonText) => {
+        const res = await resetMut.mutateAsync({ id, data: { reason: reasonText } });
+        const tp = (res as { temporary_password?: string }).temporary_password;
+        if (tp) setTempPasswordModal({ email, password: tp });
+      },
+    });
   };
 
   if (me && me.role !== "super_admin") {
@@ -197,7 +245,11 @@ export function Users() {
                       <div className="col-span-2">
                         <Select
                           value={u.role}
-                          onValueChange={(v) => onChangeRole(u.id, v as Role)}
+                          onValueChange={(v) => {
+                            const next = v as Role;
+                            if (next === u.role) return;
+                            onChangeRole(u.id, u.email, u.role as Role, next);
+                          }}
                           disabled={isMe || updateMut.isPending}
                         >
                           <SelectTrigger className="h-7 text-xs" data-testid={`select-role-${u.id}`}>
@@ -229,7 +281,7 @@ export function Users() {
                         <Button
                           size="sm"
                           variant={u.status === "active" ? "outline" : "default"}
-                          onClick={() => onToggleStatus(u.id, u.status as Status)}
+                          onClick={() => onToggleStatus(u.id, u.email, u.status as Status)}
                           disabled={isMe || updateMut.isPending}
                           data-testid={`button-toggle-${u.id}`}
                         >
@@ -286,6 +338,17 @@ export function Users() {
                 </SelectContent>
               </Select>
             </div>
+            <div>
+              <label className="text-xs font-mono text-muted-foreground mb-1 block">
+                Reason (required, ≥3 chars — recorded in audit log)
+              </label>
+              <Input
+                value={newReason}
+                onChange={(e) => setNewReason(e.target.value)}
+                placeholder="Why are you creating this account?"
+                data-testid="input-new-reason"
+              />
+            </div>
             {createError && (
               <div className="text-sm text-red-800 bg-red-50 border border-red-200 rounded px-3 py-2">{createError}</div>
             )}
@@ -294,11 +357,53 @@ export function Users() {
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button
               onClick={onCreate}
-              disabled={createMut.isPending || !newEmail || newPassword.length < 8}
+              disabled={
+                createMut.isPending
+                || !newEmail
+                || newPassword.length < 8
+                || newReason.trim().length < 3
+              }
               data-testid="button-submit-create"
             >
               {createMut.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : null}
               Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reason capture for role change / status toggle / reset password */}
+      <Dialog open={reasonModal !== null} onOpenChange={(v) => !v && closeReason()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{reasonModal?.title}</DialogTitle>
+            <DialogDescription>{reasonModal?.description}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-mono text-muted-foreground mb-1 block">
+                Reason (required, ≥3 chars)
+              </label>
+              <Input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Why are you doing this?"
+                data-testid="input-action-reason"
+              />
+            </div>
+            {reasonError && (
+              <div className="text-sm text-red-800 bg-red-50 border border-red-200 rounded px-3 py-2">{reasonError}</div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeReason}>Cancel</Button>
+            <Button
+              onClick={submitReason}
+              disabled={reasonBusy || reason.trim().length < 3}
+              data-testid="button-confirm-reason"
+            >
+              {reasonBusy ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : null}
+              {reasonModal?.confirmLabel ?? "Confirm"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -129,6 +129,10 @@ export interface PipelineInput {
   agents_per_model?: number;
   attachment_ids?: string[];
   persona?: "legal" | "engineering" | "cyber";
+  // Owning user. The pipeline writes this into tasks.user_id atomically on
+  // the very first INSERT so a freshly-created task is never visible as a
+  // legacy NULL-owned row to other authenticated users.
+  user_id?: string | null;
 }
 
 export interface PipelineResult {
@@ -192,7 +196,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   if (gate.state === "ABORT") {
     const base = buildAbortOutput(gate.reason || "Policy violation", task_id);
     const output = attachDenial(base, "input_gate_abort", gate.reason || "Policy violation");
-    await saveTask(task_id, pipelineInput.input, "safety_review", "ABORT", requested_mode, undefined, undefined, "ABORTED", JSON.stringify(output));
+    await saveTask(task_id, pipelineInput.input, "safety_review", "ABORT", requested_mode, undefined, undefined, "ABORTED", JSON.stringify(output), pipelineInput.user_id ?? null);
     await auditLog(task_id, "TASK_ABORTED", gate.reason || "Aborted by input gate");
     return { task_id, tri_state: "ABORT", task_type: "safety_review", final_status: "ABORTED", bos_output: output };
   }
@@ -209,7 +213,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
       recommended_next_action: `Provide the following missing information: ${gate.missing_info.join(", ")}`,
     };
     const output = attachDenial(base, "input_gate_hold_missing_info", gate.reason || "Missing required info");
-    await saveTask(task_id, pipelineInput.input, "general", "HOLD", requested_mode, undefined, undefined, "HELD", JSON.stringify(output));
+    await saveTask(task_id, pipelineInput.input, "general", "HOLD", requested_mode, undefined, undefined, "HELD", JSON.stringify(output), pipelineInput.user_id ?? null);
     await auditLog(task_id, "TASK_HELD", gate.reason || "Held by input gate");
     return { task_id, tri_state: "HOLD", task_type: "general", final_status: "HELD", bos_output: output };
   }
@@ -284,7 +288,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
       recommended_next_action: "Check provider availability and request validity",
     };
     const output = attachDenial(base, "tri_state_abort", tri_state_result.reason);
-    await saveTask(task_id, pipelineInput.input, task_type, "ABORT", resolved_mode, undefined, undefined, "ABORTED", JSON.stringify(output));
+    await saveTask(task_id, pipelineInput.input, task_type, "ABORT", resolved_mode, undefined, undefined, "ABORTED", JSON.stringify(output), pipelineInput.user_id ?? null);
     await auditLog(task_id, "TASK_ABORTED", tri_state_result.reason);
     return { task_id, tri_state: "ABORT", task_type, final_status: "ABORTED", bos_output: output };
   }
@@ -307,7 +311,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
       recommended_next_action: tri_state_result.reason,
     };
     const output = attachDenial(base, cause, tri_state_result.reason);
-    await saveTask(task_id, pipelineInput.input, task_type, "HOLD", resolved_mode, undefined, undefined, "HELD", JSON.stringify(output));
+    await saveTask(task_id, pipelineInput.input, task_type, "HOLD", resolved_mode, undefined, undefined, "HELD", JSON.stringify(output), pipelineInput.user_id ?? null);
     await auditLog(task_id, "TASK_HELD", tri_state_result.reason);
     return { task_id, tri_state: "HOLD", task_type, final_status: "HELD", bos_output: output };
   }
@@ -328,6 +332,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     models[0]?.model_name,
     "RUNNING",
     undefined,
+    pipelineInput.user_id ?? null,
   );
 
   const ctx: TaskContext = {
@@ -513,10 +518,11 @@ async function saveTask(
   task_type: string,
   tri_state: string,
   mode: string,
-  provider?: string,
-  model?: string,
-  final_status?: string,
-  final_output?: string,
+  provider: string | undefined,
+  model: string | undefined,
+  final_status: string | undefined,
+  final_output: string | undefined,
+  user_id: string | null,
 ): Promise<void> {
   await db.insert(tasksTable).values({
     id: task_id,
@@ -528,5 +534,6 @@ async function saveTask(
     selected_model: model || null,
     final_status: final_status || "pending",
     final_output: final_output || null,
+    user_id,
   });
 }

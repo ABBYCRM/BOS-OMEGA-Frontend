@@ -34,20 +34,32 @@ const EmailSchema = z
 
 const PasswordSchema = z.string().min(8).max(256);
 
+// Every super_admin write to a user account must carry a typed reason that
+// lands in the audit log alongside actor + target. This is what the spec
+// means by "the reason text the super admin typed in" — it applies to user
+// management changes the same way it does to overrides.
+const ReasonSchema = z.string().trim().min(3).max(2000);
+
 const CreateUserSchema = z.object({
   email: EmailSchema,
   password: PasswordSchema,
   role: RoleSchema,
+  reason: ReasonSchema,
 });
 
 const UpdateUserSchema = z
   .object({
     role: RoleSchema.optional(),
     status: StatusSchema.optional(),
+    reason: ReasonSchema,
   })
   .refine((v) => v.role !== undefined || v.status !== undefined, {
     message: "At least one of role or status is required",
   });
+
+const ResetPasswordSchema = z.object({
+  reason: ReasonSchema,
+});
 
 function publicUser(u: typeof usersTable.$inferSelect) {
   return {
@@ -111,6 +123,7 @@ router.post("/", async (req, res) => {
     target_user_id: created.id,
     target_email: created.email,
     role: created.role,
+    reason: parsed.data.reason,
   });
 
   res.status(201).json({ user: publicUser(created) });
@@ -175,6 +188,7 @@ router.patch("/:id", async (req, res) => {
       target_email: target.email,
       from_role: target.role,
       to_role: parsed.data.role,
+      reason: parsed.data.reason,
     });
   }
   if (parsed.data.status !== undefined && parsed.data.status !== target.status) {
@@ -183,6 +197,7 @@ router.patch("/:id", async (req, res) => {
       actor_user_id: actor.id,
       target_user_id: target.id,
       target_email: target.email,
+      reason: parsed.data.reason,
     });
   }
 
@@ -193,6 +208,15 @@ router.post("/:id/reset-password", async (req, res) => {
   const id = req.params["id"];
   if (!id) {
     res.status(400).json({ error: "Missing id" });
+    return;
+  }
+  const parsed = ResetPasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({
+      error: "Invalid request body",
+      code: "INPUT_ERROR",
+      issues: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })),
+    });
     return;
   }
   const actor = req.user as AuthenticatedUser;
@@ -214,6 +238,7 @@ router.post("/:id/reset-password", async (req, res) => {
     actor_user_id: actor.id,
     target_user_id: target.id,
     target_email: target.email,
+    reason: parsed.data.reason,
   });
 
   // The temporary password is shown ONCE in the response; never persisted in

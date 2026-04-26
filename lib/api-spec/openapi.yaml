@@ -868,6 +868,12 @@ paths:
           in: path
           required: true
           schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordBody"
       responses:
         "200":
           description: Password reset
@@ -875,6 +881,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ResetPasswordResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: User not found
           content:
@@ -1817,7 +1829,11 @@ components:
         role:
           type: string
           enum: [user, admin, super_admin]
-      required: [email, password, role]
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 2000
+      required: [email, password, role, reason]
 
     UpdateUserBody:
       type: object
@@ -1828,6 +1844,20 @@ components:
         status:
           type: string
           enum: [active, disabled]
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 2000
+      required: [reason]
+
+    ResetPasswordBody:
+      type: object
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 2000
+      required: [reason]
 
     ResetPasswordResponse:
       type: object

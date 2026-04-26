@@ -3,6 +3,16 @@ import multer from "multer";
 import { db, attachmentsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { ingestUpload } from "../lib/uploads/index.js";
+import type { AuthenticatedUser } from "../lib/security/auth.js";
+
+// IDOR guard: callers must either be super_admin, or the row's user_id must
+// match the requester's id, or it must be a legacy row with user_id == NULL.
+// We treat "unauthorized" as 404 to avoid leaking attachment existence.
+function canAccessAttachment(req: { user?: AuthenticatedUser }, row: { user_id: string | null }): boolean {
+  if (req.user?.role === "super_admin") return true;
+  if (row.user_id === null) return true;
+  return row.user_id === (req.user?.id ?? "");
+}
 import {
   MAX_UPLOAD_BYTES,
   readStoredFile,
@@ -48,6 +58,7 @@ router.post(
         buffer: file.buffer,
         original_name,
         mime: file.mimetype || "application/octet-stream",
+        user_id: (req.user as AuthenticatedUser | undefined)?.id ?? null,
       });
 
       res.status(201).json(serialize(attachment));
@@ -81,7 +92,10 @@ router.get("/:id", async (req, res) => {
     .from(attachmentsTable)
     .where(eq(attachmentsTable.id, id))
     .limit(1);
-  if (!row) { res.status(404).json({ error: "Not found", code: "NOT_FOUND" }); return; }
+  if (!row || !canAccessAttachment(req, row)) {
+    res.status(404).json({ error: "Not found", code: "NOT_FOUND" });
+    return;
+  }
   res.json(serialize(row));
 });
 
@@ -94,7 +108,10 @@ router.get("/:id/raw", async (req, res, next) => {
       .from(attachmentsTable)
       .where(eq(attachmentsTable.id, id))
       .limit(1);
-    if (!row) { res.status(404).json({ error: "Not found", code: "NOT_FOUND" }); return; }
+    if (!row || !canAccessAttachment(req, row)) {
+      res.status(404).json({ error: "Not found", code: "NOT_FOUND" });
+      return;
+    }
     const buf = await readStoredFile(row.storage_key);
     // Force download disposition to neutralize active content (HTML/SVG/JS)
     // being served from the same origin as the app. Images and PDFs that the
@@ -119,6 +136,15 @@ router.get("/:id/thumbnail", async (req, res, next) => {
   try {
     const id = req.params.id;
     if (!id) { res.status(400).json({ error: "Missing id" }); return; }
+    const [row] = await db
+      .select({ user_id: attachmentsTable.user_id })
+      .from(attachmentsTable)
+      .where(eq(attachmentsTable.id, id))
+      .limit(1);
+    if (!row || !canAccessAttachment(req, row)) {
+      res.status(404).json({ error: "No thumbnail" });
+      return;
+    }
     const buf = await readThumbnail(id);
     if (!buf) { res.status(404).json({ error: "No thumbnail" }); return; }
     res.setHeader("Content-Type", "image/webp");
@@ -137,7 +163,10 @@ router.delete("/:id", async (req, res) => {
     .from(attachmentsTable)
     .where(eq(attachmentsTable.id, id))
     .limit(1);
-  if (!row) { res.status(404).json({ error: "Not found", code: "NOT_FOUND" }); return; }
+  if (!row || !canAccessAttachment(req, row)) {
+    res.status(404).json({ error: "Not found", code: "NOT_FOUND" });
+    return;
+  }
   // Drop the row first so the dedup ref-count check is consistent.
   await db.delete(attachmentsTable).where(eq(attachmentsTable.id, id));
   // The physical key is `<sha>.<ext>` — two rows with the same sha but

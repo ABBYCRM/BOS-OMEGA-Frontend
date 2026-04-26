@@ -6,8 +6,9 @@ import {
   validationResultsTable,
   fallbackEventsTable,
   auditLogsTable,
+  attachmentsTable,
 } from "@workspace/db";
-import { eq, desc, count, sql } from "drizzle-orm";
+import { eq, desc, count, sql, and, or, isNull, inArray } from "drizzle-orm";
 import { runBosPipeline } from "../bos/pipeline.js";
 import { CreateTaskBody, ListTasksQueryParams } from "@workspace/api-zod";
 import { logger } from "../lib/logger.js";
@@ -27,6 +28,36 @@ router.post("/", expensiveLimiter, async (req, res) => {
     return;
   }
 
+  // Cross-tenant attachment guard. The pipeline re-links each attachment's
+  // task_id to the new task and feeds its bytes/text into the LLM context.
+  // Without checking ownership here, any authenticated user who learns
+  // another user's attachment id could exfiltrate the file's contents and
+  // hijack the row. super_admin is allowed to attach anything; everyone
+  // else must own the attachment (or it must be a legacy NULL row).
+  const attachment_ids = parsed.data.attachment_ids ?? [];
+  if (attachment_ids.length > 0 && req.user?.role !== "super_admin") {
+    const owners = await db
+      .select({ id: attachmentsTable.id, user_id: attachmentsTable.user_id })
+      .from(attachmentsTable)
+      .where(inArray(attachmentsTable.id, attachment_ids));
+    const owned = new Map(owners.map((r) => [r.id, r.user_id]));
+    const uid = req.user?.id ?? "";
+    const denied = attachment_ids.filter((id) => {
+      const o = owned.get(id);
+      if (o === undefined) return true;        // unknown id
+      if (o === null) return false;            // legacy untagged
+      return o !== uid;                        // someone else's
+    });
+    if (denied.length > 0) {
+      res.status(404).json({
+        error: "One or more attachments not found",
+        code: "NOT_FOUND",
+        denied,
+      });
+      return;
+    }
+  }
+
   try {
     const result = await runBosPipeline({
       input: parsed.data.input,
@@ -35,17 +66,13 @@ router.post("/", expensiveLimiter, async (req, res) => {
       parallel_models: parsed.data.parallel_models || undefined,
       max_models: parsed.data.max_models || undefined,
       agents_per_model: parsed.data.agents_per_model || undefined,
-      attachment_ids: parsed.data.attachment_ids || undefined,
+      attachment_ids: attachment_ids.length > 0 ? attachment_ids : undefined,
       persona: (parsed.data.persona as "legal" | "engineering" | "cyber" | undefined) || undefined,
+      // Ownership is set atomically inside the pipeline's saveTask INSERT
+      // so newly created tasks are never momentarily visible to other
+      // tenants via the legacy NULL-fallback in visibility filters.
+      user_id: req.user?.id ?? null,
     });
-
-    // Tag the new task with the creating user's id so the audit trail can
-    // attribute work back to a person. The pipeline itself doesn't know the
-    // session, so we patch the row here in a single follow-up update.
-    if (req.user?.id) {
-      await db.update(tasksTable).set({ user_id: req.user.id }).where(eq(tasksTable.id, result.task_id))
-        .catch((err) => req.log.warn({ err, task_id: result.task_id }, "Failed to set user_id on task"));
-    }
 
     const task_rows = await db.select().from(tasksTable).where(eq(tasksTable.id, result.task_id)).limit(1);
     const task = task_rows[0];
@@ -109,13 +136,29 @@ router.get("/stats", async (req, res) => {
   }
 });
 
+// Role-aware visibility:
+//  - super_admin sees every task in the system (unfiltered).
+//  - everyone else sees only tasks they created (user_id = req.user.id) plus
+//    legacy tasks that pre-date user tagging (user_id is NULL), so existing
+//    workspaces don't go dark after the migration.
+function visibilityFilter(req: { user?: { id: string; role: string } }) {
+  if (req.user?.role === "super_admin") return undefined;
+  const uid = req.user?.id ?? "";
+  return or(eq(tasksTable.user_id, uid), isNull(tasksTable.user_id));
+}
+
 router.get("/", async (req, res) => {
   const parsed = ListTasksQueryParams.safeParse(req.query);
   const limit = parsed.success ? (parsed.data.limit ?? 50) : 50;
   const offset = parsed.success ? (parsed.data.offset ?? 0) : 0;
 
-  const tasks = await db.select().from(tasksTable).orderBy(desc(tasksTable.created_at)).limit(limit).offset(offset);
-  const total_rows = await db.select({ c: count() }).from(tasksTable);
+  const where = visibilityFilter(req);
+  const tasks = where
+    ? await db.select().from(tasksTable).where(where).orderBy(desc(tasksTable.created_at)).limit(limit).offset(offset)
+    : await db.select().from(tasksTable).orderBy(desc(tasksTable.created_at)).limit(limit).offset(offset);
+  const total_rows = where
+    ? await db.select({ c: count() }).from(tasksTable).where(where)
+    : await db.select({ c: count() }).from(tasksTable);
 
   res.json({ tasks, total: total_rows[0]?.c || 0, limit, offset });
 });
@@ -124,7 +167,10 @@ router.get("/:id", async (req, res) => {
   const { id } = req.params;
   if (!id) { res.status(400).json({ error: "Missing id" }); return; }
 
-  const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, id)).limit(1);
+  const where = visibilityFilter(req);
+  const [task] = where
+    ? await db.select().from(tasksTable).where(and(eq(tasksTable.id, id), where)).limit(1)
+    : await db.select().from(tasksTable).where(eq(tasksTable.id, id)).limit(1);
   if (!task) { res.status(404).json({ error: "Task not found", code: "NOT_FOUND" }); return; }
 
   const [attempts, validation, fallbacks, audit] = await Promise.all([
@@ -145,6 +191,15 @@ router.get("/:id", async (req, res) => {
 router.get("/:id/attempts", async (req, res) => {
   const { id } = req.params;
   if (!id) { res.status(400).json({ error: "Missing id" }); return; }
+
+  // Confirm the requester can see the parent task before returning attempts.
+  // Without this, a non-super user with a task id could enumerate every
+  // model attempt in the system.
+  const where = visibilityFilter(req);
+  const [task] = where
+    ? await db.select({ id: tasksTable.id }).from(tasksTable).where(and(eq(tasksTable.id, id), where)).limit(1)
+    : await db.select({ id: tasksTable.id }).from(tasksTable).where(eq(tasksTable.id, id)).limit(1);
+  if (!task) { res.status(404).json({ error: "Task not found", code: "NOT_FOUND" }); return; }
 
   const attempts = await db
     .select()

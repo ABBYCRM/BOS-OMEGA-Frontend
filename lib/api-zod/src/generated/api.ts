@@ -965,6 +965,9 @@ export const ListUsersResponse = zod.object({
 export const createUserBodyPasswordMin = 8;
 export const createUserBodyPasswordMax = 256;
 
+export const createUserBodyReasonMin = 3;
+export const createUserBodyReasonMax = 2000;
+
 export const CreateUserBody = zod.object({
   email: zod.string().email(),
   password: zod
@@ -972,6 +975,10 @@ export const CreateUserBody = zod.object({
     .min(createUserBodyPasswordMin)
     .max(createUserBodyPasswordMax),
   role: zod.enum(["user", "admin", "super_admin"]),
+  reason: zod
+    .string()
+    .min(createUserBodyReasonMin)
+    .max(createUserBodyReasonMax),
 });
 
 /**
@@ -981,9 +988,16 @@ export const UpdateUserParams = zod.object({
   id: zod.coerce.string(),
 });
 
+export const updateUserBodyReasonMin = 3;
+export const updateUserBodyReasonMax = 2000;
+
 export const UpdateUserBody = zod.object({
   role: zod.enum(["user", "admin", "super_admin"]).optional(),
   status: zod.enum(["active", "disabled"]).optional(),
+  reason: zod
+    .string()
+    .min(updateUserBodyReasonMin)
+    .max(updateUserBodyReasonMax),
 });
 
 export const UpdateUserResponse = zod.object({
@@ -1003,6 +1017,16 @@ export const UpdateUserResponse = zod.object({
  */
 export const ResetUserPasswordParams = zod.object({
   id: zod.coerce.string(),
+});
+
+export const resetUserPasswordBodyReasonMin = 3;
+export const resetUserPasswordBodyReasonMax = 2000;
+
+export const ResetUserPasswordBody = zod.object({
+  reason: zod
+    .string()
+    .min(resetUserPasswordBodyReasonMin)
+    .max(resetUserPasswordBodyReasonMax),
 });
 
 export const ResetUserPasswordResponse = zod.object({

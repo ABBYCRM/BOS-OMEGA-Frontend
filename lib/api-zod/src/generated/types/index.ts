@@ -65,6 +65,7 @@ export * from "./providerHealthStatus";
 export * from "./providerLastTestStatus";
 export * from "./providerStatus";
 export * from "./providerTestResult";
+export * from "./resetPasswordBody";
 export * from "./resetPasswordResponse";
 export * from "./resetRunBody";
 export * from "./runDetail";

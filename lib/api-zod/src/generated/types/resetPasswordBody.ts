@@ -5,16 +5,8 @@
  * BOS-OMEGA Multi-LLM Orchestration Platform API
  * OpenAPI spec version: 0.1.0
  */
-import type { CreateUserBodyRole } from "./createUserBodyRole";
 
-export interface CreateUserBody {
-  email: string;
-  /**
-   * @minLength 8
-   * @maxLength 256
-   */
-  password: string;
-  role: CreateUserBodyRole;
+export interface ResetPasswordBody {
   /**
    * @minLength 3
    * @maxLength 2000
