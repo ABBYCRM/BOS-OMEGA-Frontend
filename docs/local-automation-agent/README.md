@@ -8,15 +8,16 @@ The LAA program spans 10 project tasks across 7 workstreams. Six of those tasks 
 
 | File | Purpose | Audience |
 |---|---|---|
-| [`MASTER_PLAN.md`](./MASTER_PLAN.md) | Authoritative roadmap. Roadmap snapshot, dependency graph, 5-phase execution sequence, critical-path analysis, validation matrix (architectural decisions × BOS-POLICY-001..010 × BOS-ENT-001..006 × spec section 13 ship-gate × owning task), cancellation rebaseline for tasks #4 and #15, owner & update protocol. | Anyone planning, sequencing, reviewing, or auditing LAA work. |
-| `enterprise-config.md` *(planned — owned by task #32)* | Schema for the JSON config the agent reads on start under admin deployment: `server_url`, `org_enrollment_secret`, `allowlist_overrides`, `blocklist_extensions`, `telemetry_endpoint`, `audit_export_endpoint`. Consumed by the deferred MSI (#29) and tray (#27) tasks. | Operators deploying via Intune / GPO / RMM; engineers building the MSI. |
+| [MASTER_PLAN.md](./MASTER_PLAN.md) | Authoritative roadmap. Roadmap snapshot, dependency graph, 5-phase execution sequence, critical-path analysis, validation matrix (architectural decisions × BOS-POLICY-001..010 × BOS-ENT-001..006 × spec section 13 ship-gate × owning task), cancellation rebaseline for tasks #4 and #15, owner & update protocol. | Anyone planning, sequencing, reviewing, or auditing LAA work. |
+| [enterprise-config.md](./enterprise-config.md) *(planned — owned by [task #32](../../.local/tasks/multi-user-enterprise-hooks.md))* | Schema for the JSON config the agent reads on start under admin deployment: `server_url`, `org_enrollment_secret`, `allowlist_overrides`, `blocklist_extensions`, `telemetry_endpoint`, `audit_export_endpoint`. Consumed by the deferred MSI ([#29](../../.local/tasks/laa-09-installer-deferred.md)) and tray ([#27](../../.local/tasks/laa-07-windows-tray-prompts-deferred.md)) tasks. | Operators deploying via Intune / GPO / RMM; engineers building the MSI. |
 
 ## Source-of-truth references (outside this directory)
 
-- **Spec (policy YAML/JSON, BOS-POLICY-* matrix, section 13 ship-gate, section 14 final-build rule):** `attached_assets/Pasted-text-TRI-STATE-GO-MODE-EXECUTION-ONLY-TARGET-BOS-OMEGA-_1777210493011.txt`
-- **Architectural decisions of record (7 decisions: installer, pairing/device trust, approval UX, audit immutability, Windows user model, update model, deployment model):** `attached_assets/Pasted-ARCHITECTURAL-DECISIONS-These-are-now-resolved-Proceed-_1777212351123.txt`
-- **Auto-install consent rules:** `attached_assets/Pasted-AUTO-INSTALL-CONSENT-DOC-*.txt`
-- **Per-task plans:** `.local/tasks/laa-01` … `laa-09`, `.local/tasks/multi-user-enterprise-hooks.md`
+- **Spec** (policy YAML/JSON, BOS-POLICY-* matrix, section 13 ship-gate, section 14 final-build rule): [`attached_assets/Pasted-text-TRI-STATE-GO-MODE-EXECUTION-ONLY-TARGET-BOS-OMEGA-_1777210493011.txt`](../../attached_assets/Pasted-text-TRI-STATE-GO-MODE-EXECUTION-ONLY-TARGET-BOS-OMEGA-_1777210493011.txt)
+- **Architectural decisions of record** (7 decisions: installer, pairing/device trust, approval UX, audit immutability, Windows user model, update model, deployment model): [`attached_assets/Pasted-ARCHITECTURAL-DECISIONS-These-are-now-resolved-Proceed-_1777212351123.txt`](../../attached_assets/Pasted-ARCHITECTURAL-DECISIONS-These-are-now-resolved-Proceed-_1777212351123.txt)
+- **Auto-install consent rules**: see the `attached_assets/Pasted-AUTO-INSTALL-CONSENT-DOC-*.txt` files in [`attached_assets/`](../../attached_assets/).
+- **Per-task plans** (build-now): [#21](../../.local/tasks/laa-01-core-policy-engine.md) · [#22](../../.local/tasks/laa-02-api-signed-requests-audit.md) · [#23](../../.local/tasks/laa-03-pairing-approval-ui.md) · [#24](../../.local/tasks/laa-04-reference-agent-and-dev-console.md) · [#25](../../.local/tasks/laa-05-spec-tests-and-ship-gate.md) · [#32](../../.local/tasks/multi-user-enterprise-hooks.md)
+- **Per-task plans** (deferred Windows): [#26](../../.local/tasks/laa-06-windows-runtime-deferred.md) · [#27](../../.local/tasks/laa-07-windows-tray-prompts-deferred.md) · [#28](../../.local/tasks/laa-08-uac-broker-deferred.md) · [#29](../../.local/tasks/laa-09-installer-deferred.md)
 
 ## How to read the master plan
 

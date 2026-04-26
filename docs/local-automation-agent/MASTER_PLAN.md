@@ -16,18 +16,18 @@ Documentation only — no production source files are edited by this work.
 
 The LAA program replaces the prior arbitrary-shell PowerShell bridge (project task #4) and its safety-tests subset (project task #15), both **CANCELLED**. The replacement is a 10-task program organised around 7 workstreams. Tasks marked **[BUILD-NOW]** can be implemented in this Linux Replit container; tasks marked **[BLOCKED-ENV]** require a real Windows build host and must not be assigned to a task agent in this project.
 
-| Workstream | Project task | Plan file | Title | Build status |
-|---|---|---|---|---|
-| W1 — Schema, contracts & policy engine | **#21** | `.local/tasks/laa-01-core-policy-engine.md` | LAA — schema, contracts & policy engine | **[BUILD-NOW]** |
-| W2 — Server API + signed requests + audit | **#22** | `.local/tasks/laa-02-api-signed-requests-audit.md` | LAA — API, signed requests & tamper-evident audit | **[BUILD-NOW]** |
-| W3 — User-facing UI (pairing / approvals / audit) | **#23** | `.local/tasks/laa-03-pairing-approval-ui.md` | LAA — pairing, approval queue & audit UI | **[BUILD-NOW]** |
-| W4 — Reference agent + gated dev console | **#24** | `.local/tasks/laa-04-reference-agent-and-dev-console.md` | LAA — reference test agent + gated dev console | **[BUILD-NOW]** |
-| W5 — Spec test matrix + ship-gate | **#25** | `.local/tasks/laa-05-spec-tests-and-ship-gate.md` | LAA — spec test matrix & ship-gate checks | **[BUILD-NOW]** |
-| W6 — Windows native runtime | **#26** | `.local/tasks/laa-06-windows-runtime-deferred.md` | Windows native local agent | **[BLOCKED-ENV]** |
-| W6 — Windows tray UI / native prompts | **#27** | `.local/tasks/laa-07-windows-tray-prompts-deferred.md` | System tray UI + native approval prompts | **[BLOCKED-ENV]** |
-| W6 — UAC elevation broker | **#28** | `.local/tasks/laa-08-uac-broker-deferred.md` | UAC elevation broker | **[BLOCKED-ENV]** |
-| W6 — Signed MSI installer + auto-update | **#29** | `.local/tasks/laa-09-installer-deferred.md` | Signed MSI installer + auto-update + uninstall/recovery | **[BLOCKED-ENV]** |
-| W7 — Multi-user & enterprise hooks | **#32** | `.local/tasks/multi-user-enterprise-hooks.md` | LAA — multi-user & enterprise hooks (architecture) | **[BUILD-NOW]** |
+| Workstream | Project task | Plan file | Title | Build status | Current state | One-line summary |
+|---|---|---|---|---|---|---|
+| W1 — Schema, contracts & policy engine | **#21** | [`.local/tasks/laa-01-core-policy-engine.md`](../../.local/tasks/laa-01-core-policy-engine.md) | LAA — schema, contracts & policy engine | **[BUILD-NOW]** | PROPOSED | Adds the Drizzle schema, the shared contracts package, the canonical policy file, and the pure `evaluateTask` engine — the foundation every other task imports. |
+| W2 — Server API + signed requests + audit | **#22** | [`.local/tasks/laa-02-api-signed-requests-audit.md`](../../.local/tasks/laa-02-api-signed-requests-audit.md) | LAA — API, signed requests & tamper-evident audit | **[BUILD-NOW]** | PROPOSED | Wires the eleven `/v1/*` routes, the ed25519-signed-request middleware, and the per-device hash-chain audit writer; removes the prior PowerShell-bridge routes with 410-Gone. |
+| W3 — User-facing UI (pairing / approvals / audit) | **#23** | [`.local/tasks/laa-03-pairing-approval-ui.md`](../../.local/tasks/laa-03-pairing-approval-ui.md) | LAA — pairing, approval queue & audit UI | **[BUILD-NOW]** | PROPOSED | Adds the Local Agent page (Devices / Pending Approvals / Audit tabs) with the pairing wizard, full command-preview approval cards, and JSONL audit export. |
+| W4 — Reference agent + gated dev console | **#24** | [`.local/tasks/laa-04-reference-agent-and-dev-console.md`](../../.local/tasks/laa-04-reference-agent-and-dev-console.md) | LAA — reference test agent + gated dev console | **[BUILD-NOW]** | PROPOSED | Stands up `tools/reference-agent` (a real ed25519-signing Node CLI) and the loopback-+-super-admin-gated `/dev/agent-console` so the system is exercisable end-to-end without a Windows host. |
+| W5 — Spec test matrix + ship-gate | **#25** | [`.local/tasks/laa-05-spec-tests-and-ship-gate.md`](../../.local/tasks/laa-05-spec-tests-and-ship-gate.md) | LAA — spec test matrix & ship-gate checks | **[BUILD-NOW]** | PROPOSED | Encodes BOS-POLICY-001..010 + BOS-ENT-001..006 + the spec section-13 ship-gate as automated tests; the build pipeline goes red on any regression. |
+| W6 — Windows native runtime | **#26** | [`.local/tasks/laa-06-windows-runtime-deferred.md`](../../.local/tasks/laa-06-windows-runtime-deferred.md) | Windows native local agent | **[BLOCKED-ENV]** | PROPOSED | The DPAPI-sealed, locally-policy-enforcing Windows agent runtime that pairs with the server and refuses any task the embedded engine rejects, even if the server says ALLOW. |
+| W6 — Windows tray UI / native prompts | **#27** | [`.local/tasks/laa-07-windows-tray-prompts-deferred.md`](../../.local/tasks/laa-07-windows-tray-prompts-deferred.md) | System tray UI + native approval prompts | **[BLOCKED-ENV]** | PROPOSED | Tray icon + native approval dialogs that mirror the web UI's per-action approval semantics and are hardened against message-injection / sendkeys auto-clicking. |
+| W6 — UAC elevation broker | **#28** | [`.local/tasks/laa-08-uac-broker-deferred.md`](../../.local/tasks/laa-08-uac-broker-deferred.md) | UAC elevation broker | **[BLOCKED-ENV]** | PROPOSED | A signed, single-shot, sealed-handoff broker that performs elevated execution out-of-process so the unelevated agent never holds an admin token. |
+| W6 — Signed MSI installer + auto-update | **#29** | [`.local/tasks/laa-09-installer-deferred.md`](../../.local/tasks/laa-09-installer-deferred.md) | Signed MSI installer + auto-update + uninstall/recovery | **[BLOCKED-ENV]** | PROPOSED | Authenticode-signed MSI bundling runtime + tray + broker, with disclosure-screen consent, signed auto-update, and an uninstall path that destroys the device key and seals the audit chain. |
+| W7 — Multi-user & enterprise hooks | **#32** | [`.local/tasks/multi-user-enterprise-hooks.md`](../../.local/tasks/multi-user-enterprise-hooks.md) | LAA — multi-user & enterprise hooks (architecture) | **[BUILD-NOW]** | PROPOSED | Adds `bos_orgs`, `org_id` columns, `windows_session` columns, `bos_org_policy_overrides`, and the `INDIVIDUAL_CONSENT` vs `ADMIN_DEPLOYMENT` install-mode flag so the system is multi-user / enterprise-capable from day one. |
 
 **Cancelled:**
 - **#4** — Windows PowerShell bridge (`.local/tasks/powershell-bridge.md`). Concept replaced by W1+W2+W6. See Section F.
@@ -60,26 +60,26 @@ graph TD
     T28["#28 W6 — UAC elevation broker<br/>[BLOCKED-ENV]"]:::blocked
     T29["#29 W6 — Signed MSI installer + auto-update<br/>[BLOCKED-ENV]"]:::blocked
 
-    %% Hard prerequisites
-    T21 --> T22
-    T21 --> T24a
-    T21 --> T32
-    T22 --> T23
-    T22 --> T24b
-    T22 --> T32
-    T24a --> T25
-    T23 --> T25
-    T22 --> T25
-    T32 --> T25
+    %% Hard prerequisites — every edge labelled with the artefact crossing the boundary
+    T21 -->|"lib/agent-contracts + lib/agent-policy + DB schema (bos_devices, bos_task_*, bos_audit_log)"| T22
+    T21 -->|"lib/agent-contracts (LocalAgentTransport interface) + lib/agent-policy"| T24a
+    T21 -->|"lib/agent-contracts + DB schema to extend (org_id, windows_session columns)"| T32
+    T22 -->|"eleven /v1/* routes + OpenAPI spec + regenerated Zod hooks"| T23
+    T22 -->|"requireDeviceSignature middleware + audit-writer hooks for DEV_CONSOLE_* events"| T24b
+    T22 -->|"signed-request middleware + audit writer + state-machine enforcement"| T32
+    T24a -->|"real ed25519 signing client (test fixture)"| T25
+    T23 -->|"UI surface under test (sidebar entry, Pending Approvals card, Audit tab)"| T25
+    T22 -->|"in-process app + eleven /v1/* routes under test"| T25
+    T32 -->|"BOS-ENT-001..006 cases + bos_orgs + bos_org_policy_overrides + admin-deployment registration"| T25
 
     %% Deferred Windows fan-out from contracts + server
-    T21 -.contracts frozen.-> T26
-    T22 -.transport contract.-> T26
-    T26 --> T27
-    T26 --> T28
-    T26 --> T29
-    T27 --> T29
-    T28 --> T29
+    T21 -.->|"lib/agent-contracts + lib/agent-policy bundled byte-equivalent into agent"| T26
+    T22 -.->|"frozen LocalAgentTransport wire contract (pair / evaluate / execute / audit)"| T26
+    T26 -->|"named-pipe IPC contract (state-changed, approval-pending, etc.)"| T27
+    T26 -->|"sealed-handoff contract + shared cmdlet template registry"| T28
+    T26 -->|"agent runtime binaries + binary-hash manifest"| T29
+    T27 -->|"tray UI binaries + signed assemblies"| T29
+    T28 -->|"broker binary + binary-hash entry for agent self-test"| T29
 
     classDef buildnow fill:#103a1a,stroke:#3ddc84,stroke-width:1.5px,color:#e6ffe6;
     classDef blocked  fill:#3a1010,stroke:#dc3d3d,stroke-width:1.5px,color:#ffe6e6;
@@ -137,37 +137,49 @@ Phases are **mergeable units**. Anything inside a phase can be parallelised acro
 
 ## D. Critical path
 
-There are **two distinct critical paths** in this roadmap. They terminate at different definitions of "done" and must not be conflated:
+### D.1 — Canonical longest chain
 
-### D.1 — Ship-gate critical path (green automated gate)
+The longest chain of hard prerequisites in the build-now portion of the program — and therefore the canonical critical path against which slip is measured — is:
 
-The shortest sequence that gets `pnpm --filter @workspace/agent-tests ship-gate` to exit zero is:
+> **#21 → #22 → #23 → #25 → ship-gate green**
 
-**#21 → #22 → #25**, with **#32 in parallel as a co-gate** (because BOS-ENT-001..006 are in the matrix and section 13's `enterprise.*` items map to it).
+with **#24a** and **#32** absorbed in parallel as co-gates of #25 (see D.3).
 
-**#24a** is also a hard prerequisite of #25 because the spec tests need a real signing client; it runs in parallel with #22 and #32 and lands before #25.
+This is the chain to schedule against. No build-now path is longer; nothing ships before this chain completes.
 
-A delay in any of `{#21, #22, #24a, #25, #32}` delays the ship-gate. A delay in **#23 does not delay the ship-gate** — the spec tests hit the API in-process, not the UI.
+### D.2 — Two single points of coupling (bottlenecks)
 
-### D.2 — User-readiness critical path (something a human can actually click on)
+The whole program funnels through two artefacts published by **#21**:
 
-The shortest sequence that lets the owner pair a device, approve a task, and read the audit trail through a real UI is:
+1. **`lib/agent-contracts`** — the TypeScript contracts (enums, policy interfaces, `LocalAgentTransport`, `WindowsSessionInfo`, `EnterprisePolicyBinding`, `OrgScope`, `StructuredTaskRequest`, `ApprovalToken`, audit-event types). Every other build-now task (#22, #23, #24, #25, #32) and every deferred Windows task (#26, #27, #28, #29) imports from here.
+2. **`lib/agent-policy`** — the pure `evaluateTask` engine + canonical policy file + JSON Schema. Imported by #22 (server-side enforcement), #25 (spec matrix asserts engine output), #26 (locally re-runs the same engine), and #28 (broker re-runs elevation rules).
 
-**#21 → #22 → #23**, with **#24a in parallel** (so there is a real agent to pair against), **#32 in parallel** (so the Enterprise tab is present from day one), and **#25 as the regression net** that must be green before "ready for users" is claimed.
+If either package's surface changes after Phase 1, every dependent task pays the migration cost. Treat both packages as **frozen contracts** the moment #21 merges; further changes go through a deliberate contract-bump task.
 
-### D.3 — Per-task slip impact
+### D.3 — Migration-window risk: #21 ↔ #32 schema overlap
 
-| Slip in | Delays ship-gate? | Delays user-readiness? | Notes |
-|---|---|---|---|
-| #21 | yes | yes | Every other build-now task imports its contracts. Highest-leverage delay. |
-| #22 | yes | yes | All UI/agent/test work consumes its routes. |
-| #23 | **no** | yes | UI-only; ship-gate evaluates API + engine + audit chain in-process. |
-| #24a | yes | yes (no agent to pair) | Reference agent CLI is the signing client used by both the user flow and the spec tests. |
-| #24b | no | partial (loses dev-console only) | Dev console is engineer-only. |
-| #25 | **yes — by definition** | gate, not feature | Without #25 green, no "ready" claim is valid. |
-| #32 | yes | partial (no Enterprise tab + no admin-deployment pairing) | BOS-ENT-001..006 are in the spec matrix; section 13 `enterprise.*` items map here. |
+**#32** adds columns and tables that extend **#21**'s tables: `org_id` columns on `bos_devices` / `bos_agent_policies` / `bos_task_requests` / `bos_approval_tokens` / `bos_task_executions` / `bos_audit_log`; `windows_session` JSONB columns on `bos_task_requests` / `bos_task_executions`; new tables `bos_orgs`, `bos_org_policy_overrides`, `bos_install_modes`. There is a **migration window** between #21 merging and #32 merging during which:
 
-The deferred Windows phase sits entirely off both critical paths. It cannot be on the critical path of anything that ships from this Replit project.
+- The base tables exist but the org/session columns do not — anything in Phase 1 / Phase 2 written before #32 lands must default `org_id` to `NULL` and accept rows without `windows_session`.
+- The policy engine's signature changes when it gains the optional `EnterprisePolicyBinding` argument. Callers compiled before #32 merges must keep working (the parameter is optional and defaults to "no enterprise binding").
+- Migrations must be additive only — `ALTER TABLE … ADD COLUMN` with NULLABLE defaults — so #32 does not require a backfill of pre-existing personal-install rows.
+
+**Mitigation:** schedule #32 to merge **before** #23 enters the Enterprise-tab work (Phase 2), and gate #25's BOS-ENT-001..006 cases on #32's migration being applied. If the schedule slips and #23 lands first, its Enterprise tab ships behind a "no orgs configured" empty-state, which is acceptable.
+
+### D.4 — Per-task slip impact
+
+| Slip in | Delays canonical chain (#21→#22→#23→#25)? | Delays ship-gate green? | Delays user-readiness? | Notes |
+|---|---|---|---|---|
+| **#21** | **yes — head of chain** | yes | yes | Highest-leverage delay. Every other build-now task imports its contracts and policy engine. |
+| **#22** | yes | yes | yes | All UI / agent / test / enterprise work consumes its routes and middleware. |
+| **#23** | **yes — on the canonical chain** | not strictly (spec tests hit the API in-process) | yes | The user surface is part of the canonical longest chain because "shipped" means a human can use it. |
+| **#24a** | absorbed parallel of #25 | yes | yes (nothing to pair against) | Reference-agent CLI is the signing client both the user flow and the spec matrix depend on. |
+| **#24b** | no | no | partial (loses dev console only) | Engineer-only surface. |
+| **#25** | **yes — terminal of chain** | **yes — by definition** | gate, not feature | Without #25 green, no "ready" claim is valid. |
+| **#32** | absorbed parallel co-gate of #25 | yes (BOS-ENT-001..006 + section 13 `enterprise.*`) | partial (no Enterprise tab + no admin-deployment pairing) | Owns the migration-window risk in D.3. |
+| #26–#29 | no | no (skipped with `IMPLEMENTATION_BLOCKED_BY_ENVIRONMENT`) | no (deferred surface) | Off both critical paths in this environment. Plans ship contracts only. |
+
+The deferred Windows phase sits entirely off the canonical chain and cannot be on the critical path of anything that ships from this Replit project.
 
 ---
 
