@@ -253,6 +253,15 @@ A code review caught two follow-ups after the initial pass; both fixed:
   generated default is `/api/tri-state/by-task/...` (matching the OpenAPI
   path). This would have fragmented the React Query cache and broken
   cross-component invalidation. Fixed to match orval exactly.
+- **series_pass low-availability regression (`pipeline.ts`)** — The H-2
+  guard (`runSeriesPass` throws when `models.length < 2`) is correct as a
+  developer-facing invariant, but `pipeline.ts` awaited it directly, so an
+  environment with only one healthy/enabled model would surface as a 500
+  instead of degrading gracefully. Added a pre-dispatch downgrade in
+  `pipeline.ts`: if `resolved_mode === "series_pass" && models.length < 2`
+  the mode is rewritten to `single`, an audit row of new event type
+  `MODE_DOWNGRADED` is emitted, and the existing single-shot path runs.
+  This preserves availability while keeping the engine-level invariant.
 
 ## What is NOT in scope of this audit
 

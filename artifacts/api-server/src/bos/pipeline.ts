@@ -224,7 +224,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     gate.sanitized_input.length,
   );
 
-  const resolved_mode = mode_selection.mode;
+  let resolved_mode = mode_selection.mode;
   await auditLog(task_id, "MODE_SELECTED", `Execution mode: ${resolved_mode}`, {
     reason: mode_selection.reason,
     confidence: mode_selection.confidence,
@@ -342,7 +342,22 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   let result: BosOutput;
   let run_id: string | undefined;
 
-  // Dispatch to correct engine
+  // Dispatch to correct engine. series_pass requires >=2 distinct models —
+  // if the registry is too thin (low-availability env, all-but-one disabled,
+  // budget pruning), gracefully downgrade to single-shot rather than throwing
+  // a 500. This preserves availability and matches the spirit of H-2 (the
+  // throw is a developer-facing guard, not a user-facing failure).
+  if (resolved_mode === "series_pass" && models.length < 2) {
+    await auditLog(
+      task_id,
+      "MODE_DOWNGRADED",
+      `series_pass requires >=2 models but ${models.length} eligible; degraded to single`,
+      { from: "series_pass", to: "single", eligible_models: models.length },
+    );
+    resolved_mode = "single";
+    ctx.mode = "single" as ExecutionMode;
+  }
+
   if (resolved_mode === "series_pass") {
     const sp_result = await runSeriesPass(ctx, models);
     result = sp_result.result;
