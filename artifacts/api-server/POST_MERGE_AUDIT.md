@@ -54,8 +54,8 @@ No fix regressed. No fix was only partial. The `MODE_DOWNGRADED` event added dur
 
 #### H-PM-1 — Local memory leaks across users on the same browser
 - **Severity:** HIGH (privacy / multi-tenant)
-- **Category:** security / regression-against-Task-#3
-- **Files:** `artifacts/bos-omega/src/lib/localMemory.ts:33-36`, `pages/TaskConsole.tsx:152-156` (auto-inject site)
+- **Category:** security
+- **Files:** `artifacts/bos-omega/src/lib/localMemory.ts:33-36`, `artifacts/bos-omega/src/pages/TaskConsole.tsx:152-156` (auto-inject site)
 - **Evidence:** The IndexedDB name is the literal `"bos-omega-local-memory"` and the localStorage fallback key is `"bos.localMemory.items.v1"`. Neither incorporates `auth.user.id`. `grep -rn "user_id\|uid" artifacts/bos-omega/src/lib/localMemory.ts artifacts/bos-omega/src/lib/auth.ts` returns **zero** matches.
 - **Repro:** sign in as `alice@test.com`, open Local Memory, add an item ("My private API key is ..."). Sign out. Sign in as `bob@test.com` on the same browser — Bob sees Alice's memory item, AND `buildLocalMemoryInjection` will silently prepend it to every task Bob submits. If Bob's task hits a remote provider, Alice's data exfiltrates over Bob's session.
 - **Fix:** key the IDB database name and LS key by `auth.user.id` (e.g. `bos-omega-local-memory:${uid}` / `bos.localMemory.items.v1.${uid}`). Hook a logout-time purge of any unkeyed legacy data. Also add a sign-in/sign-out listener to flush in-memory caches.
@@ -65,24 +65,24 @@ No fix regressed. No fix was only partial. The `MODE_DOWNGRADED` event added dur
 
 #### M-PM-1 — Persona is never persisted on the `tasks` row
 - **Severity:** MEDIUM
-- **Category:** contract / observability
-- **Files:** `lib/db/src/schema/tasks.ts` (no `persona` column), `bos/pipeline.ts:164,347` (only logged in audit metadata)
+- **Category:** contract
+- **Files:** `lib/db/src/schema/tasks.ts:5-17` (no `persona` column anywhere in the table definition), `artifacts/api-server/src/bos/pipeline.ts:164,347` (only written into the audit metadata JSONB)
 - **Evidence:** `grep persona lib/db/src/schema/tasks.ts` returns nothing; `grep persona artifacts/api-server/src/db/` returns nothing. Persona ends up only in the `audit_log.metadata` JSONB at `TASK_RECEIVED`. Anyone replaying or analyzing a task by `task_id` cannot recover which persona drove it without joining audit.
 - **Fix:** add `persona text` (nullable) to `tasks_table`, write it inside `pipeline.saveTask` alongside `user_id`, and surface it in `GET /api/tasks/:id` and the task list. Backfill existing rows from audit metadata if desired.
 - **Roast:** *We charge for a "governed multi-LLM platform" but the audit story for personas is "go grep the metadata blob." Compliance officers love a good scavenger hunt.*
 
 #### M-PM-2 — Persona invisible in Audit Log + Task Detail UI
 - **Severity:** MEDIUM
-- **Category:** UX / governance
-- **Files:** `artifacts/bos-omega/src/pages/AuditLog.tsx`, `pages/TaskDetail.tsx`
-- **Evidence:** `grep -n persona artifacts/bos-omega/src/pages/AuditLog.tsx pages/TaskDetail.tsx` returns zero matches. There is no persona column in the audit list, no filter, and no chip in the task summary header.
+- **Category:** UX
+- **Files:** `artifacts/bos-omega/src/pages/AuditLog.tsx:1-68` (entire file — 68 lines, no persona reference), `artifacts/bos-omega/src/pages/TaskDetail.tsx:1-183` (entire file — 183 lines, no persona reference)
+- **Evidence:** `grep -n persona artifacts/bos-omega/src/pages/AuditLog.tsx artifacts/bos-omega/src/pages/TaskDetail.tsx` returns zero matches. There is no persona column in the audit list, no filter, and no chip in the task summary header.
 - **Fix:** add a Persona column / chip to both views, derived from the audit `TASK_RECEIVED` metadata (or from M-PM-1's new column once added). Add a Persona filter on Audit Log alongside the existing Event Type / Severity filters.
 - **Roast:** *We built a Persona feature and then asked our governance UI to pretend it didn't happen. Object permanence is for the weak, apparently.*
 
 #### M-PM-3 — Win95 retro skin collapses semantic colors on status badges
 - **Severity:** MEDIUM
-- **Category:** UX / a11y / regression
-- **Files:** `artifacts/bos-omega/src/index.css:268-353` (`.theme-retro95` block), `components/StatusBadge.tsx`
+- **Category:** UX
+- **Files:** `artifacts/bos-omega/src/index.css:268-353` (`.theme-retro95` block), `artifacts/bos-omega/src/components/StatusBadge.tsx` (consumer of `--accent` / `--primary`), `artifacts/bos-omega/src/components/TriStateVector.tsx` (GO/HOLD/ABORT badge consumer)
 - **Evidence:** In `.theme-retro95` `--accent`, `--primary`, and several other semantic vars all map to navy `#000080` or grey `#c0c0c0`. The Tri-State badges (GO / HOLD / ABORT) and TaskStatus badges that rely on the modern theme's vivid green/amber/red lose the at-a-glance distinction. Retro is the **default** theme on first visit, so this is the experience every new user gets.
 - **Fix:** either (a) keep the modern semantic colors for status badges even inside `.theme-retro95`, or (b) supplement the badges in retro mode with a unique glyph per state (✓ / ⏸ / ✗) so color is not the only signal. Verify WCAG AA contrast (4.5:1) on every `text-*` over `bg-*` combo in the retro palette.
 - **Roast:** *We shipped a beautiful retro skin and then made every traffic light the same color. "Shall we proceed? Yes; the answer is grey."*
@@ -90,15 +90,15 @@ No fix regressed. No fix was only partial. The `MODE_DOWNGRADED` event added dur
 #### M-PM-4 — Local-memory `clearLocalMemory` races against in-flight writes
 - **Severity:** MEDIUM
 - **Category:** reliability
-- **Files:** `artifacts/bos-omega/src/lib/localMemory.ts:212-222` (clear path), surrounding CRUD helpers
+- **Files:** `artifacts/bos-omega/src/lib/localMemory.ts:212-222` (clear path), `artifacts/bos-omega/src/lib/localMemory.ts:120-180` (surrounding CRUD helpers)
 - **Evidence:** `clearLocalMemory()` clears IDB or LS but does not coordinate with `createLocalMemoryItem()` / `updateLocalMemoryItem()` already in flight. If the user clicks "Clear all" while a previous create is mid-`put`, the cleared store can re-acquire the in-flight row, leaving a "ghost" item with no UI representation until the next list query.
 - **Fix:** introduce a tiny per-store mutex (a chained `Promise<void>` queue would do) or close the IDB connection inside `clearLocalMemory` and reopen on the next call. The localStorage path is moot once the IDB path is mutex'd.
 - **Roast:** *"Clear all" with a side helping of "clear most." It's the IndexedDB equivalent of a magic eraser that occasionally writes its name on the wall.*
 
 #### M-PM-5 — `pnpm -r build` requires both `PORT` *and* `BASE_PATH` to succeed
 - **Severity:** MEDIUM
-- **Category:** build hygiene / docs drift
-- **Files:** `artifacts/mockup-sandbox/vite.config.ts` (validates both at config-load), `replit.md`, `AUDIT_REPORT.md` L-2
+- **Category:** regression
+- **Files:** `artifacts/mockup-sandbox/vite.config.ts:8-26` (PORT validated 8-19, BASE_PATH validated 22-26 — both throw at config-load), `replit.md`, `artifacts/api-server/AUDIT_REPORT.md` L-2 entry
 - **Evidence:** `AUDIT_REPORT.md` L-2 documented "`PORT=0 pnpm -r build` works" as a workaround. In the merged tree this is no longer true: `PORT=0` errors with "Invalid PORT value: '0'", and `PORT=8888` then errors "BASE_PATH environment variable is required". `PORT=8888 BASE_PATH=/mockup-sandbox/ pnpm -r build` does build cleanly. Either the workaround needs updating in `replit.md`, or the sandbox `vite.config.ts` should accept a sensible default in build mode.
 - **Fix:** in `vite.config.ts`, default `BASE_PATH` to `/` and `PORT` to a fixed integer when `command === "build"`. As a doc fallback, update `replit.md`'s build-from-clean instructions.
 - **Roast:** *The previous audit confidently said "PORT=0 works." Reader, it does not. The build server now demands two env vars by name like a maître d' at a velvet rope.*
@@ -107,35 +107,35 @@ No fix regressed. No fix was only partial. The `MODE_DOWNGRADED` event added dur
 
 #### L-PM-1 — `TaskContext.persona` typed as `Persona | string`
 - **Severity:** LOW
-- **Category:** type hygiene / future-proofing
-- **Files:** `artifacts/api-server/src/bos/types.ts:113`, `providers/prompts.ts:148`
+- **Category:** type
+- **Files:** `artifacts/api-server/src/bos/types.ts:113`, `artifacts/api-server/src/providers/prompts.ts:146-153` (`buildPersonaSystemSuffix`)
 - **Evidence:** `TaskContext.persona?: Persona | string`. Today the route handler at `routes/tasks.ts:71` casts to the closed union before passing in, so prompt-injection via persona is not currently exploitable. The `string` half exists as a forward-compat hatch and `buildPersonaSystemSuffix` already gates on `PERSONA_PROMPTS[id]`, so unknown values become empty strings. If anyone later wires a "custom persona" field, this loose type lets attacker text reach the prompt builder.
 - **Fix:** narrow to `Persona | undefined`. If custom personas are later added, keep them in a separate `customPersonaSuffix: string` and sanitize at the gate.
 - **Roast:** *The type system already drew a line in the sand and then politely added "or anything else, sure, whatever you want."*
 
 #### L-PM-2 — Retro-skin bevels can occlude focus rings
 - **Severity:** LOW
-- **Category:** a11y
+- **Category:** UX
 - **Files:** `artifacts/bos-omega/src/index.css:345-353` (`.shadow-card` overrides)
 - **Evidence:** Retro mode replaces the modern `box-shadow` with `inset` borders that simulate Win95 bevels. Tailwind's default `ring-2` outline sits *outside* the element, but in retro the `.shadow-card-hover` inset overrides the visual treatment of focus on cards — the keyboard-focus indicator is muted compared to modern.
 - **Fix:** add a `.theme-retro95 *:focus-visible { outline: 2px dashed #000; outline-offset: 1px; }` rule, or restore modern's `ring-*` cascade above the inset bevel. Verify with a keyboard-only walk of the Task Console.
 - **Roast:** *We shipped the look of an OS that was famously keyboard-driven and immediately made the focus ring optional. Bill is rolling in his rolling office chair.*
 
-#### L-PM-4 — Persona-aware routing (enhancement, not a defect)
-- **Severity:** LOW (enhancement)
-- **Category:** product
-- **Files:** `artifacts/api-server/src/bos/taskClassifier.ts`, `bos/modelRouter.ts`, `bos/pipeline.ts` (where classifier/router are called)
-- **Evidence:** Per the OpenAPI contract, persona is purely a prompt overlay — it does not influence task classification or model selection. A user picking "Legal Counsel" therefore gets the prompt of a senior litigator but the model the registry would have picked from the input alone. This is *intentional* under the merged contract; flagging it here as a future product opportunity rather than a bug.
-- **Fix (if product wants persona-aware routing):** widen the contract — pass `persona` into `classifyTask` and `selectModel` and let it set a floor on `min_capability_tags` (e.g. long-context + reasoning for `legal`). Update OpenAPI to reflect the new behavior, audit the routing decision, and document the trade-off.
-- **Roast:** *Not a bug, just a gentle nudge that the senior litigator persona currently rides whichever model was going to handle the task anyway. Sometimes that model is excellent. Sometimes it's the cost-optimized one normally trusted with "write me a haiku."*
-
 #### L-PM-3 — FOUC on slow first paint before `initTheme()` runs
 - **Severity:** LOW
-- **Category:** UX polish
-- **Files:** `artifacts/bos-omega/src/main.tsx`, `index.css`
+- **Category:** UX
+- **Files:** `artifacts/bos-omega/src/main.tsx:1-7` (init order), `artifacts/bos-omega/src/lib/theme.ts` (`initTheme` reads localStorage and toggles `<html>` class)
 - **Evidence:** Theme is applied via `classList` on `<html>` inside `initTheme()`, called *before* `createRoot().render()` but *after* the bundle has parsed. On a cold-cache load the user sees the modern (default) palette for a frame, then the retro skin snaps on.
 - **Fix:** inline a tiny `<script>` at the top of `index.html` that reads `localStorage.getItem("bos.theme.v1")` and adds `theme-retro95` to `document.documentElement` synchronously, before the React bundle loads. The persisted-key snapshot is enough; no React state needed for the boot frame.
 - **Roast:** *The retro skin loads with all the punctuality of a beige PC booting from a floppy. Five out of five for authenticity, three out of five for first-paint experience.*
+
+#### L-PM-4 — Persona-aware routing (enhancement, not a defect)
+- **Severity:** LOW (enhancement)
+- **Category:** contract
+- **Files:** `artifacts/api-server/src/bos/taskClassifier.ts:91` (`classifyTask` signature), `artifacts/api-server/src/bos/modelRouter.ts:20` (`selectModel` signature), `artifacts/api-server/src/bos/pipeline.ts:221,245` (call sites)
+- **Evidence:** Per the OpenAPI contract, persona is purely a prompt overlay — it does not influence task classification or model selection. A user picking "Legal Counsel" therefore gets the prompt of a senior litigator but the model the registry would have picked from the input alone. This is *intentional* under the merged contract; flagging it here as a future product opportunity rather than a bug.
+- **Fix (if product wants persona-aware routing):** widen the contract — pass `persona` into `classifyTask` and `selectModel` and let it set a floor on `min_capability_tags` (e.g. long-context + reasoning for `legal`). Update OpenAPI to reflect the new behavior, audit the routing decision, and document the trade-off.
+- **Roast:** *Not a bug, just a gentle nudge that the senior litigator persona currently rides whichever model was going to handle the task anyway. Sometimes that model is excellent. Sometimes it's the cost-optimized one normally trusted with "write me a haiku."*
 
 ---
 

@@ -1,0 +1,1765 @@
+text
+TRI_STATE: GO
+MODE: EXECUTION_ONLY
+TARGET: BOS-OMEGA Local Automation Agent
+OUTPUT_TYPE: IMPLEMENTATION_SPEC
+VERSION: 1.0.0
+STATUS: PRODUCTION_READY_POLICY_SPEC
+
+1. Canonical Policy YAML
+
+text
+bos_local_automation_agent:
+  version: "1.0.0"
+  status: "PRODUCTION_READY"
+
+  identity:
+    product_name: "BOS-OMEGA Local Automation Agent"
+    runtime_type: "Policy-Controlled Local Automation Runtime"
+    execution_model: "Structured Task Runner"
+    forbidden_model: "Arbitrary Remote Shell"
+
+  install_policy:
+    disclosure_required: true
+    explicit_consent_required: true
+    visible_in_installed_apps: true
+    visible_in_startup_entries: true
+    visible_in_system_tray: true
+    visible_in_bos_settings: true
+    uninstallable: true
+    pausable: true
+    disconnectable: true
+    hidden_install_allowed: false
+    hidden_persistence_allowed: false
+    silent_authority_allowed: false
+
+  pairing_policy:
+    pairing_required: true
+    user_signin_required: true
+    device_registration_required: true
+    device_naming_required: true
+    permission_summary_required: true
+    pairing_confirmation_required: true
+    anonymous_agent_allowed: false
+
+  execution_policy:
+    default_run_context: "CURRENT_USER"
+    structured_tasks_only: true
+    arbitrary_shell_enabled: false
+    persistent_shell_enabled: false
+    inbound_remote_shell_enabled: false
+    signed_task_required: true
+    task_expiration_required: true
+    exact_command_hash_required: true
+    local_policy_validation_required: true
+    approval_token_required_for_sensitive_tasks: true
+    command_mutation_after_approval_allowed: false
+
+  approval_policy:
+    approval_required_default: true
+    approval_binds_to_exact_command_hash: true
+    approval_expires: true
+    blanket_approval_allowed: false
+    always_allow_exact_template_only: true
+    approve_once_supported: true
+    deny_supported: true
+    edit_request_supported: true
+    destructive_action_requires_typed_confirmation: true
+
+  approval_tiers:
+    tier_0:
+      name: "ReadOnlyDiagnostics"
+      risk_level: "LOW"
+      approval: "OPTIONAL_AFTER_USER_ENABLEMENT"
+    tier_1:
+      name: "UserSpaceRead"
+      risk_level: "LOW_MEDIUM"
+      approval: "REQUIRED"
+    tier_2:
+      name: "FileWriteDeleteMove"
+      risk_level: "MEDIUM"
+      approval: "REQUIRED"
+    tier_3:
+      name: "NetworkInstallScript"
+      risk_level: "HIGH"
+      approval: "STRONG_REQUIRED"
+    tier_4:
+      name: "AdminElevated"
+      risk_level: "HIGH_CRITICAL"
+      approval: "STRONG_REQUIRED_PLUS_UAC"
+    tier_5:
+      name: "SecurityPersistenceCredentials"
+      risk_level: "CRITICAL"
+      approval: "BLOCKED_BY_DEFAULT"
+
+  elevation_policy:
+    elevation_supported: true
+    separate_elevation_approval_required: true
+    windows_uac_required: true
+    retained_admin_token_allowed: false
+    permanent_admin_service_allowed: false
+    elevation_broker_required: true
+    elevation_broker_accepts_raw_shell: false
+    elevation_token_ttl_seconds: 300
+
+  local_enforcement:
+    verify_device_paired: true
+    verify_user_session_or_allowed_unattended_policy: true
+    verify_request_signed: true
+    verify_request_unexpired: true
+    verify_command_hash_matches_approval: true
+    verify_policy_allows_task: true
+    verify_risk_score_threshold: true
+    verify_allowed_paths: true
+    verify_elevation_matches_approval: true
+    verify_task_not_blocklisted: true
+    verify_network_destinations_allowed: true
+
+  allowlist:
+    diagnostics:
+      - "os_version"
+      - "cpu_ram_disk"
+      - "network_check"
+      - "service_status"
+      - "installed_app_inventory"
+      - "event_log_read"
+    file_ops:
+      - "list_files"
+      - "read_logs"
+      - "hash_files"
+      - "compress_folder"
+      - "move_files_approved_paths"
+      - "copy_files_approved_paths"
+    scripts:
+      - "signed_bos_scripts"
+      - "explicitly_approved_user_scripts"
+
+  blocklist:
+    - "encoded_powershell"
+    - "obfuscated_command"
+    - "hidden_window_execution"
+    - "defender_disable"
+    - "firewall_disable"
+    - "security_log_delete"
+    - "credential_dumping"
+    - "browser_password_access"
+    - "lsass_access"
+    - "sam_access"
+    - "dpapi_secret_access"
+    - "arbitrary_download_and_execute"
+    - "startup_folder_modification"
+    - "run_key_modification"
+    - "scheduled_task_persistence"
+    - "service_installation_unapproved"
+    - "recursive_mass_delete"
+    - "remote_lateral_movement"
+    - "unapproved_file_exfiltration"
+    - "uac_bypass"
+    - "tamper_audit_logs"
+
+  network_model:
+    outbound_only: true
+    inbound_listener_allowed: false
+    device_bound_keypair_required: true
+    tls_required: true
+    signed_requests_required: true
+    unauthenticated_local_api_allowed: false
+    lan_discovery_default_enabled: false
+    websocket_raw_command_execution_allowed: false
+
+  audit_policy:
+    audit_required: true
+    tamper_evident_logs: true
+    append_only_logs: true
+    cloud_sync_optional: true
+    secret_redaction_required: true
+    exportable_logs: true
+    output_hash_required: true
+    command_hash_required: true
+    policy_version_required: true
+
+  audit_fields:
+    - "task_id"
+    - "device_id"
+    - "user_id"
+    - "approver_id"
+    - "request_source"
+    - "command_summary"
+    - "command_hash"
+    - "script_hash"
+    - "working_directory"
+    - "affected_paths"
+    - "network_destinations"
+    - "elevation_used"
+    - "start_time"
+    - "end_time"
+    - "exit_code"
+    - "output_hash"
+    - "redacted_stdout"
+    - "redacted_stderr"
+    - "policy_version"
+    - "approval_token_id"
+    - "previous_log_hash"
+    - "log_hash"
+
+  scheduler_policy:
+    recurring_arbitrary_shell_allowed: false
+    recurring_elevated_shell_allowed: false
+    recurring_download_execute_allowed: false
+    recurring_file_delete_allowed: false
+    signed_maintenance_scripts_allowed: true
+    readonly_diagnostics_allowed: true
+    user_created_schedule_required: true
+    recurrence_visible_to_user: true
+    schedule_pause_required: true
+
+  enterprise_policy:
+    disable_agent_supported: true
+    require_admin_install_supported: true
+    restrict_command_categories_supported: true
+    require_approval_all_supported: true
+    dual_approval_supported: true
+    disable_user_scripts_supported: true
+    siem_export_supported: true
+    remote_revoke_supported: true
+    policy_lock_supported: true
+    org_policy_overrides_user_policy: true
+
+  ship_criteria:
+    required:
+      - "installer_disclosure"
+      - "explicit_consent"
+      - "device_pairing"
+      - "visible_status"
+      - "current_user_default_execution"
+      - "per_action_approval"
+      - "separate_elevation_approval"
+      - "windows_uac"
+      - "local_policy_enforcement"
+      - "signed_task_requests"
+      - "exact_command_preview"
+      - "tamper_evident_audit_logs"
+      - "disable_disconnect_uninstall"
+
+  abort_conditions:
+    - "hidden_install"
+    - "hidden_persistence"
+    - "invisible_background_execution"
+    - "arbitrary_command_execution_default"
+    - "permanent_admin_service"
+    - "blanket_auto_approval"
+    - "no_local_policy_enforcement"
+    - "no_user_off_switch"
+    - "no_audit_trail"
+    - "uac_bypass"
+
+  final_rule:
+    auto_install_allowed: true
+    silent_authority_allowed: false
+    arbitrary_execution_allowed: false
+    per_action_approval_required: true
+    user_control_mandatory: true
+
+2. JSON Schema
+
+json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bos-omega.local/schemas/local-automation-agent-policy.schema.json",
+  "title": "BOS-OMEGA Local Automation Agent Policy",
+  "type": "object",
+  "required": [
+    "version",
+    "status",
+    "identity",
+    "install_policy",
+    "pairing_policy",
+    "execution_policy",
+    "approval_policy",
+    "elevation_policy",
+    "local_enforcement",
+    "network_model",
+    "audit_policy",
+    "ship_criteria",
+    "abort_conditions",
+    "final_rule"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["DRAFT", "REVIEW", "PRODUCTION_READY", "DEPRECATED"]
+    },
+    "identity": {
+      "type": "object",
+      "required": [
+        "product_name",
+        "runtime_type",
+        "execution_model",
+        "forbidden_model"
+      ],
+      "properties": {
+        "product_name": {
+          "type": "string",
+          "const": "BOS-OMEGA Local Automation Agent"
+        },
+        "runtime_type": {
+          "type": "string",
+          "const": "Policy-Controlled Local Automation Runtime"
+        },
+        "execution_model": {
+          "type": "string",
+          "const": "Structured Task Runner"
+        },
+        "forbidden_model": {
+          "type": "string",
+          "const": "Arbitrary Remote Shell"
+        }
+      },
+      "additionalProperties": false
+    },
+    "install_policy": {
+      "$ref": "#/$defs/install_policy"
+    },
+    "pairing_policy": {
+      "$ref": "#/$defs/pairing_policy"
+    },
+    "execution_policy": {
+      "$ref": "#/$defs/execution_policy"
+    },
+    "approval_policy": {
+      "$ref": "#/$defs/approval_policy"
+    },
+    "approval_tiers": {
+      "$ref": "#/$defs/approval_tiers"
+    },
+    "elevation_policy": {
+      "$ref": "#/$defs/elevation_policy"
+    },
+    "local_enforcement": {
+      "$ref": "#/$defs/local_enforcement"
+    },
+    "allowlist": {
+      "$ref": "#/$defs/allowlist"
+    },
+    "blocklist": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "network_model": {
+      "$ref": "#/$defs/network_model"
+    },
+    "audit_policy": {
+      "$ref": "#/$defs/audit_policy"
+    },
+    "audit_fields": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "scheduler_policy": {
+      "$ref": "#/$defs/scheduler_policy"
+    },
+    "enterprise_policy": {
+      "$ref": "#/$defs/enterprise_policy"
+    },
+    "ship_criteria": {
+      "$ref": "#/$defs/ship_criteria"
+    },
+    "abort_conditions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "final_rule": {
+      "$ref": "#/$defs/final_rule"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "install_policy": {
+      "type": "object",
+      "required": [
+        "disclosure_required",
+        "explicit_consent_required",
+        "visible_in_installed_apps",
+        "visible_in_startup_entries",
+        "visible_in_system_tray",
+        "visible_in_bos_settings",
+        "uninstallable",
+        "pausable",
+        "disconnectable",
+        "hidden_install_allowed",
+        "hidden_persistence_allowed",
+        "silent_authority_allowed"
+      ],
+      "properties": {
+        "disclosure_required": { "type": "boolean", "const": true },
+        "explicit_consent_required": { "type": "boolean", "const": true },
+        "visible_in_installed_apps": { "type": "boolean", "const": true },
+        "visible_in_startup_entries": { "type": "boolean", "const": true },
+        "visible_in_system_tray": { "type": "boolean", "const": true },
+        "visible_in_bos_settings": { "type": "boolean", "const": true },
+        "uninstallable": { "type": "boolean", "const": true },
+        "pausable": { "type": "boolean", "const": true },
+        "disconnectable": { "type": "boolean", "const": true },
+        "hidden_install_allowed": { "type": "boolean", "const": false },
+        "hidden_persistence_allowed": { "type": "boolean", "const": false },
+        "silent_authority_allowed": { "type": "boolean", "const": false }
+      },
+      "additionalProperties": false
+    },
+    "pairing_policy": {
+      "type": "object",
+      "required": [
+        "pairing_required",
+        "user_signin_required",
+        "device_registration_required",
+        "device_naming_required",
+        "permission_summary_required",
+        "pairing_confirmation_required",
+        "anonymous_agent_allowed"
+      ],
+      "properties": {
+        "pairing_required": { "type": "boolean", "const": true },
+        "user_signin_required": { "type": "boolean", "const": true },
+        "device_registration_required": { "type": "boolean", "const": true },
+        "device_naming_required": { "type": "boolean", "const": true },
+        "permission_summary_required": { "type": "boolean", "const": true },
+        "pairing_confirmation_required": { "type": "boolean", "const": true },
+        "anonymous_agent_allowed": { "type": "boolean", "const": false }
+      },
+      "additionalProperties": false
+    },
+    "execution_policy": {
+      "type": "object",
+      "required": [
+        "default_run_context",
+        "structured_tasks_only",
+        "arbitrary_shell_enabled",
+        "persistent_shell_enabled",
+        "inbound_remote_shell_enabled",
+        "signed_task_required",
+        "task_expiration_required",
+        "exact_command_hash_required",
+        "local_policy_validation_required",
+        "approval_token_required_for_sensitive_tasks",
+        "command_mutation_after_approval_allowed"
+      ],
+      "properties": {
+        "default_run_context": {
+          "type": "string",
+          "enum": ["CURRENT_USER"]
+        },
+        "structured_tasks_only": { "type": "boolean", "const": true },
+        "arbitrary_shell_enabled": { "type": "boolean", "const": false },
+        "persistent_shell_enabled": { "type": "boolean", "const": false },
+        "inbound_remote_shell_enabled": { "type": "boolean", "const": false },
+        "signed_task_required": { "type": "boolean", "const": true },
+        "task_expiration_required": { "type": "boolean", "const": true },
+        "exact_command_hash_required": { "type": "boolean", "const": true },
+        "local_policy_validation_required": { "type": "boolean", "const": true },
+        "approval_token_required_for_sensitive_tasks": { "type": "boolean", "const": true },
+        "command_mutation_after_approval_allowed": { "type": "boolean", "const": false }
+      },
+      "additionalProperties": false
+    },
+    "approval_policy": {
+      "type": "object",
+      "required": [
+        "approval_required_default",
+        "approval_binds_to_exact_command_hash",
+        "approval_expires",
+        "blanket_approval_allowed",
+        "always_allow_exact_template_only",
+        "approve_once_supported",
+        "deny_supported",
+        "edit_request_supported",
+        "destructive_action_requires_typed_confirmation"
+      ],
+      "properties": {
+        "approval_required_default": { "type": "boolean", "const": true },
+        "approval_binds_to_exact_command_hash": { "type": "boolean", "const": true },
+        "approval_expires": { "type": "boolean", "const": true },
+        "blanket_approval_allowed": { "type": "boolean", "const": false },
+        "always_allow_exact_template_only": { "type": "boolean", "const": true },
+        "approve_once_supported": { "type": "boolean", "const": true },
+        "deny_supported": { "type": "boolean", "const": true },
+        "edit_request_supported": { "type": "boolean", "const": true },
+        "destructive_action_requires_typed_confirmation": { "type": "boolean", "const": true }
+      },
+      "additionalProperties": false
+    },
+    "approval_tiers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["name", "risk_level", "approval"],
+        "properties": {
+          "name": { "type": "string" },
+          "risk_level": {
+            "type": "string",
+            "enum": ["LOW", "LOW_MEDIUM", "MEDIUM", "HIGH", "HIGH_CRITICAL", "CRITICAL"]
+          },
+          "approval": {
+            "type": "string",
+            "enum": [
+              "OPTIONAL_AFTER_USER_ENABLEMENT",
+              "REQUIRED",
+              "STRONG_REQUIRED",
+              "STRONG_REQUIRED_PLUS_UAC",
+              "BLOCKED_BY_DEFAULT"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "elevation_policy": {
+      "type": "object",
+      "required": [
+        "elevation_supported",
+        "separate_elevation_approval_required",
+        "windows_uac_required",
+        "retained_admin_token_allowed",
+        "permanent_admin_service_allowed",
+        "elevation_broker_required",
+        "elevation_broker_accepts_raw_shell",
+        "elevation_token_ttl_seconds"
+      ],
+      "properties": {
+        "elevation_supported": { "type": "boolean" },
+        "separate_elevation_approval_required": { "type": "boolean", "const": true },
+        "windows_uac_required": { "type": "boolean", "const": true },
+        "retained_admin_token_allowed": { "type": "boolean", "const": false },
+        "permanent_admin_service_allowed": { "type": "boolean", "const": false },
+        "elevation_broker_required": { "type": "boolean", "const": true },
+        "elevation_broker_accepts_raw_shell": { "type": "boolean", "const": false },
+        "elevation_token_ttl_seconds": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 900
+        }
+      },
+      "additionalProperties": false
+    },
+    "local_enforcement": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "boolean",
+        "const": true
+      }
+    },
+    "allowlist": {
+      "type": "object",
+      "properties": {
+        "diagnostics": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "file_ops": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "scripts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "network_model": {
+      "type": "object",
+      "required": [
+        "outbound_only",
+        "inbound_listener_allowed",
+        "device_bound_keypair_required",
+        "tls_required",
+        "signed_requests_required",
+        "unauthenticated_local_api_allowed",
+        "lan_discovery_default_enabled",
+        "websocket_raw_command_execution_allowed"
+      ],
+      "properties": {
+        "outbound_only": { "type": "boolean", "const": true },
+        "inbound_listener_allowed": { "type": "boolean", "const": false },
+        "device_bound_keypair_required": { "type": "boolean", "const": true },
+        "tls_required": { "type": "boolean", "const": true },
+        "signed_requests_required": { "type": "boolean", "const": true },
+        "unauthenticated_local_api_allowed": { "type": "boolean", "const": false },
+        "lan_discovery_default_enabled": { "type": "boolean", "const": false },
+        "websocket_raw_command_execution_allowed": { "type": "boolean", "const": false }
+      },
+      "additionalProperties": false
+    },
+    "audit_policy": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "boolean"
+      }
+    },
+    "scheduler_policy": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "boolean"
+      }
+    },
+    "enterprise_policy": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "boolean"
+      }
+    },
+    "ship_criteria": {
+      "type": "object",
+      "required": ["required"],
+      "properties": {
+        "required": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "final_rule": {
+      "type": "object",
+      "required": [
+        "auto_install_allowed",
+        "silent_authority_allowed",
+        "arbitrary_execution_allowed",
+        "per_action_approval_required",
+        "user_control_mandatory"
+      ],
+      "properties": {
+        "auto_install_allowed": { "type": "boolean", "const": true },
+        "silent_authority_allowed": { "type": "boolean", "const": false },
+        "arbitrary_execution_allowed": { "type": "boolean", "const": false },
+        "per_action_approval_required": { "type": "boolean", "const": true },
+        "user_control_mandatory": { "type": "boolean", "const": true }
+      },
+      "additionalProperties": false
+    }
+  }
+}
+
+3. TypeScript Interfaces
+
+ts
+export type BosAgentStatus =
+  | "DRAFT"
+  | "REVIEW"
+  | "PRODUCTION_READY"
+  | "DEPRECATED";
+
+export type RunContext = "CURRENT_USER";
+
+export type RiskLevel =
+  | "LOW"
+  | "LOW_MEDIUM"
+  | "MEDIUM"
+  | "HIGH"
+  | "HIGH_CRITICAL"
+  | "CRITICAL";
+
+export type ApprovalRequirement =
+  | "OPTIONAL_AFTER_USER_ENABLEMENT"
+  | "REQUIRED"
+  | "STRONG_REQUIRED"
+  | "STRONG_REQUIRED_PLUS_UAC"
+  | "BLOCKED_BY_DEFAULT";
+
+export type TaskSource =
+  | "USER"
+  | "AI_AGENT"
+  | "SCHEDULED_JOB"
+  | "WORKFLOW"
+  | "ENTERPRISE_ADMIN";
+
+export type TaskDecision =
+  | "ALLOW"
+  | "DENY"
+  | "REQUIRE_APPROVAL"
+  | "REQUIRE_STRONG_APPROVAL"
+  | "REQUIRE_STRONG_APPROVAL_PLUS_UAC"
+  | "BLOCK";
+
+export interface BosLocalAutomationAgentPolicy {
+  version: string;
+  status: BosAgentStatus;
+  identity: IdentityPolicy;
+  install_policy: InstallPolicy;
+  pairing_policy: PairingPolicy;
+  execution_policy: ExecutionPolicy;
+  approval_policy: ApprovalPolicy;
+  approval_tiers: Record<string, ApprovalTier>;
+  elevation_policy: ElevationPolicy;
+  local_enforcement: LocalEnforcementPolicy;
+  allowlist: AllowlistPolicy;
+  blocklist: string[];
+  network_model: NetworkModel;
+  audit_policy: AuditPolicy;
+  audit_fields: string[];
+  scheduler_policy: SchedulerPolicy;
+  enterprise_policy: EnterprisePolicy;
+  ship_criteria: ShipCriteria;
+  abort_conditions: string[];
+  final_rule: FinalRule;
+}
+
+export interface IdentityPolicy {
+  product_name: "BOS-OMEGA Local Automation Agent";
+  runtime_type: "Policy-Controlled Local Automation Runtime";
+  execution_model: "Structured Task Runner";
+  forbidden_model: "Arbitrary Remote Shell";
+}
+
+export interface InstallPolicy {
+  disclosure_required: true;
+  explicit_consent_required: true;
+  visible_in_installed_apps: true;
+  visible_in_startup_entries: true;
+  visible_in_system_tray: true;
+  visible_in_bos_settings: true;
+  uninstallable: true;
+  pausable: true;
+  disconnectable: true;
+  hidden_install_allowed: false;
+  hidden_persistence_allowed: false;
+  silent_authority_allowed: false;
+}
+
+export interface PairingPolicy {
+  pairing_required: true;
+  user_signin_required: true;
+  device_registration_required: true;
+  device_naming_required: true;
+  permission_summary_required: true;
+  pairing_confirmation_required: true;
+  anonymous_agent_allowed: false;
+}
+
+export interface ExecutionPolicy {
+  default_run_context: RunContext;
+  structured_tasks_only: true;
+  arbitrary_shell_enabled: false;
+  persistent_shell_enabled: false;
+  inbound_remote_shell_enabled: false;
+  signed_task_required: true;
+  task_expiration_required: true;
+  exact_command_hash_required: true;
+  local_policy_validation_required: true;
+  approval_token_required_for_sensitive_tasks: true;
+  command_mutation_after_approval_allowed: false;
+}
+
+export interface ApprovalPolicy {
+  approval_required_default: true;
+  approval_binds_to_exact_command_hash: true;
+  approval_expires: true;
+  blanket_approval_allowed: false;
+  always_allow_exact_template_only: true;
+  approve_once_supported: true;
+  deny_supported: true;
+  edit_request_supported: true;
+  destructive_action_requires_typed_confirmation: true;
+}
+
+export interface ApprovalTier {
+  name: string;
+  risk_level: RiskLevel;
+  approval: ApprovalRequirement;
+}
+
+export interface ElevationPolicy {
+  elevation_supported: boolean;
+  separate_elevation_approval_required: true;
+  windows_uac_required: true;
+  retained_admin_token_allowed: false;
+  permanent_admin_service_allowed: false;
+  elevation_broker_required: true;
+  elevation_broker_accepts_raw_shell: false;
+  elevation_token_ttl_seconds: number;
+}
+
+export interface LocalEnforcementPolicy {
+  verify_device_paired: true;
+  verify_user_session_or_allowed_unattended_policy: true;
+  verify_request_signed: true;
+  verify_request_unexpired: true;
+  verify_command_hash_matches_approval: true;
+  verify_policy_allows_task: true;
+  verify_risk_score_threshold: true;
+  verify_allowed_paths: true;
+  verify_elevation_matches_approval: true;
+  verify_task_not_blocklisted: true;
+  verify_network_destinations_allowed: true;
+}
+
+export interface AllowlistPolicy {
+  diagnostics: string[];
+  file_ops: string[];
+  scripts: string[];
+}
+
+export interface NetworkModel {
+  outbound_only: true;
+  inbound_listener_allowed: false;
+  device_bound_keypair_required: true;
+  tls_required: true;
+  signed_requests_required: true;
+  unauthenticated_local_api_allowed: false;
+  lan_discovery_default_enabled: false;
+  websocket_raw_command_execution_allowed: false;
+}
+
+export interface AuditPolicy {
+  audit_required: true;
+  tamper_evident_logs: true;
+  append_only_logs: true;
+  cloud_sync_optional: boolean;
+  secret_redaction_required: true;
+  exportable_logs: true;
+  output_hash_required: true;
+  command_hash_required: true;
+  policy_version_required: true;
+}
+
+export interface SchedulerPolicy {
+  recurring_arbitrary_shell_allowed: false;
+  recurring_elevated_shell_allowed: false;
+  recurring_download_execute_allowed: false;
+  recurring_file_delete_allowed: false;
+  signed_maintenance_scripts_allowed: true;
+  readonly_diagnostics_allowed: true;
+  user_created_schedule_required: true;
+  recurrence_visible_to_user: true;
+  schedule_pause_required: true;
+}
+
+export interface EnterprisePolicy {
+  disable_agent_supported: true;
+  require_admin_install_supported: true;
+  restrict_command_categories_supported: true;
+  require_approval_all_supported: true;
+  dual_approval_supported: true;
+  disable_user_scripts_supported: true;
+  siem_export_supported: true;
+  remote_revoke_supported: true;
+  policy_lock_supported: true;
+  org_policy_overrides_user_policy: true;
+}
+
+export interface ShipCriteria {
+  required: string[];
+}
+
+export interface FinalRule {
+  auto_install_allowed: true;
+  silent_authority_allowed: false;
+  arbitrary_execution_allowed: false;
+  per_action_approval_required: true;
+  user_control_mandatory: true;
+}
+
+export interface StructuredTaskRequest {
+  task_id: string;
+  device_id: string;
+  user_id: string;
+  requested_by: TaskSource;
+  command_type: string;
+  task_category: string;
+  risk_level: RiskLevel;
+  human_summary: string;
+  exact_command_preview: string;
+  command_hash: string;
+  script_hash?: string;
+  working_directory: string;
+  affected_paths: string[];
+  network_destinations: string[];
+  requires_elevation: boolean;
+  requested_run_context: RunContext;
+  timeout_seconds: number;
+  issued_at: string;
+  expires_at: string;
+  policy_version: string;
+  request_signature: string;
+}
+
+export interface ApprovalToken {
+  approval_token_id: string;
+  task_id: string;
+  device_id: string;
+  user_id: string;
+  approver_id: string;
+  command_hash: string;
+  approval_level: ApprovalRequirement;
+  approved_at: string;
+  expires_at: string;
+  one_time: boolean;
+  exact_template_only: boolean;
+  elevation_approved: boolean;
+}
+
+export interface PolicyEvaluationResult {
+  decision: TaskDecision;
+  reasons: string[];
+  required_approval?: ApprovalRequirement;
+  requires_uac: boolean;
+  risk_level: RiskLevel;
+  policy_version: string;
+}
+
+4. SQL DDL
+
+sql
+CREATE TABLE bos_devices (
+    device_id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
+    org_id UUID NULL,
+    device_name TEXT NOT NULL,
+    os_type TEXT NOT NULL CHECK (os_type IN ('WINDOWS')),
+    os_user TEXT NOT NULL,
+    public_key TEXT NOT NULL,
+    paired BOOLEAN NOT NULL DEFAULT FALSE,
+    paired_at TIMESTAMPTZ NULL,
+    revoked BOOLEAN NOT NULL DEFAULT FALSE,
+    revoked_at TIMESTAMPTZ NULL,
+    agent_version TEXT NOT NULL,
+    policy_version TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE bos_agent_policies (
+    policy_id UUID PRIMARY KEY,
+    org_id UUID NULL,
+    user_id UUID NULL,
+    policy_version TEXT NOT NULL,
+    policy_json JSONB NOT NULL,
+    locked BOOLEAN NOT NULL DEFAULT FALSE,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID NOT NULL
+);
+
+CREATE TABLE bos_task_requests (
+    task_id UUID PRIMARY KEY,
+    device_id UUID NOT NULL REFERENCES bos_devices(device_id),
+    user_id UUID NOT NULL,
+    org_id UUID NULL,
+    requested_by TEXT NOT NULL CHECK (
+        requested_by IN (
+            'USER',
+            'AI_AGENT',
+            'SCHEDULED_JOB',
+            'WORKFLOW',
+            'ENTERPRISE_ADMIN'
+        )
+    ),
+    command_type TEXT NOT NULL,
+    task_category TEXT NOT NULL,
+    risk_level TEXT NOT NULL CHECK (
+        risk_level IN (
+            'LOW',
+            'LOW_MEDIUM',
+            'MEDIUM',
+            'HIGH',
+            'HIGH_CRITICAL',
+            'CRITICAL'
+        )
+    ),
+    human_summary TEXT NOT NULL,
+    exact_command_preview TEXT NOT NULL,
+    command_hash TEXT NOT NULL,
+    script_hash TEXT NULL,
+    working_directory TEXT NOT NULL,
+    affected_paths JSONB NOT NULL DEFAULT '[]',
+    network_destinations JSONB NOT NULL DEFAULT '[]',
+    requires_elevation BOOLEAN NOT NULL DEFAULT FALSE,
+    requested_run_context TEXT NOT NULL CHECK (requested_run_context IN ('CURRENT_USER')),
+    timeout_seconds INTEGER NOT NULL CHECK (timeout_seconds BETWEEN 1 AND 3600),
+    issued_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    policy_version TEXT NOT NULL,
+    request_signature TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (
+        status IN (
+            'PENDING_POLICY_EVAL',
+            'BLOCKED',
+            'PENDING_APPROVAL',
+            'APPROVED',
+            'DENIED',
+            'RUNNING',
+            'SUCCEEDED',
+            'FAILED',
+            'EXPIRED',
+            'CANCELLED'
+        )
+    ),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE bos_approval_tokens (
+    approval_token_id UUID PRIMARY KEY,
+    task_id UUID NOT NULL REFERENCES bos_task_requests(task_id),
+    device_id UUID NOT NULL REFERENCES bos_devices(device_id),
+    user_id UUID NOT NULL,
+    approver_id UUID NOT NULL,
+    command_hash TEXT NOT NULL,
+    approval_level TEXT NOT NULL CHECK (
+        approval_level IN (
+            'OPTIONAL_AFTER_USER_ENABLEMENT',
+            'REQUIRED',
+            'STRONG_REQUIRED',
+            'STRONG_REQUIRED_PLUS_UAC',
+            'BLOCKED_BY_DEFAULT'
+        )
+    ),
+    approved BOOLEAN NOT NULL,
+    approved_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    one_time BOOLEAN NOT NULL DEFAULT TRUE,
+    exact_template_only BOOLEAN NOT NULL DEFAULT TRUE,
+    elevation_approved BOOLEAN NOT NULL DEFAULT FALSE,
+    used BOOLEAN NOT NULL DEFAULT FALSE,
+    used_at TIMESTAMPTZ NULL
+);
+
+CREATE TABLE bos_task_executions (
+    execution_id UUID PRIMARY KEY,
+    task_id UUID NOT NULL REFERENCES bos_task_requests(task_id),
+    device_id UUID NOT NULL REFERENCES bos_devices(device_id),
+    approval_token_id UUID NULL REFERENCES bos_approval_tokens(approval_token_id),
+    started_at TIMESTAMPTZ NOT NULL,
+    ended_at TIMESTAMPTZ NULL,
+    exit_code INTEGER NULL,
+    elevation_used BOOLEAN NOT NULL DEFAULT FALSE,
+    uac_completed BOOLEAN NOT NULL DEFAULT FALSE,
+    output_hash TEXT NULL,
+    redacted_stdout TEXT NULL,
+    redacted_stderr TEXT NULL,
+    status TEXT NOT NULL CHECK (
+        status IN (
+            'STARTED',
+            'SUCCEEDED',
+            'FAILED',
+            'TIMEOUT',
+            'KILLED',
+            'POLICY_ABORTED'
+        )
+    )
+);
+
+CREATE TABLE bos_audit_log (
+    audit_id UUID PRIMARY KEY,
+    task_id UUID NULL,
+    device_id UUID NULL,
+    user_id UUID NULL,
+    approver_id UUID NULL,
+    event_type TEXT NOT NULL,
+    event_payload JSONB NOT NULL,
+    command_hash TEXT NULL,
+    output_hash TEXT NULL,
+    policy_version TEXT NOT NULL,
+    previous_log_hash TEXT NULL,
+    log_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_bos_devices_user_id ON bos_devices(user_id);
+CREATE INDEX idx_bos_devices_org_id ON bos_devices(org_id);
+CREATE INDEX idx_bos_task_requests_device_id ON bos_task_requests(device_id);
+CREATE INDEX idx_bos_task_requests_status ON bos_task_requests(status);
+CREATE INDEX idx_bos_task_requests_command_hash ON bos_task_requests(command_hash);
+CREATE INDEX idx_bos_approval_tokens_task_id ON bos_approval_tokens(task_id);
+CREATE INDEX idx_bos_task_executions_task_id ON bos_task_executions(task_id);
+CREATE INDEX idx_bos_audit_log_task_id ON bos_audit_log(task_id);
+CREATE INDEX idx_bos_audit_log_device_id ON bos_audit_log(device_id);
+CREATE INDEX idx_bos_audit_log_created_at ON bos_audit_log(created_at);
+
+5. Policy Engine Pseudocode
+
+ts
+export function evaluateTask(
+  policy: BosLocalAutomationAgentPolicy,
+  task: StructuredTaskRequest,
+  approval?: ApprovalToken
+): PolicyEvaluationResult {
+  const reasons: string[] = [];
+
+  if (!policy.execution_policy.structured_tasks_only) {
+    return block("POLICY_INVALID_STRUCTURED_TASKS_NOT_REQUIRED");
+  }
+
+  if (policy.execution_policy.arbitrary_shell_enabled) {
+    return block("ARBITRARY_SHELL_ENABLED_FORBIDDEN");
+  }
+
+  if (policy.execution_policy.persistent_shell_enabled) {
+    return block("PERSISTENT_SHELL_ENABLED_FORBIDDEN");
+  }
+
+  if (!task.request_signature) {
+    return block("MISSING_REQUEST_SIGNATURE");
+  }
+
+  if (isExpired(task.expires_at)) {
+    return block("TASK_EXPIRED");
+  }
+
+  if (isBlocklisted(task)) {
+    return block("TASK_MATCHES_BLOCKLIST");
+  }
+
+  if (!pathsAllowed(task.affected_paths)) {
+    return block("AFFECTED_PATH_NOT_ALLOWED");
+  }
+
+  if (!networkDestinationsAllowed(task.network_destinations)) {
+    return block("NETWORK_DESTINATION_NOT_ALLOWED");
+  }
+
+  const approvalRequirement = getApprovalRequirement(task);
+
+  if (approvalRequirement === "BLOCKED_BY_DEFAULT") {
+    return block("TASK_TIER_BLOCKED_BY_DEFAULT");
+  }
+
+  if (approvalRequirement === "OPTIONAL_AFTER_USER_ENABLEMENT") {
+    return allow("LOW_RISK_DIAGNOSTIC_ALLOWED");
+  }
+
+  if (!approval) {
+    return requireApproval(approvalRequirement, task.requires_elevation);
+  }
+
+  if (approval.task_id !== task.task_id) {
+    return block("APPROVAL_TASK_MISMATCH");
+  }
+
+  if (approval.device_id !== task.device_id) {
+    return block("APPROVAL_DEVICE_MISMATCH");
+  }
+
+  if (approval.command_hash !== task.command_hash) {
+    return block("APPROVAL_COMMAND_HASH_MISMATCH");
+  }
+
+  if (isExpired(approval.expires_at)) {
+    return block("APPROVAL_EXPIRED");
+  }
+
+  if (!approval.approved) {
+    return block("TASK_DENIED_BY_APPROVER");
+  }
+
+  if (task.requires_elevation && !approval.elevation_approved) {
+    return requireApproval("STRONG_REQUIRED_PLUS_UAC", true);
+  }
+
+  if (task.requires_elevation && !policy.elevation_policy.windows_uac_required) {
+    return block("ELEVATION_WITHOUT_UAC_FORBIDDEN");
+  }
+
+  return {
+    decision: "ALLOW",
+    reasons: ["TASK_APPROVED_AND_POLICY_VALIDATED"],
+    requires_uac: task.requires_elevation,
+    risk_level: task.risk_level,
+    policy_version: task.policy_version
+  };
+
+  function block(reason: string): PolicyEvaluationResult {
+    return {
+      decision: "BLOCK",
+      reasons: [reason],
+      requires_uac: false,
+      risk_level: task.risk_level,
+      policy_version: task.policy_version
+    };
+  }
+
+  function allow(reason: string): PolicyEvaluationResult {
+    return {
+      decision: "ALLOW",
+      reasons: [reason],
+      requires_uac: false,
+      risk_level: task.risk_level,
+      policy_version: task.policy_version
+    };
+  }
+
+  function requireApproval(
+    required: ApprovalRequirement,
+    requiresUac: boolean
+  ): PolicyEvaluationResult {
+    return {
+      decision:
+        required === "STRONG_REQUIRED_PLUS_UAC"
+          ? "REQUIRE_STRONG_APPROVAL_PLUS_UAC"
+          : required === "STRONG_REQUIRED"
+            ? "REQUIRE_STRONG_APPROVAL"
+            : "REQUIRE_APPROVAL",
+      reasons: ["APPROVAL_REQUIRED"],
+      required_approval: required,
+      requires_uac: requiresUac,
+      risk_level: task.risk_level,
+      policy_version: task.policy_version
+    };
+  }
+}
+
+6. Rego Policy
+
+text
+package bos.local_agent
+
+default allow := false
+default block := false
+default require_approval := false
+default require_strong_approval := false
+default require_uac := false
+
+block_reasons contains "arbitrary_shell_forbidden" if {
+  input.task.command_type == "arbitrary_shell"
+}
+
+block_reasons contains "persistent_shell_forbidden" if {
+  input.task.command_type == "persistent_shell"
+}
+
+block_reasons contains "missing_signature" if {
+  not input.task.request_signature
+}
+
+block_reasons contains "expired_task" if {
+  time.now_ns() > time.parse_rfc3339_ns(input.task.expires_at)
+}
+
+block_reasons contains "blocklisted_command" if {
+  some item in input.policy.blocklist
+  contains(lower(input.task.exact_command_preview), lower(item))
+}
+
+block_reasons contains "elevation_without_uac_forbidden" if {
+  input.task.requires_elevation == true
+  input.policy.elevation_policy.windows_uac_required != true
+}
+
+block_reasons contains "approval_command_hash_mismatch" if {
+  input.approval
+  input.approval.command_hash != input.task.command_hash
+}
+
+block_reasons contains "approval_device_mismatch" if {
+  input.approval
+  input.approval.device_id != input.task.device_id
+}
+
+block_reasons contains "approval_expired" if {
+  input.approval
+  time.now_ns() > time.parse_rfc3339_ns(input.approval.expires_at)
+}
+
+block if {
+  count(block_reasons) > 0
+}
+
+require_uac if {
+  input.task.requires_elevation == true
+  not block
+}
+
+require_strong_approval if {
+  input.task.risk_level == "HIGH"
+  not input.approval
+  not block
+}
+
+require_strong_approval if {
+  input.task.risk_level == "HIGH_CRITICAL"
+  not input.approval
+  not block
+}
+
+require_strong_approval if {
+  input.task.requires_elevation == true
+  not input.approval
+  not block
+}
+
+require_approval if {
+  input.task.risk_level == "LOW_MEDIUM"
+  not input.approval
+  not block
+}
+
+require_approval if {
+  input.task.risk_level == "MEDIUM"
+  not input.approval
+  not block
+}
+
+allow if {
+  not block
+  input.task.risk_level == "LOW"
+  input.task.requires_elevation == false
+}
+
+allow if {
+  not block
+  input.approval.approved == true
+  input.approval.command_hash == input.task.command_hash
+  input.approval.device_id == input.task.device_id
+  time.now_ns() <= time.parse_rfc3339_ns(input.approval.expires_at)
+}
+
+7. Task Request Contract
+
+json
+{
+  "task_id": "94f1cb2d-e49a-4a99-b422-5f0327f92411",
+  "device_id": "5d238f0f-4bb5-4970-a58a-f1c7872f39d4",
+  "user_id": "0fffb686-6f1a-4b59-b45c-8e0a8fcd01ef",
+  "requested_by": "AI_AGENT",
+  "command_type": "SIGNED_TEMPLATE",
+  "task_category": "diagnostics",
+  "risk_level": "LOW",
+  "human_summary": "Check available disk space on the current user's machine.",
+  "exact_command_preview": "Get-PSDrive -PSProvider FileSystem",
+  "command_hash": "sha256:REPLACE_WITH_COMMAND_HASH",
+  "script_hash": null,
+  "working_directory": "C:\\Users\\Luis",
+  "affected_paths": [],
+  "network_destinations": [],
+  "requires_elevation": false,
+  "requested_run_context": "CURRENT_USER",
+  "timeout_seconds": 60,
+  "issued_at": "2026-04-26T13:29:00Z",
+  "expires_at": "2026-04-26T13:34:00Z",
+  "policy_version": "1.0.0",
+  "request_signature": "ed25519:REPLACE_WITH_SIGNATURE"
+}
+
+8. Approval Token Contract
+
+json
+{
+  "approval_token_id": "ef4b6027-8de8-4e1d-b8c9-67634bb1637d",
+  "task_id": "94f1cb2d-e49a-4a99-b422-5f0327f92411",
+  "device_id": "5d238f0f-4bb5-4970-a58a-f1c7872f39d4",
+  "user_id": "0fffb686-6f1a-4b59-b45c-8e0a8fcd01ef",
+  "approver_id": "0fffb686-6f1a-4b59-b45c-8e0a8fcd01ef",
+  "command_hash": "sha256:REPLACE_WITH_COMMAND_HASH",
+  "approval_level": "REQUIRED",
+  "approved": true,
+  "approved_at": "2026-04-26T13:30:00Z",
+  "expires_at": "2026-04-26T13:35:00Z",
+  "one_time": true,
+  "exact_template_only": true,
+  "elevation_approved": false
+}
+
+9. Audit Event Contract
+
+json
+{
+  "audit_id": "69f94f61-9db9-4d3b-a67a-a9f08bba8441",
+  "task_id": "94f1cb2d-e49a-4a99-b422-5f0327f92411",
+  "device_id": "5d238f0f-4bb5-4970-a58a-f1c7872f39d4",
+  "user_id": "0fffb686-6f1a-4b59-b45c-8e0a8fcd01ef",
+  "approver_id": "0fffb686-6f1a-4b59-b45c-8e0a8fcd01ef",
+  "event_type": "TASK_EXECUTION_COMPLETED",
+  "event_payload": {
+    "command_summary": "Check available disk space on the current user's machine.",
+    "working_directory": "C:\\Users\\Luis",
+    "affected_paths": [],
+    "network_destinations": [],
+    "elevation_used": false,
+    "exit_code": 0,
+    "redacted_stdout": "REDACTED_OR_TRUNCATED_OUTPUT",
+    "redacted_stderr": ""
+  },
+  "command_hash": "sha256:REPLACE_WITH_COMMAND_HASH",
+  "output_hash": "sha256:REPLACE_WITH_OUTPUT_HASH",
+  "policy_version": "1.0.0",
+  "previous_log_hash": "sha256:PREVIOUS_LOG_HASH",
+  "log_hash": "sha256:CURRENT_LOG_HASH",
+  "created_at": "2026-04-26T13:31:00Z"
+}
+
+10. API Routes
+
+text
+api:
+  devices:
+    - method: POST
+      path: /v1/devices/register
+      purpose: Register device public key and metadata.
+      auth: USER_SESSION_REQUIRED
+
+    - method: POST
+      path: /v1/devices/{device_id}/pair
+      purpose: Confirm user-approved pairing.
+      auth: USER_SESSION_REQUIRED
+
+    - method: POST
+      path: /v1/devices/{device_id}/revoke
+      purpose: Revoke device trust.
+      auth: USER_SESSION_REQUIRED
+
+    - method: POST
+      path: /v1/devices/{device_id}/pause
+      purpose: Pause local agent task execution.
+      auth: USER_SESSION_REQUIRED
+
+  tasks:
+    - method: POST
+      path: /v1/tasks/request
+      purpose: Create structured task request.
+      auth: USER_OR_AGENT_AUTH_REQUIRED
+
+    - method: POST
+      path: /v1/tasks/{task_id}/evaluate
+      purpose: Evaluate policy before approval/execution.
+      auth: DEVICE_BOUND_AUTH_REQUIRED
+
+    - method: POST
+      path: /v1/tasks/{task_id}/approve
+      purpose: Create approval token bound to exact command hash.
+      auth: USER_SESSION_REQUIRED
+
+    - method: POST
+      path: /v1/tasks/{task_id}/deny
+      purpose: Deny task request.
+      auth: USER_SESSION_REQUIRED
+
+    - method: POST
+      path: /v1/tasks/{task_id}/execute
+      purpose: Execute only after local policy validates task.
+      auth: DEVICE_BOUND_AUTH_REQUIRED
+
+  audit:
+    - method: POST
+      path: /v1/audit/events
+      purpose: Append tamper-evident audit event.
+      auth: DEVICE_BOUND_AUTH_REQUIRED
+
+    - method: GET
+      path: /v1/audit/devices/{device_id}
+      purpose: Export device audit trail.
+      auth: USER_OR_ENTERPRISE_ADMIN_REQUIRED
+
+11. State Machine
+
+text
+task_state_machine:
+  initial: CREATED
+
+  states:
+    CREATED:
+      on:
+        SUBMIT: PENDING_POLICY_EVAL
+
+    PENDING_POLICY_EVAL:
+      on:
+        POLICY_ALLOW: APPROVED
+        POLICY_REQUIRE_APPROVAL: PENDING_APPROVAL
+        POLICY_BLOCK: BLOCKED
+        EXPIRE: EXPIRED
+
+    PENDING_APPROVAL:
+      on:
+        USER_APPROVE: APPROVED
+        USER_DENY: DENIED
+        EXPIRE: EXPIRED
+
+    APPROVED:
+      on:
+        START_EXECUTION: RUNNING
+        POLICY_RECHECK_FAIL: BLOCKED
+        EXPIRE: EXPIRED
+
+    RUNNING:
+      on:
+        EXECUTION_SUCCESS: SUCCEEDED
+        EXECUTION_FAILURE: FAILED
+        TIMEOUT: FAILED
+        USER_CANCEL: CANCELLED
+        POLICY_ABORT: BLOCKED
+
+    BLOCKED:
+      terminal: true
+
+    DENIED:
+      terminal: true
+
+    EXPIRED:
+      terminal: true
+
+    CANCELLED:
+      terminal: true
+
+    SUCCEEDED:
+      terminal: true
+
+    FAILED:
+      terminal: true
+
+12. Validation Test Matrix
+
+text
+tests:
+  - id: BOS-POLICY-001
+    name: Allows low-risk read-only diagnostic
+    input:
+      risk_level: LOW
+      task_category: diagnostics
+      requires_elevation: false
+      command_type: SIGNED_TEMPLATE
+    expected:
+      decision: ALLOW
+
+  - id: BOS-POLICY-002
+    name: Blocks arbitrary shell
+    input:
+      command_type: arbitrary_shell
+    expected:
+      decision: BLOCK
+      reason: ARBITRARY_SHELL_ENABLED_FORBIDDEN
+
+  - id: BOS-POLICY-003
+    name: Requires approval for file write
+    input:
+      risk_level: MEDIUM
+      task_category: file_write
+      approval_token: null
+    expected:
+      decision: REQUIRE_APPROVAL
+
+  - id: BOS-POLICY-004
+    name: Blocks changed command after approval
+    input:
+      task_command_hash: sha256:new
+      approval_command_hash: sha256:old
+    expected:
+      decision: BLOCK
+      reason: APPROVAL_COMMAND_HASH_MISMATCH
+
+  - id: BOS-POLICY-005
+    name: Requires UAC for elevation
+    input:
+      requires_elevation: true
+      risk_level: HIGH_CRITICAL
+      approval_level: STRONG_REQUIRED_PLUS_UAC
+    expected:
+      decision: REQUIRE_STRONG_APPROVAL_PLUS_UAC
+      requires_uac: true
+
+  - id: BOS-POLICY-006
+    name: Blocks retained admin token
+    input:
+      retained_admin_token_allowed: true
+    expected:
+      decision: BLOCK
+      reason: RETAINED_ADMIN_TOKEN_FORBIDDEN
+
+  - id: BOS-POLICY-007
+    name: Blocks encoded PowerShell
+    input:
+      exact_command_preview: "powershell.exe -EncodedCommand abc123"
+    expected:
+      decision: BLOCK
+      reason: TASK_MATCHES_BLOCKLIST
+
+  - id: BOS-POLICY-008
+    name: Blocks credential access
+    input:
+      task_category: credential_access
+      affected_paths:
+        - "C:\\Windows\\System32\\config\\SAM"
+    expected:
+      decision: BLOCK
+      reason: TASK_TIER_BLOCKED_BY_DEFAULT
+
+  - id: BOS-POLICY-009
+    name: Blocks unauthenticated local API
+    input:
+      unauthenticated_local_api_allowed: true
+    expected:
+      decision: BLOCK
+      reason: LOCAL_API_AUTH_REQUIRED
+
+  - id: BOS-POLICY-010
+    name: Blocks hidden install
+    input:
+      hidden_install_allowed: true
+    expected:
+      decision: ABORT_SHIP
+      reason: HIDDEN_INSTALL_FORBIDDEN
+
+13. Ship Gate Checklist
+
+text
+ship_gate:
+  decision: GO_ONLY_IF_ALL_PASS
+
+  required_checks:
+    installer:
+      - disclosure_text_present
+      - explicit_consent_capture
+      - uninstall_entry_present
+      - tray_status_visible
+      - settings_page_visible
+
+    pairing:
+      - signin_required
+      - device_registration_required
+      - device_public_key_generated
+      - device_name_required
+      - pairing_confirmation_required
+
+    execution:
+      - arbitrary_shell_disabled
+      - persistent_shell_disabled
+      - structured_tasks_only
+      - signed_task_required
+      - task_expiration_required
+      - local_policy_enforcement_required
+      - command_hash_required
+
+    approval:
+      - per_action_approval_enabled
+      - approval_bound_to_command_hash
+      - approval_expiration_enabled
+      - blanket_approval_disabled
+      - destructive_typed_confirmation_enabled
+
+    elevation:
+      - current_user_default
+      - elevation_broker_present
+      - raw_shell_to_broker_blocked
+      - separate_elevation_approval_required
+      - windows_uac_required
+      - no_retained_admin_token
+
+    audit:
+      - audit_required
+      - append_only_logs
+      - tamper_evident_hash_chain
+      - secret_redaction
+      - output_hash
+      - exportable_logs
+
+    enterprise:
+      - remote_revoke
+      - policy_lock
+      - siem_export
+      - disable_agent
+      - restrict_command_categories
+
+14. Final Build Rule
+
+text
+FINAL_BUILD_RULE:
+  GO:
+    when:
+      - explicit_install_consent == true
+      - device_pairing == true
+      - structured_tasks_only == true
+      - arbitrary_shell_enabled == false
+      - local_policy_enforcement == true
+      - per_action_approval == true
+      - command_hash_binding == true
+      - current_user_default == true
+      - elevation_requires_uac == true
+      - audit_logs_tamper_evident == true
+      - user_can_disable_disconnect_uninstall == true
+
+  HOLD:
+    when:
+      - enterprise_policy_not_defined
+      - elevation_model_not_defined
+      - audit_retention_not_defined
+      - unattended_execution_policy_not_defined
+
+  ABORT:
+    when:
+      - hidden_install == true
+      - hidden_persistence == true
+      - silent_authority == true
+      - arbitrary_command_execution_default == true
+      - permanent_admin_service == true
+      - blanket_auto_approval == true
+      - no_local_policy_enforcement == true
+      - no_user_off_switch == true
+      - no_audit_trail == true
+      - uac_bypass == true
+
+ASCII Tree
+
+text
+BOS_EXECUTION_SPEC
+├── TRI_STATE
+│   ├── GO
+│   ├── HOLD
+│   └── ABORT
+├── POLICY
+│   ├── identity
+│   ├── install_policy
+│   ├── pairing_policy
+│   ├── execution_policy
+│   ├── approval_policy
+│   ├── elevation_policy
+│   ├── local_enforcement
+│   ├── network_model
+│   ├── audit_policy
+│   ├── scheduler_policy
+│   └── enterprise_policy
+├── IMPLEMENTATION_CONTRACTS
+│   ├── yaml_policy
+│   ├── json_schema
+│   ├── typescript_interfaces
+│   ├── sql_ddl
+│   ├── rego_policy
+│   ├── task_request_contract
+│   ├── approval_token_contract
+│   └── audit_event_contract
+├── RUNTIME
+│   ├── structured_task_runner
+│   ├── local_policy_engine
+│   ├── approval_gate
+│   ├── elevation_broker
+│   ├── audit_logger
+│   └── device_pairing
+├── TESTS
+│   ├── allow_low_risk_diagnostics
+│   ├── block_arbitrary_shell
+│   ├── require_file_write_approval
+│   ├── block_command_hash_mismatch
+│   ├── require_uac_for_elevation
+│   ├── block_encoded_powershell
+│   ├── block_credential_access
+│   └── block_hidden_install
+└── FINAL_RULE
+    ├── auto_install_allowed: true
+    ├── silent_authority_allowed: false
+    ├── arbitrary_execution_allowed: false
+    ├── per_action_approval_required: true
+    └── user_control_mandatory: true
