@@ -30,6 +30,7 @@ import type {
   ListFallbackEventsParams,
   ListRunsParams,
   ListTasksParams,
+  ListTriStateDecisionsParams,
   LlmModel,
   MemoryItem,
   ModelAttempt,
@@ -43,6 +44,7 @@ import type {
   TaskDetail,
   TaskListResponse,
   TaskStats,
+  TriStateDecision,
   UpdateMemoryBody,
   UpdateModelBody,
   UpdateProviderBody,
@@ -1984,6 +1986,194 @@ export function useGetRunSynthesis<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetRunSynthesisQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get qubit-inspired tri-state decision for a task
+ */
+export const getGetTriStateByTaskUrl = (taskId: string) => {
+  return `/api/tri-state/by-task/${taskId}`;
+};
+
+export const getTriStateByTask = async (
+  taskId: string,
+  options?: RequestInit,
+): Promise<TriStateDecision> => {
+  return customFetch<TriStateDecision>(getGetTriStateByTaskUrl(taskId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetTriStateByTaskQueryKey = (taskId: string) => {
+  return [`/api/tri-state/by-task/${taskId}`] as const;
+};
+
+export const getGetTriStateByTaskQueryOptions = <
+  TData = Awaited<ReturnType<typeof getTriStateByTask>>,
+  TError = ErrorType<void>,
+>(
+  taskId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTriStateByTask>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetTriStateByTaskQueryKey(taskId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getTriStateByTask>>
+  > = ({ signal }) => getTriStateByTask(taskId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!taskId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getTriStateByTask>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetTriStateByTaskQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getTriStateByTask>>
+>;
+export type GetTriStateByTaskQueryError = ErrorType<void>;
+
+/**
+ * @summary Get qubit-inspired tri-state decision for a task
+ */
+
+export function useGetTriStateByTask<
+  TData = Awaited<ReturnType<typeof getTriStateByTask>>,
+  TError = ErrorType<void>,
+>(
+  taskId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTriStateByTask>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetTriStateByTaskQueryOptions(taskId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List recent tri-state decisions
+ */
+export const getListTriStateDecisionsUrl = (
+  params?: ListTriStateDecisionsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/tri-state?${stringifiedParams}`
+    : `/api/tri-state`;
+};
+
+export const listTriStateDecisions = async (
+  params?: ListTriStateDecisionsParams,
+  options?: RequestInit,
+): Promise<TriStateDecision[]> => {
+  return customFetch<TriStateDecision[]>(getListTriStateDecisionsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListTriStateDecisionsQueryKey = (
+  params?: ListTriStateDecisionsParams,
+) => {
+  return [`/api/tri-state`, ...(params ? [params] : [])] as const;
+};
+
+export const getListTriStateDecisionsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listTriStateDecisions>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListTriStateDecisionsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listTriStateDecisions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListTriStateDecisionsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listTriStateDecisions>>
+  > = ({ signal }) =>
+    listTriStateDecisions(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listTriStateDecisions>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListTriStateDecisionsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listTriStateDecisions>>
+>;
+export type ListTriStateDecisionsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List recent tri-state decisions
+ */
+
+export function useListTriStateDecisions<
+  TData = Awaited<ReturnType<typeof listTriStateDecisions>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListTriStateDecisionsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listTriStateDecisions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListTriStateDecisionsQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

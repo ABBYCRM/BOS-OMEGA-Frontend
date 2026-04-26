@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useCreateTask, useGetTaskStats, useGetRunSeriesPasses, useGetRunParallelAgents, useGetRunSynthesis, useGetRun } from "@workspace/api-client-react";
 import type { BosOutput } from "@workspace/api-client-react";
 import { TriStateBadge } from "@/components/StatusBadge";
+import { TriStateVector } from "@/components/TriStateVector";
 import { formatMs } from "@/lib/utils";
 import {
   Send, ChevronDown, ChevronUp, Loader2, Layers, GitMerge, Vote,
@@ -602,6 +603,11 @@ export function TaskConsole() {
               </div>
             )}
             <div className="ml-auto font-mono text-[10px] text-muted-foreground">{result.task_id}</div>
+          </div>
+
+          {/* Qubit-inspired Tri-State decision vector */}
+          <div className="px-5 pt-4">
+            <TriStateVector task_id={result.task_id} />
           </div>
 
           {/* Execution trace for series pass / BTO */}

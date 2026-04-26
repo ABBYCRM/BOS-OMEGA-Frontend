@@ -7,6 +7,7 @@ import auditRouter from "./audit.js";
 import memoryRouter from "./memory.js";
 import fallbackRouter from "./fallback.js";
 import runsRouter from "./runs.js";
+import triStateRouter from "./triState.js";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use("/audit", auditRouter);
 router.use("/memory", memoryRouter);
 router.use("/fallback-events", fallbackRouter);
 router.use("/runs", runsRouter);
+router.use("/tri-state", triStateRouter);
 
 export default router;

@@ -1,11 +1,11 @@
 import { db } from "@workspace/db";
-import { tasksTable } from "@workspace/db";
+import { tasksTable, triStateDecisionsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import type { BosOutput, ExecutionMode, TaskContext, TriState } from "./types.js";
 import { runInputGate } from "./inputGate.js";
 import { classifyTask } from "./taskClassifier.js";
-import { evaluateTriState } from "./triState.js";
+import { evaluateTriState, type TriStateResult } from "./triState.js";
 import { selectModel } from "./modelRouter.js";
 import { executePipeline } from "./executionEngine.js";
 import { runSeriesPass } from "./seriesPassEngine.js";
@@ -13,6 +13,24 @@ import { runBoilTheOcean } from "./boilTheOceanEngine.js";
 import { selectExecutionMode } from "./modeSelector.js";
 import { auditLog } from "./auditEngine.js";
 import { logger } from "../lib/logger.js";
+
+const HIGH_STAKES_DOMAINS = new Set(["legal", "medical", "financial", "research", "code"]);
+
+async function persistTriStateDecision(task_id: string, result: TriStateResult): Promise<string> {
+  const id = randomUUID();
+  await db.insert(triStateDecisionsTable).values({
+    id,
+    task_id,
+    go_score: result.vector.go,
+    hold_score: result.vector.hold,
+    abort_score: result.vector.abort,
+    evidence_signals: JSON.stringify(result.evidence_signals),
+    collapse_reason: result.collapse_reason,
+    final_state: result.state,
+    confidence_score: result.confidence_score,
+  });
+  return id;
+}
 
 export interface PipelineInput {
   input: string;
@@ -106,9 +124,25 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     has_fallback: models.length > 1,
     risk_level: gate.risk_level,
     missing_info: gate.missing_info,
+    intent_clarity: classification.confidence,
+    confidence_score: classification.confidence,
+    high_stakes_domain: HIGH_STAKES_DOMAINS.has(task_type),
+    task_type,
+    ambiguity_detected: gate.intent === "unclear" || classification.confidence < 0.5,
   });
 
-  await auditLog(task_id, "TRI_STATE_EVALUATED", `Tri-state: ${tri_state_result.state}`, { reason: tri_state_result.reason });
+  // Persist the qubit-inspired decision (vector + signals + collapse reason)
+  const decision_id = await persistTriStateDecision(task_id, tri_state_result);
+
+  await auditLog(task_id, "TRI_STATE_EVALUATED", `Tri-state: ${tri_state_result.state}`, {
+    reason: tri_state_result.reason,
+    go: tri_state_result.vector.go.toFixed(3),
+    hold: tri_state_result.vector.hold.toFixed(3),
+    abort: tri_state_result.vector.abort.toFixed(3),
+    confidence: tri_state_result.confidence_score.toFixed(3),
+    signals: tri_state_result.evidence_signals.length,
+    decision_id,
+  });
 
   if (tri_state_result.state === "ABORT") {
     const output: BosOutput = {

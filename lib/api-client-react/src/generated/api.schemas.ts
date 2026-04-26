@@ -474,6 +474,41 @@ export interface RunDetail {
   task?: Task;
 }
 
+/**
+ * The collapsed runtime state — only this controls execution
+ */
+export type TriStateDecisionFinalState =
+  (typeof TriStateDecisionFinalState)[keyof typeof TriStateDecisionFinalState];
+
+export const TriStateDecisionFinalState = {
+  GO: "GO",
+  HOLD: "HOLD",
+  ABORT: "ABORT",
+} as const;
+
+/**
+ * Qubit-inspired probabilistic tri-state decision. The vector is advisory until collapsed; only the final_state controls execution.
+ */
+export interface TriStateDecision {
+  id: string;
+  task_id?: string;
+  /** GO amplitude (0..1) — probability before collapse */
+  go_score: number;
+  /** HOLD amplitude (0..1) — probability before collapse */
+  hold_score: number;
+  /** ABORT amplitude (0..1) — probability before collapse */
+  abort_score: number;
+  /** JSON-encoded array of evidence signals that updated the amplitudes */
+  evidence_signals?: string;
+  /** Why the collapse function chose this state */
+  collapse_reason: string;
+  /** The collapsed runtime state — only this controls execution */
+  final_state: TriStateDecisionFinalState;
+  /** How dominant the chosen amplitude was at collapse time */
+  confidence_score?: number;
+  created_at?: string;
+}
+
 export type ListTasksParams = {
   limit?: number;
   offset?: number;
@@ -489,5 +524,9 @@ export type ListAuditLogsParams = {
 };
 
 export type ListRunsParams = {
+  limit?: number;
+};
+
+export type ListTriStateDecisionsParams = {
   limit?: number;
 };

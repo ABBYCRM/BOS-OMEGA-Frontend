@@ -633,3 +633,92 @@ export const GetRunSynthesisResponse = zod.object({
     .describe("JSON string with omega validation result"),
   created_at: zod.string().optional(),
 });
+
+/**
+ * @summary Get qubit-inspired tri-state decision for a task
+ */
+export const GetTriStateByTaskParams = zod.object({
+  task_id: zod.coerce.string(),
+});
+
+export const GetTriStateByTaskResponse = zod
+  .object({
+    id: zod.string(),
+    task_id: zod.string().optional(),
+    go_score: zod
+      .number()
+      .describe("GO amplitude (0..1) — probability before collapse"),
+    hold_score: zod
+      .number()
+      .describe("HOLD amplitude (0..1) — probability before collapse"),
+    abort_score: zod
+      .number()
+      .describe("ABORT amplitude (0..1) — probability before collapse"),
+    evidence_signals: zod
+      .string()
+      .optional()
+      .describe(
+        "JSON-encoded array of evidence signals that updated the amplitudes",
+      ),
+    collapse_reason: zod
+      .string()
+      .describe("Why the collapse function chose this state"),
+    final_state: zod
+      .enum(["GO", "HOLD", "ABORT"])
+      .describe("The collapsed runtime state — only this controls execution"),
+    confidence_score: zod
+      .number()
+      .optional()
+      .describe("How dominant the chosen amplitude was at collapse time"),
+    created_at: zod.string().optional(),
+  })
+  .describe(
+    "Qubit-inspired probabilistic tri-state decision. The vector is advisory until collapsed; only the final_state controls execution.",
+  );
+
+/**
+ * @summary List recent tri-state decisions
+ */
+export const listTriStateDecisionsQueryLimitDefault = 50;
+
+export const ListTriStateDecisionsQueryParams = zod.object({
+  limit: zod.coerce.number().default(listTriStateDecisionsQueryLimitDefault),
+});
+
+export const ListTriStateDecisionsResponseItem = zod
+  .object({
+    id: zod.string(),
+    task_id: zod.string().optional(),
+    go_score: zod
+      .number()
+      .describe("GO amplitude (0..1) — probability before collapse"),
+    hold_score: zod
+      .number()
+      .describe("HOLD amplitude (0..1) — probability before collapse"),
+    abort_score: zod
+      .number()
+      .describe("ABORT amplitude (0..1) — probability before collapse"),
+    evidence_signals: zod
+      .string()
+      .optional()
+      .describe(
+        "JSON-encoded array of evidence signals that updated the amplitudes",
+      ),
+    collapse_reason: zod
+      .string()
+      .describe("Why the collapse function chose this state"),
+    final_state: zod
+      .enum(["GO", "HOLD", "ABORT"])
+      .describe("The collapsed runtime state — only this controls execution"),
+    confidence_score: zod
+      .number()
+      .optional()
+      .describe("How dominant the chosen amplitude was at collapse time"),
+    created_at: zod.string().optional(),
+  })
+  .describe(
+    "Qubit-inspired probabilistic tri-state decision. The vector is advisory until collapsed; only the final_state controls execution.",
+  );
+export const ListTriStateDecisionsResponse = zod.array(
+  ListTriStateDecisionsResponseItem,
+);

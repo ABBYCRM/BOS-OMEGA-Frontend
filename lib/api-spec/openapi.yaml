@@ -24,6 +24,8 @@ tags:
     description: Fallback events
   - name: runs
     description: Execution run traces (Series Pass / Boil The Ocean)
+  - name: tri-state
+    description: Qubit-inspired tri-state decision vectors
 paths:
   /healthz:
     get:
@@ -480,6 +482,48 @@ paths:
                 $ref: "#/components/schemas/SynthesisReport"
         "404":
           description: Not found
+
+  /tri-state/by-task/{task_id}:
+    get:
+      operationId: getTriStateByTask
+      tags: [tri-state]
+      summary: Get qubit-inspired tri-state decision for a task
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Tri-state decision with vector and evidence signals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TriStateDecision"
+        "404":
+          description: Not found
+
+  /tri-state:
+    get:
+      operationId: listTriStateDecisions
+      tags: [tri-state]
+      summary: List recent tri-state decisions
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: List of tri-state decisions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TriStateDecision"
 
 components:
   schemas:
@@ -1106,3 +1150,37 @@ components:
         task:
           $ref: "#/components/schemas/Task"
       required: [run]
+
+    TriStateDecision:
+      type: object
+      description: Qubit-inspired probabilistic tri-state decision. The vector is advisory until collapsed; only the final_state controls execution.
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        go_score:
+          type: number
+          description: GO amplitude (0..1) — probability before collapse
+        hold_score:
+          type: number
+          description: HOLD amplitude (0..1) — probability before collapse
+        abort_score:
+          type: number
+          description: ABORT amplitude (0..1) — probability before collapse
+        evidence_signals:
+          type: string
+          description: JSON-encoded array of evidence signals that updated the amplitudes
+        collapse_reason:
+          type: string
+          description: Why the collapse function chose this state
+        final_state:
+          type: string
+          enum: [GO, HOLD, ABORT]
+          description: The collapsed runtime state — only this controls execution
+        confidence_score:
+          type: number
+          description: How dominant the chosen amplitude was at collapse time
+        created_at:
+          type: string
+      required: [id, go_score, hold_score, abort_score, collapse_reason, final_state]
