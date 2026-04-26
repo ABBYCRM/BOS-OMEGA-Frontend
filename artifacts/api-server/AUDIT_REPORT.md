@@ -229,7 +229,12 @@ literal matching.
 ## What was verified (smoke)
 
 - `pnpm -r typecheck` — clean across `api-server`, `bos-omega`, all libs.
-- `pnpm -r build` — clean except the documented `mockup-sandbox` PORT note.
+- `pnpm -r build` — `api-server` and `bos-omega` build clean. The
+  `mockup-sandbox` package fails its `vite build` step in this
+  environment because the artifact reads `PORT` at config-load time and
+  the build runner does not supply a numeric value (`Invalid PORT
+  value: ""`). This is a tooling/config wart in the sandbox artifact, not
+  a regression introduced by this audit, and is logged as L-4 for follow-up.
 - API server startup with cookie-auth: `POST /api/auth/login` issues
   `bos_session`; `GET /api/providers` returns the seeded providers; the
   Providers/Models pages render without 400s on the toggle controls.
@@ -241,13 +246,15 @@ literal matching.
 
 A code review caught two follow-ups after the initial pass; both fixed:
 
-- **Greedy JSON parse in `executionEngine.parseOutput`** — The path that
-  consumed direct (non-validated) model output still used a greedy
-  `raw.match(/\{[\s\S]*\}/)`, so prose-mixed or fenced responses could
-  silently default to `state: "GO"`. Fixed by exporting
-  `extractJsonCandidate` from `validationEngine.ts` and reusing it from
-  `executionEngine.parseOutput` so fenced ```` ```json ```` blocks and
-  balanced-brace fallback work consistently with H-3.
+- **Greedy JSON parse across execution engines** — All four execution
+  paths (`executionEngine.parseOutput`, `seriesPassEngine` pass-output
+  parse, `boilTheOceanEngine` agent / synthesis / adversarial parses)
+  used a greedy `raw.match(/\{[\s\S]*\}/)`, so prose-mixed or fenced
+  responses could silently default to `state: "GO"` and suppress
+  intended `ABORT` propagation. Fixed by exporting
+  `extractJsonCandidate` from `validationEngine.ts` and reusing it at
+  every parse site so fenced ```` ```json ```` blocks and balanced-brace
+  fallback behave consistently with H-3.
 - **TriState cache key hyphen mismatch (`TriStateVector.tsx`)** — The
   manually-supplied `queryKey` used `/api/tristate/by-task/...` while orval's
   generated default is `/api/tri-state/by-task/...` (matching the OpenAPI

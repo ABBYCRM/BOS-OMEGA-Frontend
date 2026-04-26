@@ -6,7 +6,7 @@ import {
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import type { BosOutput, ModelScore, TaskContext, ValidationReport } from "./types.js";
-import { validateOutput } from "./validationEngine.js";
+import { validateOutput, extractJsonCandidate } from "./validationEngine.js";
 import { repairOutput } from "./repairEngine.js";
 import { auditLog } from "./auditEngine.js";
 import { callProviderDirect } from "./providerBridge.js";
@@ -171,11 +171,11 @@ export async function runSeriesPass(
       validation = validateOutput(call_result.raw_response, ctx.task_type);
       validation_score = validation.confidence_score;
 
-      // Parse the output
+      // Parse the output via shared hardened extractor (fenced + balanced-brace)
       try {
-        const match = call_result.raw_response.match(/\{[\s\S]*\}/);
-        if (match) {
-          const parsed = JSON.parse(match[0]) as Partial<BosOutput> & { errors_found?: string[]; pass_role?: string };
+        const candidate = extractJsonCandidate(call_result.raw_response);
+        if (candidate) {
+          const parsed = JSON.parse(candidate) as Partial<BosOutput> & { errors_found?: string[]; pass_role?: string };
           errors_found = Array.isArray(parsed.errors_found) ? parsed.errors_found : [];
           state = parsed.state || "GO";
           pass_output = {

@@ -7,7 +7,7 @@ import {
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import type { BosOutput, ModelScore, TaskContext } from "./types.js";
-import { validateOutput } from "./validationEngine.js";
+import { validateOutput, extractJsonCandidate } from "./validationEngine.js";
 import { auditLog } from "./auditEngine.js";
 import { callProviderDirect } from "./providerBridge.js";
 
@@ -247,9 +247,9 @@ export async function runBoilTheOcean(
         let output_text = call_result.raw_response;
 
         try {
-          const match = call_result.raw_response.match(/\{[\s\S]*\}/);
-          if (match) {
-            const parsed = JSON.parse(match[0]) as { state?: string; answer?: string };
+          const candidate = extractJsonCandidate(call_result.raw_response);
+          if (candidate) {
+            const parsed = JSON.parse(candidate) as { state?: string; answer?: string };
             state = parsed.state || "GO";
             output_text = parsed.answer || call_result.raw_response;
           }
@@ -375,9 +375,9 @@ export async function runBoilTheOcean(
 
   if (synthesis_result.success && synthesis_result.raw_response) {
     try {
-      const match = synthesis_result.raw_response.match(/\{[\s\S]*\}/);
-      if (match) {
-        synthesis_parsed = JSON.parse(match[0]);
+      const candidate = extractJsonCandidate(synthesis_result.raw_response);
+      if (candidate) {
+        synthesis_parsed = JSON.parse(candidate);
         synthesis_answer = synthesis_parsed.answer || synthesis_result.raw_response.slice(0, 3000);
         if (Array.isArray(synthesis_parsed.consensus_points)) consensus_points.push(...synthesis_parsed.consensus_points);
         if (Array.isArray(synthesis_parsed.contradictions)) contradictions.push(...synthesis_parsed.contradictions);
@@ -404,9 +404,9 @@ export async function runBoilTheOcean(
 
   if (adversarial_result.success && adversarial_result.raw_response) {
     try {
-      const match = adversarial_result.raw_response.match(/\{[\s\S]*\}/);
-      if (match) {
-        const adv = JSON.parse(match[0]) as Partial<BosOutput> & { adversarial_findings?: string[] };
+      const candidate = extractJsonCandidate(adversarial_result.raw_response);
+      if (candidate) {
+        const adv = JSON.parse(candidate) as Partial<BosOutput> & { adversarial_findings?: string[] };
         if (adv.answer && adv.answer.length > synthesis_answer.length * 0.5) {
           final_answer = adv.answer;
         }
