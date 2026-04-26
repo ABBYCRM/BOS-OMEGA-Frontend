@@ -143,7 +143,10 @@ export async function runSeriesPass(
     );
 
     const start_time = Date.now();
-    const call_result = await callProviderDirect(prompt, "series_pass", model_info);
+    const call_result = await callProviderDirect(prompt, "series_pass", model_info, {
+      attachment_context: ctx.attachment_context,
+      attachment_images: ctx.attachment_images,
+    });
     const latency_ms = Date.now() - start_time;
 
     const pass_id = randomUUID();

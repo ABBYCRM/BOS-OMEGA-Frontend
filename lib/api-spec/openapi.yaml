@@ -463,6 +463,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/MemoryItem"
+    delete:
+      operationId: deleteMemory
+      tags: [memory]
+      summary: Delete memory item (admin)
+      description: Permanently removes a memory item. Deleting a CANON-layer item is irreversible and removes it from every future LLM context.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
 
   /tasks/{id}/attempts:
     get:

@@ -59,3 +59,19 @@ The UI follows a "Claude-grade enterprise" theme with a warm cream background, d
 - **`express-rate-limit`**: For API rate limiting.
 - **`helmet`**: For securing HTTP headers.
 - **`fluent-ffmpeg`**: Node.js wrapper for ffmpeg.
+
+## Recent Changes
+
+### 2026-04-26 — Canon admin powers + multimodal context propagation
+**Backend**
+- Added `DELETE /api/memory/:id` route (admin-only via global `requireAuth`) and matching OpenAPI definition; regenerated Zod schemas and React Query hooks.
+- Extended `bos/providerBridge.callProviderDirect` to accept `CallProviderOptions` (`memory_context`, `attachment_context`, `attachment_images`) and forward them to **all** adapter branches — OpenAI, Anthropic, Gemini, Ollama, and Generic-OpenAI. Vision images are gated by `model_info.capability_tags.includes("multimodal")`, mirroring `executionEngine.buildOptions`.
+- Threaded `ctx.attachment_context` and `ctx.attachment_images` through every callsite in `seriesPassEngine` (1) and `boilTheOceanEngine` (3 — agent fan-out, synthesis, adversarial). Previously these engines silently dropped attachments before the LLM call; uploads now reach `series_pass` and `boil_the_ocean` modes correctly.
+
+**Frontend**
+- Rebuilt `MemoryManager.tsx` for full canon CRUD: red authority banner, "ADD CANON" quick action (defaults Layer=canon, Authority=9), per-item edit form (layer / title / authority / content), and a delete confirmation modal that requires typing the rule's exact title before the destructive button enables for canon-layer items.
+- Fixed orval mutation argument shapes in `MemoryManager.tsx`: `useCreateMemory` expects `{ data }` (was `data` directly) and `useUpdateMemory` expects `{ id, data }` (was `{ id, ...data }`). Without these wrappers, both POST and PATCH returned 400 from the server-side Zod gate.
+
+**Verification**
+- E2E test passed: API upload + single-mode task with `attachment_ids`; Composer file picker → chip → send → user/assistant bubbles; canon CRUD including create, edit AUTH:8 → 10, and confirmation-gated delete.
+- Architect review (`evaluate_task` with git diff) flagged the Ollama / Generic-OpenAI propagation gap, which has been resolved in this changeset.

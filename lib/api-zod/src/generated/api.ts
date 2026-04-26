@@ -619,6 +619,14 @@ export const UpdateMemoryResponse = zod.object({
 });
 
 /**
+ * Permanently removes a memory item. Deleting a CANON-layer item is irreversible and removes it from every future LLM context.
+ * @summary Delete memory item (admin)
+ */
+export const DeleteMemoryParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
  * @summary List model attempts for a task
  */
 export const ListModelAttemptsParams = zod.object({

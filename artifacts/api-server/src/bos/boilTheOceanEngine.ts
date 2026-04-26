@@ -211,7 +211,10 @@ export async function runBoilTheOcean(
       const start = Date.now();
 
       const call_result = await Promise.race([
-        callProviderDirect(prompt, ctx.task_type, job.model),
+        callProviderDirect(prompt, ctx.task_type, job.model, {
+          attachment_context: ctx.attachment_context,
+          attachment_images: ctx.attachment_images,
+        }),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("agent_timeout")), AGENT_TIMEOUT_MS)),
       ]);
 
@@ -348,7 +351,10 @@ export async function runBoilTheOcean(
   await auditLog(ctx.task_id, "BTO_SYNTHESIS_STARTED", `Running synthesis via ${synthesis_model.provider_name}/${synthesis_model.model_name}`);
 
   const synthesis_prompt = buildSynthesisPrompt(ctx.input, successful_outputs.slice(0, 10));
-  const synthesis_result = await callProviderDirect(synthesis_prompt, ctx.task_type, synthesis_model);
+  const synthesis_result = await callProviderDirect(synthesis_prompt, ctx.task_type, synthesis_model, {
+    attachment_context: ctx.attachment_context,
+    attachment_images: ctx.attachment_images,
+  });
 
   let synthesis_answer = "Synthesis could not be generated.";
   let synthesis_parsed: Partial<BosOutput> & { consensus_points?: string[]; contradictions?: string[]; strongest_sections?: string[]; rejected_sections?: string[] } = {};
@@ -374,7 +380,10 @@ export async function runBoilTheOcean(
   // Adversarial review
   const adversarial_model = bto_models[1] || bto_models[0]!;
   const adversarial_prompt = buildAdversarialPrompt(ctx.input, synthesis_answer);
-  const adversarial_result = await callProviderDirect(adversarial_prompt, ctx.task_type, adversarial_model);
+  const adversarial_result = await callProviderDirect(adversarial_prompt, ctx.task_type, adversarial_model, {
+    attachment_context: ctx.attachment_context,
+    attachment_images: ctx.attachment_images,
+  });
 
   let final_answer = synthesis_answer;
   const adversarial_findings: string[] = [];

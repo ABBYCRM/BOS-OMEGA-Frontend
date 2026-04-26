@@ -1,7 +1,7 @@
 import { db } from "@workspace/db";
 import { llmProvidersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import type { LLMCallResult, ModelScore } from "./types.js";
+import type { LLMCallResult, ModelScore, VisionImage } from "./types.js";
 import { callOpenAI } from "../providers/openaiAdapter.js";
 import { callAnthropic } from "../providers/anthropicAdapter.js";
 import { callGemini } from "../providers/geminiAdapter.js";
@@ -10,6 +10,17 @@ import { callGenericOpenAI } from "../providers/genericAdapter.js";
 import { MOCK_MODE_NOTICE } from "../providers/prompts.js";
 import { resolveProviderKey } from "../lib/keyResolver.js";
 import type { BosOutput } from "./types.js";
+
+/**
+ * Context that callers (series_pass, boil_the_ocean) can thread to per-agent
+ * provider invocations. Image routing is gated on `model_info.capability_tags`
+ * including "multimodal" so non-vision models do not receive base64 frames.
+ */
+export interface CallProviderOptions {
+  attachment_context?: string;
+  attachment_images?: VisionImage[];
+  memory_context?: string;
+}
 
 /**
  * Shared provider calling utility for all BOS engine modules.
@@ -27,6 +38,7 @@ export async function callProviderDirect(
   prompt: string,
   task_type: string,
   model_info: ModelScore,
+  options: CallProviderOptions = {},
 ): Promise<LLMCallResult> {
   const provider_name = model_info.provider_name.toLowerCase();
 
@@ -47,29 +59,38 @@ export async function callProviderDirect(
   // when the argument is literally `undefined` — passing `null` would crash.
   const proxy_base_url = resolved.base_url ?? undefined;
 
+  // Vision-gate: only forward base64 image data to models that advertise
+  // multimodal support, mirroring the policy in executionEngine.buildOptions.
+  const supports_vision = (model_info.capability_tags ?? []).includes("multimodal");
+  const adapter_options = {
+    memory_context: options.memory_context,
+    attachment_context: options.attachment_context,
+    images: supports_vision ? options.attachment_images : undefined,
+  };
+
   if (provider_name === "openai") {
     if (!key) return mockResult(model_info, prompt, task_type);
-    return callOpenAI(prompt, task_type, model_info.model_name, key, undefined, proxy_base_url);
+    return callOpenAI(prompt, task_type, model_info.model_name, key, adapter_options, proxy_base_url);
   }
 
   if (provider_name === "anthropic") {
     if (!key) return mockResult(model_info, prompt, task_type);
-    return callAnthropic(prompt, task_type, model_info.model_name, key, undefined, proxy_base_url);
+    return callAnthropic(prompt, task_type, model_info.model_name, key, adapter_options, proxy_base_url);
   }
 
   if (provider_name === "gemini" || provider_name === "google gemini") {
     if (!key) return mockResult(model_info, prompt, task_type);
-    return callGemini(prompt, task_type, model_info.model_name, key, undefined, proxy_base_url);
+    return callGemini(prompt, task_type, model_info.model_name, key, adapter_options, proxy_base_url);
   }
 
   if (provider_name === "ollama") {
     const base_url = provider?.base_url || process.env["OLLAMA_BASE_URL"] || "http://localhost:11434";
-    return callOllama(prompt, task_type, model_info.model_name, base_url);
+    return callOllama(prompt, task_type, model_info.model_name, base_url, adapter_options);
   }
 
   const base_url = provider?.base_url || "";
   if (!key || !base_url) return mockResult(model_info, prompt, task_type);
-  return callGenericOpenAI(prompt, task_type, model_info.model_name, base_url, key);
+  return callGenericOpenAI(prompt, task_type, model_info.model_name, base_url, key, adapter_options);
 }
 
 function mockResult(model_info: ModelScore, prompt: string, task_type: string): LLMCallResult {

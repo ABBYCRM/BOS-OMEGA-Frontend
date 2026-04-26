@@ -613,6 +613,10 @@ export type ListAuditLogsParams = {
   task_id?: string;
 };
 
+export type DeleteMemory404 = {
+  error?: string;
+};
+
 export type ListRunsParams = {
   limit?: number;
 };

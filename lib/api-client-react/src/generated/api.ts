@@ -24,6 +24,7 @@ import type {
   CreateProviderBody,
   CreateTaskBody,
   DeleteAttachment200,
+  DeleteMemory404,
   DeleteProvider200,
   ErrorResponse,
   ExecutionRun,
@@ -1907,6 +1908,91 @@ export const useUpdateMemory = <
   TContext
 > => {
   return useMutation(getUpdateMemoryMutationOptions(options));
+};
+
+/**
+ * Permanently removes a memory item. Deleting a CANON-layer item is irreversible and removes it from every future LLM context.
+ * @summary Delete memory item (admin)
+ */
+export const getDeleteMemoryUrl = (id: string) => {
+  return `/api/memory/${id}`;
+};
+
+export const deleteMemory = async (
+  id: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteMemoryUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteMemoryMutationOptions = <
+  TError = ErrorType<DeleteMemory404>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteMemory>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteMemory>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["deleteMemory"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteMemory>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteMemory(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteMemoryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteMemory>>
+>;
+
+export type DeleteMemoryMutationError = ErrorType<DeleteMemory404>;
+
+/**
+ * @summary Delete memory item (admin)
+ */
+export const useDeleteMemory = <
+  TError = ErrorType<DeleteMemory404>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteMemory>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteMemory>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getDeleteMemoryMutationOptions(options));
 };
 
 /**

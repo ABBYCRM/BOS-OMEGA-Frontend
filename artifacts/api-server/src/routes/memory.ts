@@ -51,4 +51,22 @@ router.patch("/:id", async (req, res) => {
   res.json(updated);
 });
 
+router.delete("/:id", async (req, res) => {
+  const { id } = req.params;
+  if (!id) { res.status(400).json({ error: "Missing id" }); return; }
+
+  const [deleted] = await db
+    .delete(memoryItemsTable)
+    .where(eq(memoryItemsTable.id, id))
+    .returning({ id: memoryItemsTable.id, layer: memoryItemsTable.layer, title: memoryItemsTable.title });
+
+  if (!deleted) { res.status(404).json({ error: "Memory item not found" }); return; }
+
+  req.log?.warn(
+    { event: "MEMORY_DELETED", memory_id: deleted.id, layer: deleted.layer, title: deleted.title },
+    `Memory item deleted (layer=${deleted.layer})`,
+  );
+  res.status(204).end();
+});
+
 export default router;

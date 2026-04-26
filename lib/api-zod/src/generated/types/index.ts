@@ -20,6 +20,7 @@ export * from "./createProviderBody";
 export * from "./createTaskBody";
 export * from "./createTaskBodyMode";
 export * from "./deleteAttachment200";
+export * from "./deleteMemory404";
 export * from "./deleteProvider200";
 export * from "./errorResponse";
 export * from "./executionRun";
