@@ -6,3 +6,9 @@ id = "AbJVCeBYBaGbXB9qhKJxK"
 uri = "file://exports/bos-omega-governance-layer.pdf"
 type = "pdf"
 title = "BOS-OMEGA Governance Layer (v1.1 Hardened)"
+
+[[outputs]]
+id = "ttgNWL9c8dbKy4mauaz2P"
+uri = "file://artifacts/api-server/RUNTIME_AUDIT_2026-04-26.md"
+type = "text"
+title = "BOS-OMEGA Runtime Forensic Audit — 2026-04-26"
