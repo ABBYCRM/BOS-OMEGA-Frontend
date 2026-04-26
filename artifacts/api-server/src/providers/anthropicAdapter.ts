@@ -11,7 +11,7 @@ export interface CallOptions {
 export async function callAnthropic(
   input: string,
   task_type: string,
-  model: string = "claude-3-5-sonnet-20241022",
+  model: string = "claude-sonnet-4-6",
   api_key: string,
   options: CallOptions = {},
   base_url: string = "https://api.anthropic.com",
@@ -95,6 +95,14 @@ export async function callAnthropic(
 function computeCost(input_tokens?: number, output_tokens?: number, model?: string): number {
   if (!input_tokens || !output_tokens) return 0;
   const rates: Record<string, [number, number]> = {
+    "claude-opus-4-7": [0.015, 0.075],
+    "claude-opus-4-6": [0.015, 0.075],
+    "claude-opus-4-5": [0.015, 0.075],
+    "claude-opus-4-1": [0.015, 0.075],
+    "claude-sonnet-4-6": [0.003, 0.015],
+    "claude-sonnet-4-5": [0.003, 0.015],
+    "claude-haiku-4-5": [0.001, 0.005],
+    // Legacy vendor model IDs kept for backwards compatibility with stored DB rows
     "claude-3-5-sonnet-20241022": [0.003, 0.015],
     "claude-3-5-haiku-20241022": [0.001, 0.005],
     "claude-3-opus-20240229": [0.015, 0.075],

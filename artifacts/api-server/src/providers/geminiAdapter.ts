@@ -11,10 +11,10 @@ export interface CallOptions {
 export async function callGemini(
   input: string,
   task_type: string,
-  model: string = "gemini-1.5-flash",
+  model: string = "gemini-2.5-flash",
   api_key: string,
   options: CallOptions = {},
-  base_url: string = "https://generativelanguage.googleapis.com",
+  base_url: string = "https://generativelanguage.googleapis.com/v1beta",
 ): Promise<LLMCallResult> {
   const start = Date.now();
   const provider = "gemini";
@@ -25,8 +25,11 @@ export async function callGemini(
       (options.memory_context ? `\n\n${options.memory_context}` : "") +
       "\n\nIMPORTANT: Return ONLY valid JSON matching the BOS output schema.";
 
+    // The caller-supplied base_url IS the full API prefix (vendor URL ends in
+    // `/v1beta`; the Replit proxy URL has no version segment because the SDK
+    // is configured with apiVersion=""). We always append the model+method.
     const trimmed = base_url.replace(/\/$/, "");
-    const url = `${trimmed}/v1beta/models/${model}:generateContent`;
+    const url = `${trimmed}/models/${model}:generateContent`;
 
     const user_text =
       (options.attachment_context ? `${options.attachment_context}\n\n` : "") +

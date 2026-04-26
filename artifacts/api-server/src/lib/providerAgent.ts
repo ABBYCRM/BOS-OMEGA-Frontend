@@ -87,7 +87,7 @@ async function testAnthropic(api_key: string): Promise<TestResult> {
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "claude-3-5-haiku-20241022",
+      model: "claude-haiku-4-5",
       max_tokens: 1,
       messages: [{ role: "user", content: "ping" }],
     }),
@@ -116,12 +116,14 @@ async function testAnthropic(api_key: string): Promise<TestResult> {
   return { ok: false, status_code: r.status, message: `Anthropic returned HTTP ${r.status}` };
 }
 
+// Replit AI Integrations Anthropic proxy supported models (per
+// .local/skills/ai-integrations-anthropic/SKILL.md). The vendor 3.x IDs
+// continue to work for users who supply their own direct Anthropic keys, but
+// these are the canonical IDs surfaced in the "Discover models" UI.
 const ANTHROPIC_KNOWN_MODELS: DiscoveredModel[] = [
-  { id: "claude-sonnet-4-5", context_window: 200000 },
-  { id: "claude-opus-4-1", context_window: 200000 },
-  { id: "claude-3-5-sonnet-20241022", context_window: 200000 },
-  { id: "claude-3-5-haiku-20241022", context_window: 200000 },
-  { id: "claude-3-opus-20240229", context_window: 200000 },
+  { id: "claude-opus-4-7", context_window: 200000 },
+  { id: "claude-sonnet-4-6", context_window: 200000 },
+  { id: "claude-haiku-4-5", context_window: 200000 },
 ];
 
 // ---------- Gemini ----------

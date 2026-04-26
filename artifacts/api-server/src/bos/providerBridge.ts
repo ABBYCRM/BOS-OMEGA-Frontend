@@ -13,7 +13,15 @@ import type { BosOutput } from "./types.js";
 
 /**
  * Shared provider calling utility for all BOS engine modules.
- * Resolves keys via the agentic resolver: DB-stored encrypted key → env var → legacy.
+ * Resolves keys via the agentic resolver: DB-stored encrypted key → env var
+ * → legacy → Replit AI Integrations proxy. When the resolver returns
+ * `source==="proxy"`, the returned `base_url` is forwarded to the adapter so
+ * the request is routed through the proxy (NOT the hardcoded vendor URL).
+ *
+ * Without that base_url forwarding, proxy-issued credentials would be sent
+ * to api.openai.com / api.anthropic.com / generativelanguage.googleapis.com
+ * directly and would all 401 — exactly the BOIL_THE_OCEAN "auth_failure" and
+ * SERIES_PASS empty-output regression we saw in production.
  */
 export async function callProviderDirect(
   prompt: string,
@@ -29,21 +37,29 @@ export async function callProviderDirect(
     .limit(1);
 
   const provider = provider_rows[0];
-  const { key } = await resolveProviderKey(model_info.provider_id, model_info.provider_name);
+  const resolved = await resolveProviderKey(
+    model_info.provider_id,
+    model_info.provider_name,
+  );
+  const { key } = resolved;
+  // Coerce a possibly-omitted base_url to undefined so the adapter's
+  // default-parameter (vendor URL) kicks in. JS only applies default params
+  // when the argument is literally `undefined` — passing `null` would crash.
+  const proxy_base_url = resolved.base_url ?? undefined;
 
   if (provider_name === "openai") {
     if (!key) return mockResult(model_info, prompt, task_type);
-    return callOpenAI(prompt, task_type, model_info.model_name, key);
+    return callOpenAI(prompt, task_type, model_info.model_name, key, undefined, proxy_base_url);
   }
 
   if (provider_name === "anthropic") {
     if (!key) return mockResult(model_info, prompt, task_type);
-    return callAnthropic(prompt, task_type, model_info.model_name, key);
+    return callAnthropic(prompt, task_type, model_info.model_name, key, undefined, proxy_base_url);
   }
 
   if (provider_name === "gemini" || provider_name === "google gemini") {
     if (!key) return mockResult(model_info, prompt, task_type);
-    return callGemini(prompt, task_type, model_info.model_name, key);
+    return callGemini(prompt, task_type, model_info.model_name, key, undefined, proxy_base_url);
   }
 
   if (provider_name === "ollama") {
