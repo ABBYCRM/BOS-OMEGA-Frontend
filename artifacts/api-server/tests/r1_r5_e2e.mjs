@@ -262,6 +262,92 @@ async function main() {
     assert.ok(countEvents(audit, "KEY_RESOLVED") >= 1, "downgraded run should produce >=1 KEY_RESOLVED");
   });
 
+  // ---------------- #43: consensus mode ----------------
+  // Live-API coverage of the consensus merge contract. The deterministic
+  // ABORT-veto + selected-aborter rules are unit-tested directly against
+  // mergeParallelResponses (r1_r5_unit.mjs); the e2e check below proves
+  // those same rules survive the full pipeline + audit chain end-to-end.
+  await test("consensus mode: merge_strategy=majority_vote_consensus + selected:true rules + audit chain identifies state per response", async () => {
+    const REQUESTED_PARALLEL = 3;
+    const { detail } = await submitTask({
+      input: "What is 3 + 4? Respond briefly.",
+      mode: "consensus",
+      parallel_models: REQUESTED_PARALLEL,
+    });
+    const { task, audit, bos_output } = detail;
+    assert.equal(task.mode, "consensus", "task.mode should remain consensus");
+    assert.equal(countEvents(audit, "MODE_DOWNGRADED"), 0, "no downgrade should fire when N>=2");
+    assert.equal(countEvents(audit, "PARALLEL_EXECUTION_STARTED"), 1, "consensus runs through executeParallel");
+
+    const received = countEvents(audit, "PARALLEL_RESPONSE_RECEIVED");
+    const failed = countEvents(audit, "PARALLEL_RESPONSE_FAILED");
+    assert.equal(
+      received + failed,
+      REQUESTED_PARALLEL,
+      `dispatched consensus calls (${received + failed}) !== requested (${REQUESTED_PARALLEL})`,
+    );
+
+    // Skip merge-strategy assertions if every call failed — the engine
+    // returns buildSafeFailure() in that case, which has no merge_strategy
+    // (and that's the correct behavior, not a regression).
+    if (received === 0) {
+      console.log(`       (skipped consensus merge checks: 0 successful calls of ${REQUESTED_PARALLEL})`);
+      assert.equal(countEvents(audit, "TASK_HELD"), 1, "all-failed consensus should emit TASK_HELD");
+      return;
+    }
+
+    // #43 acceptance criterion 1: merge_strategy === "majority_vote_consensus".
+    assert.equal(
+      bos_output?.merge_strategy,
+      "majority_vote_consensus",
+      `consensus mode must emit merge_strategy='majority_vote_consensus', got ${bos_output?.merge_strategy}`,
+    );
+    assert.equal(countEvents(audit, "MERGE_COMPLETED"), 1, "expected exactly 1 MERGE_COMPLETED");
+
+    const responses = bos_output.parallel_responses || [];
+    assert.equal(responses.length, received, `parallel_responses length (${responses.length}) !== RECEIVED (${received})`);
+
+    // Exactly one response is selected — either the highest-confidence GO
+    // (all-GO majority) or the actual aborter (any ABORT).
+    const selected = responses.filter((r) => r.selected);
+    assert.equal(selected.length, 1, `expected exactly 1 selected response, got ${selected.length}`);
+
+    const abortResponses = responses.filter((r) => r.state === "ABORT");
+    if (abortResponses.length > 0) {
+      // #43 acceptance criterion 4 + 5: any ABORT response vetoes consensus
+      // to ABORT, and the selected response is the aborter (so the audit
+      // chain — via parallel_responses + the per-response RECEIVED events
+      // with state metadata — identifies which row drove the merge to ABORT).
+      assert.equal(bos_output.state, "ABORT", "any ABORT in responses should veto consensus to ABORT");
+      assert.equal(selected[0].state, "ABORT", "the selected response must be the aborter, not the lowest-confidence row");
+    } else if (bos_output.state === "GO") {
+      // #43 acceptance criterion 2 + 3: all-GO consensus → state=GO and the
+      // highest-confidence GO response is selected:true.
+      const goResponses = responses.filter((r) => r.state === "GO");
+      assert.ok(goResponses.length > 0, "state=GO requires at least one GO response");
+      const maxConf = Math.max(...goResponses.map((r) => r.confidence_score));
+      assert.equal(
+        selected[0].confidence_score,
+        maxConf,
+        `selected response (conf=${selected[0].confidence_score}) must be the highest-confidence GO row (max=${maxConf})`,
+      );
+    }
+    // (state === HOLD with no ABORTs is a valid path when GO didn't reach
+    // majority — covered by the unit tests; nothing further to assert here.)
+
+    // The audit chain identifies state-per-response via PARALLEL_RESPONSE_RECEIVED
+    // metadata. Combined with bos_output.parallel_responses[].selected, an
+    // operator can correlate which response drove the merge.
+    const receivedRows = audit.filter((a) => a.event_type === "PARALLEL_RESPONSE_RECEIVED");
+    for (const row of receivedRows) {
+      const meta = parseMetadata(row.metadata);
+      assert.ok(
+        meta && typeof meta.state === "string" && ["GO", "HOLD", "ABORT"].includes(meta.state),
+        `PARALLEL_RESPONSE_RECEIVED.metadata.state missing/invalid: ${JSON.stringify(meta)}`,
+      );
+    }
+  });
+
   // ---------------- Configuration C: single mode ----------------
   await test("single mode: no role overlay events + no parallel_responses", async () => {
     const { detail } = await submitTask({
@@ -286,6 +372,234 @@ async function main() {
     // The single path still records the call in the audit chain.
     assert.ok(countEvents(audit, "LLM_CALL_STARTED") >= 1, "single mode should emit LLM_CALL_STARTED");
     assert.ok(countEvents(audit, "KEY_RESOLVED") >= 1, "single mode should emit KEY_RESOLVED");
+  });
+
+  // ---------------- #44: series_pass — happy-path audit chain + bos_output traces ----------------
+  // Submits a series_pass task and asserts the full ordered audit chain
+  // (SERIES_PASS_STARTED → 5×SERIES_PASS_STEP → SERIES_PASS_COMPLETED) plus
+  // the bos_output structure (merge_strategy, parallel_responses with the
+  // five SERIES_ROLES). Mock-mode/no-key environments may produce a
+  // SERIES_PASS_DEGRADED outcome — covered as an alternative branch.
+  await test("#44 series_pass: ordered audit chain (STARTED → 5×STEP → COMPLETED|DEGRADED) + bos_output step traces", async () => {
+    const { detail } = await submitTask({
+      input: "Briefly explain why 2+2=4.",
+      mode: "series_pass",
+    });
+    const { task, audit, bos_output } = detail;
+    assert.equal(task.mode, "series_pass", "task.mode should be series_pass");
+
+    // If the engine downgraded (eligible_models<2), this case is covered
+    // by the dedicated downgrade test below — bail out without failing.
+    const dg = audit.find((a) => a.event_type === "MODE_DOWNGRADED");
+    if (dg) {
+      console.log("       (skipped series_pass happy-path: engine downgraded due to <2 eligible models — covered by downgrade test)");
+      return;
+    }
+
+    assert.equal(countEvents(audit, "SERIES_PASS_STARTED"), 1, "expected exactly 1 SERIES_PASS_STARTED");
+
+    // The five SERIES_ROLES emit five SERIES_PASS_STEP events in order.
+    // We accept "<=5" because an early ABORT halts the chain (still valid
+    // per acceptance criteria — the events that DO fire must be ordered).
+    const stepCount = countEvents(audit, "SERIES_PASS_STEP");
+    assert.ok(stepCount >= 1 && stepCount <= 5, `SERIES_PASS_STEP count ${stepCount} not in [1,5]`);
+
+    // Ordering: STARTED comes before any STEP, and STEPs come before
+    // COMPLETED|DEGRADED|ABORTED. We compare audit indices.
+    const startedIdx = audit.findIndex((a) => a.event_type === "SERIES_PASS_STARTED");
+    const firstStepIdx = audit.findIndex((a) => a.event_type === "SERIES_PASS_STEP");
+    const lastStepIdx = audit.map((a) => a.event_type).lastIndexOf("SERIES_PASS_STEP");
+    const terminalIdx = audit.findIndex((a) =>
+      ["SERIES_PASS_COMPLETED", "SERIES_PASS_DEGRADED", "SERIES_PASS_ABORTED"].includes(a.event_type),
+    );
+    assert.ok(startedIdx < firstStepIdx, "SERIES_PASS_STARTED must precede first SERIES_PASS_STEP");
+    assert.ok(terminalIdx > lastStepIdx, "terminal event must follow the last SERIES_PASS_STEP");
+
+    // bos_output: when COMPLETED, merge_strategy is "series_pass_5_roles"
+    // and parallel_responses carries one entry per executed pass with the
+    // role suffix in role_overlay (e.g. "(CRITIC)"). When DEGRADED, those
+    // fields may be absent — the audit chain alone proves coverage there.
+    if (audit.some((a) => a.event_type === "SERIES_PASS_COMPLETED")) {
+      assert.equal(
+        bos_output?.merge_strategy,
+        "series_pass_5_roles",
+        `series_pass COMPLETED should emit merge_strategy='series_pass_5_roles', got ${bos_output?.merge_strategy}`,
+      );
+      const responses = bos_output.parallel_responses || [];
+      assert.ok(responses.length >= 1, "COMPLETED series_pass should expose >=1 parallel_responses (step trace)");
+      // Acceptance criterion: bos_output includes series_pass step traces.
+      // seriesPassEngine attaches the role inside the model field as
+      // "<provider/model> (ROLE)" — see seriesPassEngine.ts ~line 344.
+      // SERIES_ROLES are DRAFTER, CRITIC, EXPANDER, ADVERSARY, SYNTHESIZER
+      // (different from the R-1 PARALLEL_ROLES). We check both `model` and
+      // `model_name` defensively because the API serializer name varies
+      // across response shapes (single vs parallel vs series_pass).
+      const ROLE_RE = /\((DRAFTER|CRITIC|EXPANDER|ADVERSARY|SYNTHESIZER)\)/;
+      const allHaveRoleMarker = responses.every(
+        (r) => ROLE_RE.test(`${r.model ?? ""}${r.model_name ?? ""}${r.role ?? ""}`),
+      );
+      assert.ok(
+        allHaveRoleMarker,
+        `every series_pass response must carry one of SERIES_ROLES (DRAFTER|CRITIC|EXPANDER|ADVERSARY|SYNTHESIZER); got: ${JSON.stringify(responses.map((r) => r.model ?? r.model_name ?? r.role))}`,
+      );
+    }
+  });
+
+  // ---------------- #44: series_pass downgrade (deterministic via DB toggle) ----------------
+  // The acceptance criterion "series_pass with <2 eligible models downgrades
+  // to single (MODE_DOWNGRADED from=series_pass to=single)" is non-deterministic
+  // unless we control the eligible-model count. We snapshot llm_models.enabled,
+  // disable all-but-one inside a try/finally, run the task, and restore — so
+  // a crash mid-test cannot leave the registry in a degraded state.
+  await test("#44 series_pass with <2 eligible models downgrades to single (MODE_DOWNGRADED from=series_pass to=single)", async () => {
+    const { execSync } = await import("node:child_process");
+    if (!process.env.DATABASE_URL) {
+      console.log("       (skipped: DATABASE_URL not set — cannot toggle model registry)");
+      return;
+    }
+    const psql = (sql) =>
+      execSync(`psql "${process.env.DATABASE_URL}" -t -A -F$'\\t' -c ${JSON.stringify(sql)}`, {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+    // Snapshot every (model_id, enabled) so we can restore exactly.
+    const modelRows = psql("SELECT id, enabled FROM llm_models").trim().split("\n").filter(Boolean)
+      .map((line) => { const [id, en] = line.split("\t"); return { id, enabled: en === "t" }; });
+    const providerRows = psql("SELECT id, enabled FROM llm_providers").trim().split("\n").filter(Boolean)
+      .map((line) => { const [id, en] = line.split("\t"); return { id, enabled: en === "t" }; });
+
+    if (modelRows.length === 0 || providerRows.length === 0) {
+      console.log("       (skipped: empty llm_models or llm_providers registry)");
+      return;
+    }
+
+    // Pick one model+provider to keep; force every other model to enabled=false
+    // and the keeper's provider to enabled=true. Health-state filtering
+    // (OPEN_CIRCUIT) still applies, so we additionally clear the keeper's
+    // health row if it's OPEN_CIRCUIT (HEALTHY default kicks in).
+    const keeper = modelRows[0];
+    const keeperProvider = psql(`SELECT provider_id FROM llm_models WHERE id = '${keeper.id}'`).trim();
+    if (!keeperProvider) {
+      console.log("       (skipped: keeper model has no provider — registry inconsistent)");
+      return;
+    }
+
+    let restored = false;
+    const restore = () => {
+      if (restored) return;
+      restored = true;
+      // Restore models
+      for (const row of modelRows) {
+        psql(`UPDATE llm_models SET enabled = ${row.enabled} WHERE id = '${row.id}'`);
+      }
+      // Restore providers
+      for (const row of providerRows) {
+        psql(`UPDATE llm_providers SET enabled = ${row.enabled} WHERE id = '${row.id}'`);
+      }
+    };
+
+    try {
+      // Disable all models except keeper, enable keeper's provider, clear
+      // OPEN_CIRCUIT for keeper's provider so selectModel includes it.
+      psql(`UPDATE llm_models SET enabled = false WHERE id <> '${keeper.id}'`);
+      psql(`UPDATE llm_models SET enabled = true WHERE id = '${keeper.id}'`);
+      psql(`UPDATE llm_providers SET enabled = true WHERE id = '${keeperProvider}'`);
+      psql(`DELETE FROM provider_health WHERE provider_id = '${keeperProvider}' AND status = 'OPEN_CIRCUIT'`);
+
+      const { detail } = await submitTask({ input: "anything", mode: "series_pass" });
+      const { audit, task } = detail;
+      assert.equal(task.mode, "series_pass", "task.mode should remain series_pass on the persisted task");
+
+      const dg = audit.filter((a) => a.event_type === "MODE_DOWNGRADED");
+      assert.ok(dg.length >= 1, `expected MODE_DOWNGRADED event(s); got events: ${JSON.stringify(eventTypes(audit))}`);
+      const meta = parseMetadata(dg[0].metadata);
+      assert.equal(meta?.from, "series_pass", `MODE_DOWNGRADED.metadata.from expected 'series_pass', got ${meta?.from}`);
+      assert.equal(meta?.to, "single", `MODE_DOWNGRADED.metadata.to expected 'single', got ${meta?.to}`);
+      assert.equal(meta?.eligible_models, 1, `MODE_DOWNGRADED.metadata.eligible_models expected 1, got ${meta?.eligible_models}`);
+
+      // After downgrade, the engine must NOT emit series_pass-specific
+      // events (no STEP/COMPLETED/DEGRADED) — it falls through to single.
+      assert.equal(countEvents(audit, "SERIES_PASS_STEP"), 0, "downgraded series_pass should not emit STEP events");
+      assert.equal(countEvents(audit, "SERIES_PASS_COMPLETED"), 0, "downgraded series_pass should not emit COMPLETED");
+    } finally {
+      restore();
+    }
+  });
+
+  // ---------------- #44: boil_the_ocean — ordered audit chain + agent counts ----------------
+  await test("#44 boil_the_ocean: ordered audit chain + bos_output exposes agent counts and synthesis trace", async () => {
+    const { detail } = await submitTask({
+      input: "Briefly explain why 2+2=4.",
+      mode: "boil_the_ocean",
+    });
+    const { task, audit, bos_output } = detail;
+    assert.equal(task.mode, "boil_the_ocean", "task.mode should be boil_the_ocean");
+
+    // Required prefix of the BTO audit chain — these MUST be present in
+    // this order regardless of mock-mode failures.
+    const requiredPrefix = ["BTO_STARTED", "BTO_AGENTS_DISPATCHED", "BTO_AGENTS_COMPLETED"];
+    let lastIdx = -1;
+    for (const evt of requiredPrefix) {
+      const idx = audit.findIndex((a, i) => i > lastIdx && a.event_type === evt);
+      assert.ok(idx > lastIdx, `expected ${evt} after index ${lastIdx}; got events: ${JSON.stringify(eventTypes(audit))}`);
+      lastIdx = idx;
+    }
+
+    // Agent counts: BTO_STARTED.metadata records total_agents; BTO_AGENTS_COMPLETED
+    // records the X/Y string in its message. Both must be parseable.
+    const startedMeta = parseMetadata(audit.find((a) => a.event_type === "BTO_STARTED").metadata);
+    assert.ok(
+      typeof startedMeta?.total_agents === "number" && startedMeta.total_agents > 0,
+      `BTO_STARTED.metadata.total_agents must be a positive number; got ${JSON.stringify(startedMeta)}`,
+    );
+    const completedMsg = audit.find((a) => a.event_type === "BTO_AGENTS_COMPLETED").message ?? "";
+    assert.ok(
+      /^\d+\/\d+ agents succeeded/.test(completedMsg),
+      `BTO_AGENTS_COMPLETED.message expected 'X/Y agents succeeded...', got '${completedMsg}'`,
+    );
+
+    // Terminal: when there's at least one successful agent, synthesis runs
+    // and we see BTO_SYNTHESIS_STARTED → (COMPLETED|FAILED) → (BTO_COMPLETED|BTO_DEGRADED).
+    // When zero agents succeed, we get BTO_DEGRADED directly (no synthesis).
+    // We track `lastIdx` through every required step so the terminal-event
+    // assertion at the end enforces strict ordering vs the LAST required
+    // event, not just the prefix (architect medium-fix).
+    const successCount = parseInt(completedMsg.split("/")[0], 10);
+    if (successCount > 0) {
+      const synStartIdx = audit.findIndex((a, i) => i > lastIdx && a.event_type === "BTO_SYNTHESIS_STARTED");
+      assert.ok(synStartIdx > lastIdx, "BTO_SYNTHESIS_STARTED must follow BTO_AGENTS_COMPLETED when agents succeeded");
+      lastIdx = synStartIdx;
+      const synTerminalIdx = audit.findIndex(
+        (a, i) => i > lastIdx && (a.event_type === "BTO_SYNTHESIS_COMPLETED" || a.event_type === "BTO_SYNTHESIS_FAILED"),
+      );
+      assert.ok(synTerminalIdx > lastIdx, "BTO_SYNTHESIS_COMPLETED|FAILED must follow BTO_SYNTHESIS_STARTED");
+      lastIdx = synTerminalIdx;
+    }
+
+    const terminalIdx = audit.findIndex((a, i) =>
+      i > lastIdx && ["BTO_COMPLETED", "BTO_DEGRADED", "BTO_ABORTED"].includes(a.event_type),
+    );
+    assert.ok(
+      terminalIdx > lastIdx,
+      `BTO_COMPLETED|DEGRADED|ABORTED must follow the synthesis terminal (lastIdx=${lastIdx}); got events: ${JSON.stringify(eventTypes(audit))}`,
+    );
+
+    // bos_output: when COMPLETED, the engine attaches the agent counts
+    // (synthesis_metadata.successful_agents / total_agents) and a synthesis
+    // trace. When DEGRADED, those fields may be absent — audit chain
+    // already proved coverage above.
+    if (audit.some((a) => a.event_type === "BTO_COMPLETED")) {
+      const completedMeta = parseMetadata(audit.find((a) => a.event_type === "BTO_COMPLETED").metadata);
+      assert.ok(
+        typeof completedMeta?.agents === "string" && /^\d+\/\d+$/.test(completedMeta.agents),
+        `BTO_COMPLETED.metadata.agents expected 'X/Y' string, got ${JSON.stringify(completedMeta)}`,
+      );
+      assert.ok(
+        bos_output && typeof bos_output === "object",
+        "BTO COMPLETED must attach a bos_output to the task",
+      );
+    }
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);

@@ -91,6 +91,22 @@ async function runTest(env) {
   return code;
 }
 
+// #43/#44: unit suite is pure-TS (strip-types) and has no DB/server deps.
+// Running it before the e2e suite lets a single command cover both layers
+// and surfaces logic regressions before we pay the spawn-server cost.
+async function runUnitSuite(env) {
+  console.log(`[harness] running unit suite (tests/r1_r5_unit.mjs)`);
+  const code = await runChild(
+    process.execPath,
+    ["--experimental-strip-types", path.join(HERE, "r1_r5_unit.mjs")],
+    { env, cwd: API_DIR },
+  );
+  if (code !== 0) {
+    console.error(`[harness] unit suite failed with exit code ${code}; aborting before e2e spawn`);
+  }
+  return code;
+}
+
 async function main() {
   // External-server mode: caller already has a server up.
   if (process.env.API_BASE) {
@@ -99,6 +115,8 @@ async function main() {
       console.error("[harness] ADMIN_PASSWORD is required when API_BASE is provided");
       process.exit(2);
     }
+    const unitCode = await runUnitSuite(process.env);
+    if (unitCode !== 0) process.exit(unitCode);
     process.exit(await runTest(process.env));
   }
 
@@ -185,6 +203,13 @@ async function main() {
 
   let code = 1;
   try {
+    // Run unit suite first — it's fast and catches logic regressions
+    // before the e2e suite incurs the spawn-server + DB roundtrip cost.
+    code = await runUnitSuite(testEnv);
+    if (code !== 0) {
+      cleanup();
+      process.exit(code);
+    }
     code = await runTest(testEnv);
   } finally {
     cleanup();

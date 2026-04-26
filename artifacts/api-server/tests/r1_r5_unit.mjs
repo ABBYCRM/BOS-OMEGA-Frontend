@@ -30,6 +30,11 @@ import {
   assessSeriesPassFinalState,
   assessBtoFinalState,
 } from "../src/bos/finalStateHelpers.ts";
+// #43: consensus merge is pure given a ParallelResponse[]. Imported from
+// the no-deps consensusMerge module so the strip-types loader doesn't have
+// to walk @workspace/db (executionEngine.ts pulls in the schema directory,
+// which the bare ESM resolver can't handle).
+import { mergeParallelResponses } from "../src/bos/consensusMerge.ts";
 
 let pass = 0;
 let fail = 0;
@@ -252,6 +257,137 @@ test("BTO never emits GO when synthesis failed regardless of successful agent co
     const r = assessBtoFinalState({ successful_agents: n, total_agents: n, synthesis_success: false });
     assert.equal(r.final_state, "HOLD", `n=${n} produced GO with failed synthesis`);
   }
+});
+
+// =====================================================================
+// #43: consensus mode merge — majority_vote_consensus + ABORT veto rules.
+// These cover the deterministic merge logic that the live-API e2e cannot
+// safely exercise (real LLM calls cannot be coaxed into returning ABORT
+// reliably, and we will not inject test fixtures into prod request paths).
+// =====================================================================
+
+function mkResp({ provider = "p", model = "m", state = "GO", confidence = 0.5, latency = 100 } = {}) {
+  return {
+    provider,
+    model,
+    state,
+    answer: `answer from ${model}`,
+    confidence_score: confidence,
+    latency_ms: latency,
+    selected: false,
+  };
+}
+
+console.log("\n#43 consensus merge (majority_vote_consensus + ABORT veto)");
+
+test("consensus all-GO emits merge_strategy='majority_vote_consensus' and state=GO", () => {
+  const responses = [
+    mkResp({ model: "lo", state: "GO", confidence: 0.6 }),
+    mkResp({ model: "mid", state: "GO", confidence: 0.7 }),
+    mkResp({ model: "hi", state: "GO", confidence: 0.9 }),
+  ];
+  const merged = mergeParallelResponses(responses, "consensus");
+  assert.equal(merged.merge_strategy, "majority_vote_consensus");
+  assert.equal(merged.state, "GO");
+  // parallel_responses must be sorted desc by confidence (the merge function
+  // mutates the input in place; assert via the returned reference).
+  assert.equal(merged.parallel_responses[0].model, "hi");
+});
+
+test("consensus all-GO selects the highest-confidence response (selected:true on top)", () => {
+  const responses = [
+    mkResp({ model: "lo", state: "GO", confidence: 0.4 }),
+    mkResp({ model: "hi", state: "GO", confidence: 0.95 }),
+    mkResp({ model: "mid", state: "GO", confidence: 0.7 }),
+  ];
+  const merged = mergeParallelResponses(responses, "consensus");
+  const selected = merged.parallel_responses.filter((r) => r.selected);
+  assert.equal(selected.length, 1, "exactly one response should be selected");
+  assert.equal(selected[0].model, "hi", "highest-confidence response should be selected");
+  assert.equal(selected[0].confidence_score, 0.95);
+});
+
+test("consensus with any ABORT vetoes the merge to ABORT regardless of GO majority", () => {
+  // 3 GO + 1 ABORT — majority is GO but the ABORT must veto.
+  const responses = [
+    mkResp({ model: "go-hi", state: "GO", confidence: 0.95 }),
+    mkResp({ model: "go-mid", state: "GO", confidence: 0.8 }),
+    mkResp({ model: "go-lo", state: "GO", confidence: 0.6 }),
+    mkResp({ model: "aborter", state: "ABORT", confidence: 0.4 }),
+  ];
+  const merged = mergeParallelResponses(responses, "consensus");
+  assert.equal(merged.state, "ABORT", "any ABORT must veto consensus");
+});
+
+test("consensus ABORT veto marks the aborting response selected:true (audit chain identifies the aborter)", () => {
+  // The pre-fix bug was that responses[length-1] (lowest confidence after
+  // sort) got selected; the fix searches for the actual ABORT row.
+  const responses = [
+    mkResp({ model: "go-hi", state: "GO", confidence: 0.95 }),
+    mkResp({ model: "aborter-mid", state: "ABORT", confidence: 0.7 }),
+    mkResp({ model: "go-lo", state: "GO", confidence: 0.3 }),
+  ];
+  const merged = mergeParallelResponses(responses, "consensus");
+  const selected = merged.parallel_responses.filter((r) => r.selected);
+  assert.equal(selected.length, 1, "exactly one response should be selected");
+  assert.equal(selected[0].state, "ABORT", "the aborter (not the lowest-confidence row) must be selected");
+  assert.equal(selected[0].model, "aborter-mid");
+});
+
+test("consensus ABORT output shape includes parallel_responses + merge_strategy (refactor invariant — architect medium fix)", () => {
+  // After the consensusMerge.ts extraction, the ABORT branch now attaches
+  // both parallel_responses and merge_strategy to the BosOutput. Earlier,
+  // buildAbortOutput returned a bare BosOutput. Pin this contract so a
+  // future refactor can't silently drop the fields and leave the audit
+  // chain unable to identify the aborter.
+  const responses = [
+    mkResp({ model: "go-1", state: "GO", confidence: 0.8 }),
+    mkResp({ model: "aborter", state: "ABORT", confidence: 0.5 }),
+  ];
+  const merged = mergeParallelResponses(responses, "consensus");
+  assert.equal(merged.state, "ABORT", "ABORT veto should produce state=ABORT");
+  assert.equal(merged.merge_strategy, "majority_vote_consensus", "ABORT output must carry merge_strategy");
+  assert.ok(Array.isArray(merged.parallel_responses), "ABORT output must carry parallel_responses");
+  assert.equal(merged.parallel_responses.length, responses.length, "all responses must be present in ABORT output");
+  const aborter = merged.parallel_responses.find((r) => r.state === "ABORT");
+  assert.ok(aborter?.selected, "the ABORT row must be selected:true so the audit chain identifies the aborter");
+});
+
+test("consensus with multiple ABORT responses selects one ABORT row (sorted-first by confidence)", () => {
+  // After the desc-by-confidence sort, the higher-confidence ABORT comes first
+  // and is the one .find() lands on. This pins the deterministic tiebreak.
+  const responses = [
+    mkResp({ model: "abort-lo", state: "ABORT", confidence: 0.4 }),
+    mkResp({ model: "go-mid", state: "GO", confidence: 0.6 }),
+    mkResp({ model: "abort-hi", state: "ABORT", confidence: 0.9 }),
+  ];
+  const merged = mergeParallelResponses(responses, "consensus");
+  assert.equal(merged.state, "ABORT");
+  const selected = merged.parallel_responses.filter((r) => r.selected);
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0].model, "abort-hi", "highest-confidence ABORT should be selected after desc sort");
+});
+
+test("consensus all-HOLD (no GO majority, no ABORT) returns HOLD with majority_vote_consensus strategy", () => {
+  const responses = [
+    mkResp({ state: "HOLD", confidence: 0.3 }),
+    mkResp({ state: "HOLD", confidence: 0.5 }),
+    mkResp({ state: "HOLD", confidence: 0.4 }),
+  ];
+  const merged = mergeParallelResponses(responses, "consensus");
+  assert.equal(merged.merge_strategy, "majority_vote_consensus");
+  assert.equal(merged.state, "HOLD");
+});
+
+test("non-consensus mode (parallel) uses best_confidence_merge, not majority_vote_consensus", () => {
+  // Guards against accidentally routing parallel mode through the consensus
+  // branch — the merge_strategy string is the public marker for this.
+  const responses = [
+    mkResp({ state: "GO", confidence: 0.9 }),
+    mkResp({ state: "GO", confidence: 0.5 }),
+  ];
+  const merged = mergeParallelResponses(responses, "parallel");
+  assert.equal(merged.merge_strategy, "best_confidence_merge");
 });
 
 test("BTO synthesis success-flag with empty body is treated as failure by the engine (architect medium fix)", () => {
