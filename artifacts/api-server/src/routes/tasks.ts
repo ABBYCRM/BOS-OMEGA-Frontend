@@ -39,6 +39,14 @@ router.post("/", expensiveLimiter, async (req, res) => {
       persona: (parsed.data.persona as "legal" | "engineering" | "cyber" | undefined) || undefined,
     });
 
+    // Tag the new task with the creating user's id so the audit trail can
+    // attribute work back to a person. The pipeline itself doesn't know the
+    // session, so we patch the row here in a single follow-up update.
+    if (req.user?.id) {
+      await db.update(tasksTable).set({ user_id: req.user.id }).where(eq(tasksTable.id, result.task_id))
+        .catch((err) => req.log.warn({ err, task_id: result.task_id }, "Failed to set user_id on task"));
+    }
+
     const task_rows = await db.select().from(tasksTable).where(eq(tasksTable.id, result.task_id)).limit(1);
     const task = task_rows[0];
     // Merge run_id and execution_mode into the response

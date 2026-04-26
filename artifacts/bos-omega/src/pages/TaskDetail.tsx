@@ -1,6 +1,7 @@
 import { useRoute } from "wouter";
 import { useGetTask } from "@workspace/api-client-react";
 import { TriStateBadge, TaskStatusBadge } from "@/components/StatusBadge";
+import { OverrideActions } from "@/components/OverrideActions";
 import { formatDate, formatMs, formatCost } from "@/lib/utils";
 import { Link } from "wouter";
 import { ArrowLeft, CheckCircle, XCircle } from "lucide-react";
@@ -29,6 +30,13 @@ export function TaskDetail() {
   }
 
   const { task, attempts = [], validation = [], fallbacks = [], audit = [], bos_output } = data;
+  // Pull a run id from the audit metadata if the pipeline stamped one. Falls
+  // back to whatever the latest run-related event references.
+  const runId =
+    (audit
+      .map((e) => (e.metadata as Record<string, unknown> | null | undefined)?.["run_id"])
+      .filter((v): v is string => typeof v === "string" && v.length > 0)
+      .pop()) ?? null;
 
   return (
     <div className="max-w-5xl mx-auto space-y-5">
@@ -62,6 +70,9 @@ export function TaskDetail() {
           </div>
         )}
       </div>
+
+      {/* Super-admin overrides */}
+      <OverrideActions taskId={id} runId={runId} />
 
       {/* Pipeline trace */}
       <div className="bg-card border border-card-border rounded-lg p-5">

@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import { logout } from "@/lib/auth";
+import { fetchAuthState, logout, roleLabel, type AuthUser } from "@/lib/auth";
 import {
   Terminal,
   Server,
@@ -12,6 +12,7 @@ import {
   HardDrive,
   ScrollText,
   Settings,
+  Users as UsersIcon,
   ShieldCheck,
   LogOut,
 } from "lucide-react";
@@ -35,7 +36,19 @@ function LogoutButton() {
   );
 }
 
-const navSections = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof Terminal;
+  superAdminOnly?: boolean;
+};
+
+type NavSection = {
+  label: string;
+  items: NavItem[];
+};
+
+const navSections: NavSection[] = [
   {
     label: "Operate",
     items: [
@@ -57,6 +70,7 @@ const navSections = [
     label: "Governance",
     items: [
       { href: "/audit", label: "Audit Log", icon: ScrollText },
+      { href: "/users", label: "Users", icon: UsersIcon, superAdminOnly: true },
       { href: "/settings", label: "Settings", icon: Settings },
     ],
   },
@@ -64,8 +78,45 @@ const navSections = [
 
 const flatNav = navSections.flatMap((s) => s.items);
 
+function visibleSections(user: AuthUser | undefined): NavSection[] {
+  return navSections
+    .map((s) => ({
+      ...s,
+      items: s.items.filter((i) => !i.superAdminOnly || user?.role === "super_admin"),
+    }))
+    .filter((s) => s.items.length > 0);
+}
+
+function RoleBadge({ role }: { role: AuthUser["role"] }) {
+  const tone =
+    role === "super_admin"
+      ? "border-amber-300 bg-amber-50 text-amber-800"
+      : role === "admin"
+        ? "border-blue-300 bg-blue-50 text-blue-800"
+        : "border-border bg-secondary text-foreground";
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 px-2 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded border",
+        tone,
+      )}
+      data-testid="badge-role"
+    >
+      {roleLabel(role)}
+    </span>
+  );
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
+  const { data: auth } = useQuery({
+    queryKey: ["auth-state"],
+    queryFn: fetchAuthState,
+    staleTime: 30_000,
+    retry: false,
+  });
+  const user = auth?.authenticated ? auth.user : undefined;
+  const sections = visibleSections(user);
   const currentItem = flatNav.find(
     (n) => n.href === location || (n.href === "/console" && location === "/"),
   );
@@ -100,7 +151,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Nav */}
         <nav className="flex-1 py-3 overflow-y-auto">
-          {navSections.map((section) => (
+          {sections.map((section) => (
             <div key={section.label} className="mb-4">
               <div className="px-5 mb-1.5 text-[10px] uppercase tracking-[0.12em] text-muted-foreground/70 font-semibold">
                 {section.label}
@@ -117,6 +168,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                           ? "bg-card text-foreground shadow-card font-medium"
                           : "text-sidebar-foreground hover:bg-sidebar-accent",
                       )}
+                      data-testid={`nav-${item.href.replace(/^\//, "") || "home"}`}
                     >
                       <Icon
                         className={cn(
@@ -166,6 +218,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <ShieldCheck className="w-3.5 h-3.5 text-green-700" />
               <span>SOC2-ready · encrypted</span>
             </div>
+            {user && (
+              <>
+                <div className="w-px h-4 bg-border" />
+                <div className="flex items-center gap-2">
+                  <span className="text-[11.5px] font-mono text-foreground" data-testid="text-user-email">
+                    {user.email}
+                  </span>
+                  <RoleBadge role={user.role} />
+                </div>
+              </>
+            )}
           </div>
         </div>
 

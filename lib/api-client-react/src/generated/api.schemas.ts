@@ -604,6 +604,178 @@ export interface TriStateDecision {
   created_at?: string;
 }
 
+export type AuthUserRole = (typeof AuthUserRole)[keyof typeof AuthUserRole];
+
+export const AuthUserRole = {
+  user: "user",
+  admin: "admin",
+  super_admin: "super_admin",
+} as const;
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  role: AuthUserRole;
+}
+
+export interface AuthMeResponse {
+  authenticated: boolean;
+  user?: AuthUser;
+}
+
+export interface LoginBody {
+  email: string;
+  /** @minLength 1 */
+  password: string;
+}
+
+export interface LoginResponse {
+  ok: boolean;
+  user: AuthUser;
+}
+
+export type UserRole = (typeof UserRole)[keyof typeof UserRole];
+
+export const UserRole = {
+  user: "user",
+  admin: "admin",
+  super_admin: "super_admin",
+} as const;
+
+export type UserStatus = (typeof UserStatus)[keyof typeof UserStatus];
+
+export const UserStatus = {
+  active: "active",
+  disabled: "disabled",
+} as const;
+
+export interface User {
+  id: string;
+  email: string;
+  role: UserRole;
+  status: UserStatus;
+  created_at: string;
+  updated_at: string;
+  last_login_at?: string | null;
+}
+
+export interface UserListResponse {
+  users: User[];
+}
+
+export interface UserEnvelope {
+  user: User;
+}
+
+export type CreateUserBodyRole =
+  (typeof CreateUserBodyRole)[keyof typeof CreateUserBodyRole];
+
+export const CreateUserBodyRole = {
+  user: "user",
+  admin: "admin",
+  super_admin: "super_admin",
+} as const;
+
+export interface CreateUserBody {
+  email: string;
+  /**
+   * @minLength 8
+   * @maxLength 256
+   */
+  password: string;
+  role: CreateUserBodyRole;
+}
+
+export type UpdateUserBodyRole =
+  (typeof UpdateUserBodyRole)[keyof typeof UpdateUserBodyRole];
+
+export const UpdateUserBodyRole = {
+  user: "user",
+  admin: "admin",
+  super_admin: "super_admin",
+} as const;
+
+export type UpdateUserBodyStatus =
+  (typeof UpdateUserBodyStatus)[keyof typeof UpdateUserBodyStatus];
+
+export const UpdateUserBodyStatus = {
+  active: "active",
+  disabled: "disabled",
+} as const;
+
+export interface UpdateUserBody {
+  role?: UpdateUserBodyRole;
+  status?: UpdateUserBodyStatus;
+}
+
+export interface ResetPasswordResponse {
+  ok: boolean;
+  temporary_password: string;
+  user: User;
+}
+
+export interface UnlockTaskBody {
+  task_id: string;
+  /**
+   * @minLength 3
+   * @maxLength 2000
+   */
+  reason: string;
+}
+
+export type ForceTriStateBodyDecision =
+  (typeof ForceTriStateBodyDecision)[keyof typeof ForceTriStateBodyDecision];
+
+export const ForceTriStateBodyDecision = {
+  GO: "GO",
+  HOLD: "HOLD",
+  ABORT: "ABORT",
+} as const;
+
+export interface ForceTriStateBody {
+  task_id: string;
+  decision: ForceTriStateBodyDecision;
+  /**
+   * @minLength 3
+   * @maxLength 2000
+   */
+  reason: string;
+}
+
+export interface ResetRunBody {
+  run_id: string;
+  /**
+   * @minLength 3
+   * @maxLength 2000
+   */
+  reason: string;
+}
+
+export interface OverrideTaskResponse {
+  ok: boolean;
+  task_id: string;
+}
+
+export type OverrideTriStateResponseTriState =
+  (typeof OverrideTriStateResponseTriState)[keyof typeof OverrideTriStateResponseTriState];
+
+export const OverrideTriStateResponseTriState = {
+  GO: "GO",
+  HOLD: "HOLD",
+  ABORT: "ABORT",
+} as const;
+
+export interface OverrideTriStateResponse {
+  ok: boolean;
+  task_id: string;
+  tri_state: OverrideTriStateResponseTriState;
+}
+
+export interface OverrideRunResponse {
+  ok: boolean;
+  run_id: string;
+}
+
 export type ListTasksParams = {
   limit?: number;
   offset?: number;
@@ -642,6 +814,10 @@ export type UploadFileBody = {
 export type DeleteAttachment200 = {
   ok: boolean;
   deleted: string;
+};
+
+export type AuthLogout200 = {
+  ok: boolean;
 };
 
 export type ListTriStateDecisionsParams = {

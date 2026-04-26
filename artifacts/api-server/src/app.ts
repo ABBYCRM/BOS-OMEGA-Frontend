@@ -5,7 +5,7 @@ import pinoHttp from "pino-http";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
 import { seed } from "./db/seed.js";
-import { initAdminPassword } from "./lib/security/auth.js";
+import { seedSuperAdminIfEmpty } from "./lib/security/auth.js";
 import { errorHandler, notFoundHandler } from "./lib/security/errors.js";
 
 const app: Express = express();
@@ -81,10 +81,15 @@ app.use("/api", router);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-void initAdminPassword().catch((err) => {
-  logger.fatal({ err }, "Admin password initialization failed");
-  process.exit(1);
-});
-seed().catch((err) => logger.error({ err }, "Seed failed"));
+// Seed providers/models first so the users-table seed runs against a fully
+// migrated DB (and so we don't race with the first request).
+seed()
+  .catch((err) => logger.error({ err }, "Seed failed"))
+  .finally(() => {
+    void seedSuperAdminIfEmpty().catch((err) => {
+      logger.fatal({ err }, "Super-admin seed failed");
+      process.exit(1);
+    });
+  });
 
 export default app;

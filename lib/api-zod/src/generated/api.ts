@@ -904,6 +904,181 @@ export const DeleteAttachmentResponse = zod.object({
 });
 
 /**
+ * @summary Current authenticated user
+ */
+export const GetAuthMeResponse = zod.object({
+  authenticated: zod.boolean(),
+  user: zod
+    .object({
+      id: zod.string(),
+      email: zod.string(),
+      role: zod.enum(["user", "admin", "super_admin"]),
+    })
+    .optional(),
+});
+
+/**
+ * @summary Sign in with email + password
+ */
+
+export const AuthLoginBody = zod.object({
+  email: zod.string().email(),
+  password: zod.string().min(1),
+});
+
+export const AuthLoginResponse = zod.object({
+  ok: zod.boolean(),
+  user: zod.object({
+    id: zod.string(),
+    email: zod.string(),
+    role: zod.enum(["user", "admin", "super_admin"]),
+  }),
+});
+
+/**
+ * @summary Sign out (clear session cookie)
+ */
+export const AuthLogoutResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * @summary List all users (super_admin only)
+ */
+export const ListUsersResponse = zod.object({
+  users: zod.array(
+    zod.object({
+      id: zod.string(),
+      email: zod.string(),
+      role: zod.enum(["user", "admin", "super_admin"]),
+      status: zod.enum(["active", "disabled"]),
+      created_at: zod.string(),
+      updated_at: zod.string(),
+      last_login_at: zod.string().nullish(),
+    }),
+  ),
+});
+
+/**
+ * @summary Create a new user (super_admin only)
+ */
+export const createUserBodyPasswordMin = 8;
+export const createUserBodyPasswordMax = 256;
+
+export const CreateUserBody = zod.object({
+  email: zod.string().email(),
+  password: zod
+    .string()
+    .min(createUserBodyPasswordMin)
+    .max(createUserBodyPasswordMax),
+  role: zod.enum(["user", "admin", "super_admin"]),
+});
+
+/**
+ * @summary Update a user's role or status (super_admin only)
+ */
+export const UpdateUserParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const UpdateUserBody = zod.object({
+  role: zod.enum(["user", "admin", "super_admin"]).optional(),
+  status: zod.enum(["active", "disabled"]).optional(),
+});
+
+export const UpdateUserResponse = zod.object({
+  user: zod.object({
+    id: zod.string(),
+    email: zod.string(),
+    role: zod.enum(["user", "admin", "super_admin"]),
+    status: zod.enum(["active", "disabled"]),
+    created_at: zod.string(),
+    updated_at: zod.string(),
+    last_login_at: zod.string().nullish(),
+  }),
+});
+
+/**
+ * @summary Reset a user's password to a one-time temporary value (super_admin only)
+ */
+export const ResetUserPasswordParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ResetUserPasswordResponse = zod.object({
+  ok: zod.boolean(),
+  temporary_password: zod.string(),
+  user: zod.object({
+    id: zod.string(),
+    email: zod.string(),
+    role: zod.enum(["user", "admin", "super_admin"]),
+    status: zod.enum(["active", "disabled"]),
+    created_at: zod.string(),
+    updated_at: zod.string(),
+    last_login_at: zod.string().nullish(),
+  }),
+});
+
+/**
+ * @summary Force-release a HOLD-state task (super_admin only, audited)
+ */
+export const overrideUnlockTaskBodyReasonMin = 3;
+export const overrideUnlockTaskBodyReasonMax = 2000;
+
+export const OverrideUnlockTaskBody = zod.object({
+  task_id: zod.string(),
+  reason: zod
+    .string()
+    .min(overrideUnlockTaskBodyReasonMin)
+    .max(overrideUnlockTaskBodyReasonMax),
+});
+
+export const OverrideUnlockTaskResponse = zod.object({
+  ok: zod.boolean(),
+  task_id: zod.string(),
+});
+
+/**
+ * @summary Force a tri-state decision past a stuck state (super_admin only, audited)
+ */
+export const overrideForceTriStateBodyReasonMin = 3;
+export const overrideForceTriStateBodyReasonMax = 2000;
+
+export const OverrideForceTriStateBody = zod.object({
+  task_id: zod.string(),
+  decision: zod.enum(["GO", "HOLD", "ABORT"]),
+  reason: zod
+    .string()
+    .min(overrideForceTriStateBodyReasonMin)
+    .max(overrideForceTriStateBodyReasonMax),
+});
+
+export const OverrideForceTriStateResponse = zod.object({
+  ok: zod.boolean(),
+  task_id: zod.string(),
+  tri_state: zod.enum(["GO", "HOLD", "ABORT"]),
+});
+
+/**
+ * @summary Cancel / reset a stuck execution run (super_admin only, audited)
+ */
+export const overrideResetRunBodyReasonMin = 3;
+export const overrideResetRunBodyReasonMax = 2000;
+
+export const OverrideResetRunBody = zod.object({
+  run_id: zod.string(),
+  reason: zod
+    .string()
+    .min(overrideResetRunBodyReasonMin)
+    .max(overrideResetRunBodyReasonMax),
+});
+
+export const OverrideResetRunResponse = zod.object({
+  ok: zod.boolean(),
+  run_id: zod.string(),
+});
+
+/**
  * @summary List recent tri-state decisions
  */
 export const listTriStateDecisionsQueryLimitDefault = 50;

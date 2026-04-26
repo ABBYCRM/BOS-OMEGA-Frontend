@@ -28,6 +28,12 @@ tags:
     description: Qubit-inspired tri-state decision vectors
   - name: uploads
     description: File and media uploads (text, code, documents, images, audio, video)
+  - name: auth
+    description: Authentication and the current user
+  - name: users
+    description: User management (super_admin only)
+  - name: overrides
+    description: Super-admin overrides on stuck or held workflows
 paths:
   /healthz:
     get:
@@ -713,6 +719,233 @@ paths:
                   ok: { type: boolean }
                   deleted: { type: string }
                 required: [ok, deleted]
+
+  /auth/me:
+    get:
+      operationId: getAuthMe
+      tags: [auth]
+      summary: Current authenticated user
+      responses:
+        "200":
+          description: Auth state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthMeResponse"
+
+  /auth/login:
+    post:
+      operationId: authLogin
+      tags: [auth]
+      summary: Sign in with email + password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginBody"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: authLogout
+      tags: [auth]
+      summary: Sign out (clear session cookie)
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                required: [ok]
+
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List all users (super_admin only)
+      responses:
+        "200":
+          description: User list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserListResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create a new user (super_admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserEnvelope"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Email already in use
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users/{id}:
+    patch:
+      operationId: updateUser
+      tags: [users]
+      summary: Update a user's role or status (super_admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserEnvelope"
+        "400":
+          description: Invalid request or self-modification blocked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users/{id}/reset-password:
+    post:
+      operationId: resetUserPassword
+      tags: [users]
+      summary: Reset a user's password to a one-time temporary value (super_admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Password reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResetPasswordResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /overrides/unlock-task:
+    post:
+      operationId: overrideUnlockTask
+      tags: [overrides]
+      summary: Force-release a HOLD-state task (super_admin only, audited)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UnlockTaskBody"
+      responses:
+        "200":
+          description: Unlocked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OverrideTaskResponse"
+        "400": { description: Invalid, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "404": { description: Not found, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "409": { description: Not on HOLD, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+
+  /overrides/force-tri-state:
+    post:
+      operationId: overrideForceTriState
+      tags: [overrides]
+      summary: Force a tri-state decision past a stuck state (super_admin only, audited)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForceTriStateBody"
+      responses:
+        "200":
+          description: Forced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OverrideTriStateResponse"
+        "400": { description: Invalid, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "404": { description: Not found, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+
+  /overrides/reset-run:
+    post:
+      operationId: overrideResetRun
+      tags: [overrides]
+      summary: Cancel / reset a stuck execution run (super_admin only, audited)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetRunBody"
+      responses:
+        "200":
+          description: Reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OverrideRunResponse"
+        "400": { description: Invalid, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "404": { description: Not found, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "409": { description: Already terminal, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
 
   /tri-state:
     get:
@@ -1491,3 +1724,184 @@ components:
         created_at:
           type: string
       required: [id, go_score, hold_score, abort_score, collapse_reason, final_state]
+
+    AuthMeResponse:
+      type: object
+      properties:
+        authenticated:
+          type: boolean
+        user:
+          $ref: "#/components/schemas/AuthUser"
+      required: [authenticated]
+
+    AuthUser:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [user, admin, super_admin]
+      required: [id, email, role]
+
+    LoginBody:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 1
+      required: [email, password]
+
+    LoginResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        user:
+          $ref: "#/components/schemas/AuthUser"
+      required: [ok, user]
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [user, admin, super_admin]
+        status:
+          type: string
+          enum: [active, disabled]
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        last_login_at:
+          type: string
+          nullable: true
+      required: [id, email, role, status, created_at, updated_at]
+
+    UserListResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+      required: [users]
+
+    UserEnvelope:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+      required: [user]
+
+    CreateUserBody:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 256
+        role:
+          type: string
+          enum: [user, admin, super_admin]
+      required: [email, password, role]
+
+    UpdateUserBody:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [user, admin, super_admin]
+        status:
+          type: string
+          enum: [active, disabled]
+
+    ResetPasswordResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        temporary_password:
+          type: string
+        user:
+          $ref: "#/components/schemas/User"
+      required: [ok, temporary_password, user]
+
+    UnlockTaskBody:
+      type: object
+      properties:
+        task_id:
+          type: string
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 2000
+      required: [task_id, reason]
+
+    ForceTriStateBody:
+      type: object
+      properties:
+        task_id:
+          type: string
+        decision:
+          type: string
+          enum: [GO, HOLD, ABORT]
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 2000
+      required: [task_id, decision, reason]
+
+    ResetRunBody:
+      type: object
+      properties:
+        run_id:
+          type: string
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 2000
+      required: [run_id, reason]
+
+    OverrideTaskResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        task_id:
+          type: string
+      required: [ok, task_id]
+
+    OverrideTriStateResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        task_id:
+          type: string
+        tri_state:
+          type: string
+          enum: [GO, HOLD, ABORT]
+      required: [ok, task_id, tri_state]
+
+    OverrideRunResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        run_id:
+          type: string
+      required: [ok, run_id]

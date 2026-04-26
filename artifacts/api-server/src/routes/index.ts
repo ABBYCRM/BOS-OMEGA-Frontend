@@ -10,6 +10,8 @@ import runsRouter from "./runs.js";
 import triStateRouter from "./triState.js";
 import authRouter from "./auth.js";
 import uploadsRouter from "./uploads.js";
+import usersRouter from "./users.js";
+import overridesRouter from "./overrides.js";
 import { requireAuth } from "../lib/security/auth.js";
 import { readLimiter, writeLimiter } from "../lib/security/rateLimit.js";
 
@@ -43,5 +45,7 @@ router.use("/fallback-events", fallbackRouter);
 router.use("/runs", runsRouter);
 router.use("/tri-state", triStateRouter);
 router.use("/uploads", uploadsRouter);
+router.use("/users", usersRouter);
+router.use("/overrides", overridesRouter);
 
 export default router;

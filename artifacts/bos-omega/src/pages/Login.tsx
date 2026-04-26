@@ -1,19 +1,21 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Lock, ShieldCheck, KeyRound, Loader2 } from "lucide-react";
+import { Lock, ShieldCheck, KeyRound, Mail, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { login } from "@/lib/auth";
 
 export function Login() {
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const qc = useQueryClient();
 
   const mut = useMutation({
-    mutationFn: async (pw: string) => {
-      const result = await login(pw);
+    mutationFn: async (creds: { email: string; password: string }) => {
+      const result = await login(creds.email, creds.password);
       if (!result.ok) throw new Error(result.error);
+      return result.user;
     },
     onSuccess: () => {
       setError(null);
@@ -26,8 +28,8 @@ export function Login() {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!password) return;
-    mut.mutate(password);
+    if (!email || !password) return;
+    mut.mutate({ email, password });
   };
 
   return (
@@ -41,33 +43,46 @@ export function Login() {
             BOS-Omega
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Orchestration platform — admin sign in
+            Orchestration platform — sign in
           </p>
         </div>
 
         <div className="bg-card border border-border rounded-lg shadow-card p-6">
           <form onSubmit={onSubmit} className="space-y-4">
-            <input
-              type="text"
-              name="username"
-              autoComplete="username"
-              value="admin"
-              readOnly
-              hidden
-              aria-hidden="true"
-            />
+            <div>
+              <label
+                htmlFor="email"
+                className="text-sm font-medium text-foreground flex items-center gap-2 mb-2"
+              >
+                <Mail className="w-3.5 h-3.5 text-muted-foreground" />
+                Email
+              </label>
+              <Input
+                id="email"
+                type="email"
+                autoFocus
+                autoComplete="username"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (error) setError(null);
+                }}
+                disabled={mut.isPending}
+                placeholder="you@example.com"
+                data-testid="input-email"
+              />
+            </div>
             <div>
               <label
                 htmlFor="password"
                 className="text-sm font-medium text-foreground flex items-center gap-2 mb-2"
               >
                 <KeyRound className="w-3.5 h-3.5 text-muted-foreground" />
-                Admin password
+                Password
               </label>
               <Input
                 id="password"
                 type="password"
-                autoFocus
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => {
@@ -75,7 +90,7 @@ export function Login() {
                   if (error) setError(null);
                 }}
                 disabled={mut.isPending}
-                placeholder="Enter admin password"
+                placeholder="Enter your password"
                 data-testid="input-password"
               />
             </div>
@@ -92,7 +107,7 @@ export function Login() {
 
             <Button
               type="submit"
-              disabled={mut.isPending || !password}
+              disabled={mut.isPending || !email || !password}
               className="w-full"
               data-testid="button-login"
             >
