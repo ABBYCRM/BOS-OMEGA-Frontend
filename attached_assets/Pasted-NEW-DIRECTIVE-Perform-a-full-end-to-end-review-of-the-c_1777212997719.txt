@@ -1,0 +1,135 @@
+NEW DIRECTIVE:
+Perform a full end-to-end review of the cancelled Task #4 PowerShell subsystem.
+
+OBJECTIVE:
+Determine:
+1. Whether the PowerShell subsystem currently functions correctly end-to-end
+2. What portions are production-usable today
+3. What portions conflict with the new Local Automation Agent architecture
+4. How to preserve operational capability during migration without shipping unsafe architecture
+
+IMPORTANT:
+The PowerShell/local-command capability is still a required product function.
+Do NOT break or remove working functionality unless replacement coverage exists.
+Review for migration, compatibility, and interim operational safety.
+
+======================================================================
+REQUIRED REVIEW AREAS
+======================================================================
+
+1. FUNCTIONAL END-TO-END REVIEW
+Verify complete runtime behavior of:
+- Pairing flow
+- Agent registration
+- Agent reconnect/revoke/unpair
+- Command creation
+- Approval/rejection/cancel flow
+- WS/SSE real-time updates
+- Output streaming/chunking
+- Heartbeat/stale detection
+- LLM tool invocation path
+- Tool marker parsing
+- Multi-agent targeting
+- Timeout / cancellation behavior
+- Audit event generation
+- Script download/install/uninstall flow
+
+2. SECURITY / ARCHITECTURE REVIEW
+Assess:
+- Arbitrary command execution exposure
+- Raw shell passthrough risks
+- Approval bypass vectors
+- Policy parser weaknesses
+- Replay/signing/auth weaknesses
+- Cross-command / cross-agent injection risks
+- Audit integrity gaps
+- Transport security gaps
+- Pairing/token trust model weaknesses
+- Multi-user / tenant isolation concerns
+
+3. NEW ARCHITECTURE COMPATIBILITY REVIEW
+For every subsystem/component:
+Classify:
+- COMPATIBLE_AS_IS
+- COMPATIBLE_WITH_REFACTOR
+- INCOMPATIBLE_REQUIRES_REPLACEMENT
+
+4. INTERIM OPERATIONAL PLAN
+If subsystem is functional but architecturally non-compliant:
+Recommend whether to:
+- Keep temporarily behind strict feature flag
+- Restrict to dev/internal only
+- Restrict to trusted/admin users only
+- Disable entirely pending replacement
+
+======================================================================
+MANDATORY CONSTRAINT
+======================================================================
+
+PowerShell/local execution capability remains a required feature.
+
+DO NOT recommend removal without replacement path.
+
+If current subsystem can operate safely as interim:
+Provide hardening steps / temporary guardrails.
+
+If current subsystem is unsafe even for interim:
+State explicitly and explain why.
+
+======================================================================
+OUTPUT FORMAT
+======================================================================
+
+Return:
+
+POWERSHELL_SUBSYSTEM_END_TO_END_REVIEW
+├── Executive Summary
+│   ├── Functional Status
+│   ├── Security Status
+│   ├── Architectural Status
+│   └── Interim Ship Recommendation
+│
+├── Functional Validation Matrix
+│   ├── Feature
+│   ├── Status
+│   ├── Evidence
+│   └── Defects
+│
+├── Security Review
+│   ├── Finding
+│   ├── Severity
+│   ├── Impact
+│   ├── Exploitability
+│   └── Fix
+│
+├── Architecture Compatibility Matrix
+│   ├── Component
+│   ├── Compatibility Status
+│   ├── Migration Path
+│   └── Notes
+│
+├── Interim Hardening Recommendations
+│   ├── Required Immediate Changes
+│   ├── Feature Flags / Restrictions
+│   └── Temporary Safeguards
+│
+├── Migration / Replacement Plan
+│   ├── Preserve
+│   ├── Refactor
+│   ├── Replace
+│   └── Sequence
+│
+└── Final Recommendation
+    ├── KEEP_INTERIM
+    ├── KEEP_WITH_HARDENING
+    ├── DEV_ONLY
+    └── DISABLE
+
+FINAL RULES:
+- Be exhaustive.
+- Be evidence-based.
+- Preserve required functionality where safe.
+- Do not drift into theoretical redesign only.
+- Evaluate real operational viability.
+
+Proceed immediately.

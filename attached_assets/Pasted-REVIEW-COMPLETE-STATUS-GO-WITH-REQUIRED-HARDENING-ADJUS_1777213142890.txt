@@ -1,0 +1,131 @@
+REVIEW COMPLETE
+
+STATUS:
+GO WITH REQUIRED HARDENING ADJUSTMENTS
+
+Overall assessment:
+- Task #32 (Multi-User & Enterprise Hooks) is architecturally sound
+- Task #33 (Master Orchestration & Crosswalk) is structurally sound
+- Both align with approved Local Automation Agent direction
+
+Approve after incorporating the following adjustments.
+
+======================================================================
+TASK #32 — REQUIRED HARDENING ADJUSTMENTS
+======================================================================
+
+1. SESSION TRUST CLARIFICATION
+Add explicit note:
+
+- windows_session is advisory/binding metadata only
+- It MUST NOT be treated as an authentication factor
+- It MUST NOT be used for privilege escalation decisions
+- Device cryptographic identity remains sole machine-trust root
+
+(Your notes imply this; make it explicit in schema/contract comments.)
+
+----------------------------------------------------------------------
+2. ORG ENROLLMENT SECRET HARDENING
+Add requirements:
+
+- Enrollment secrets must be hashed at rest
+- Must support rotation/revocation
+- Must support expiration/TTL
+- Must be auditable
+- Must be scoped to org_id
+- Must support one-time or reusable modes via config
+
+----------------------------------------------------------------------
+3. POLICY LOCK PRECEDENCE RULE
+Define explicitly:
+
+Policy precedence order:
+ORG_LOCKED > SERVER_POLICY > DEVICE_LOCAL_POLICY > USER_PREFERENCE
+
+Without this, future policy merges may drift.
+
+----------------------------------------------------------------------
+4. SESSION-BINDING FAILURE MODE
+Add edge-case handling for:
+
+- Approval granted in session A
+- Session A terminates before execution
+- Same user logs in as new session B
+
+Define expected behavior explicitly:
+(default recommendation = reject, require reapproval)
+
+----------------------------------------------------------------------
+5. ADMIN-DEPLOYMENT THREAT MODEL
+Add explicit risks/mitigations for:
+
+- Stolen enrollment secret
+- Rogue admin deployment
+- Mis-scoped org enrollment
+- Shared deployment package leakage
+
+----------------------------------------------------------------------
+6. ENTERPRISE OFFBOARDING / DEVICE TRANSFER
+Add design note for future compatibility:
+
+- Device org reassignment / transfer path
+- Org unenroll / re-enroll semantics
+- Behavior when org deleted/disabled
+
+======================================================================
+TASK #33 — REQUIRED HARDENING ADJUSTMENTS
+======================================================================
+
+1. VERSIONING REQUIREMENT
+MASTER_PLAN.md must include:
+
+- Version / revision field
+- Last updated timestamp
+- Updated by / approver
+- Architectural baseline version
+
+Without versioning, orchestration docs drift silently.
+
+----------------------------------------------------------------------
+2. CHANGE CONTROL RULE
+Add:
+
+- Any task mutation affecting dependencies/ownership requires MASTER_PLAN update in same PR/change set
+- CI/Review checklist should enforce this manually/process-wise
+
+----------------------------------------------------------------------
+3. RISK REGISTER SECTION
+Add section H:
+
+H. Risk Register
+- Architectural risks
+- Dependency bottlenecks
+- Deferred-environment risks
+- Known unknowns / blocked assumptions
+
+This helps operators understand roadmap fragility.
+
+----------------------------------------------------------------------
+4. INTERFACE FREEZE TABLE
+Add explicit appendix/table:
+
+- Canonical interfaces/contracts produced by each task
+- Which downstream tasks consume them
+- Which interfaces are considered frozen/stable
+
+Prevents accidental contract drift.
+
+======================================================================
+FINAL APPROVAL STATUS
+======================================================================
+
+After above adjustments:
+
+APPROVE TASK #32
+APPROVE TASK #33
+
+No major architectural conflicts found.
+No overlap concerns found.
+No dependency issues identified.
+
+Proceed after patching.

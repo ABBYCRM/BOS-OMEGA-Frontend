@@ -1,0 +1,98 @@
+TASK: IMPLEMENT OWNER BREAK-GLASS SUPER ADMIN ACCOUNT
+
+OBJECTIVE:
+Guarantee that the owner account always exists as a functional super admin login, regardless of database/user changes.
+
+OWNER ACCOUNT:
+- Email: paisabrazilfl@gmail.com
+
+SECURITY REQUIREMENT:
+DO NOT hardcode plaintext password in application code, migrations, seed files, or repository.
+
+Instead:
+- Store owner bootstrap password in secure secret/env var:
+  OWNER_SUPERADMIN_BOOTSTRAP_PASSWORD
+- Hash password before persistence using normal auth hashing flow
+- Owner may later rotate password through normal account settings
+
+======================================================================
+REQUIRED BEHAVIOR
+======================================================================
+
+Implement an "Owner Super Admin Reconciliation" routine that runs:
+- On application boot
+- And optionally on periodic interval / admin repair endpoint
+
+Routine must:
+
+1. Find user by owner email
+2. If missing:
+   - Create account
+   - Assign super_admin role
+   - Mark active/enabled
+   - Set password from OWNER_SUPERADMIN_BOOTSTRAP_PASSWORD
+3. If exists:
+   - Force role = super_admin
+   - Force active/enabled = true
+   - Prevent disable/lockout flags
+4. If password reset/repair mode desired:
+   - Support optional bootstrap flag to reset password ONLY when explicitly enabled
+   - Do NOT overwrite password every boot by default
+
+======================================================================
+PROTECTION RULES
+======================================================================
+
+The owner account MUST:
+- Be immune to demotion below super_admin
+- Be immune to disable/deactivation
+- Be immune to deletion through normal admin UI/API
+- Require explicit break-glass override path for destructive changes
+
+Any attempt to modify protected owner account:
+- Audit log event required
+- Deny unless explicit protected override flow used
+
+======================================================================
+IMPLEMENTATION DETAILS
+======================================================================
+
+Add:
+1. Config:
+   OWNER_SUPERADMIN_EMAIL
+   OWNER_SUPERADMIN_BOOTSTRAP_PASSWORD
+
+2. Boot Reconciliation Service:
+   reconcileOwnerSuperAdmin()
+
+3. Auth/User Guardrails:
+   - Block delete of protected owner account
+   - Block demotion of protected owner account
+   - Block disable of protected owner account
+
+4. Audit Events:
+   - OWNER_ACCOUNT_CREATED
+   - OWNER_ACCOUNT_REPAIRED
+   - OWNER_ACCOUNT_PROTECTED_MUTATION_BLOCKED
+
+======================================================================
+OUTPUT REQUIRED
+======================================================================
+
+Return:
+OWNER_SUPER_ADMIN_IMPLEMENTATION_REPORT
+├── Files Changed
+├── Reconciliation Logic Added
+├── Mutation Protections Added
+├── Audit Logging Added
+├── Env Vars Required
+├── Test Cases Added
+└── Verification Results
+
+FINAL RULES:
+- Do not use "seed only if users table empty"
+- Do not rely on one-time migrations
+- Do not hardcode plaintext secrets
+- Do not overwrite password every boot unless explicit reset mode enabled
+
+Proceed.
