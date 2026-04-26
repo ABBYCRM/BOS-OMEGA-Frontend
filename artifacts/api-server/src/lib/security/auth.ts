@@ -185,7 +185,7 @@ export async function ensureOwnerSuperAdmin(): Promise<void> {
       role: "super_admin",
       status: "active",
     });
-    logger.warn({ email }, "Owner default super_admin ensured (created)");
+    logger.info({ email }, "Owner default super_admin ensured (created)");
     return;
   }
 
@@ -198,7 +198,7 @@ export async function ensureOwnerSuperAdmin(): Promise<void> {
       updated_at: new Date(),
     })
     .where(eq(usersTable.id, existing.id));
-  logger.warn({ email }, "Owner default super_admin ensured (reasserted)");
+  logger.info({ email }, "Owner default super_admin ensured (reasserted)");
 }
 
 // ---------- Credential verification ----------
