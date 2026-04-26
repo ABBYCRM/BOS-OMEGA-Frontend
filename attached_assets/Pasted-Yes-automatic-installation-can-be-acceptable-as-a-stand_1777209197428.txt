@@ -1,0 +1,121 @@
+Yes — **automatic installation can be acceptable as a standard feature**, but only if it is implemented as **explicit user-consented onboarding**, not a silent hidden agent drop. Consent-based installation, least privilege, and approval-before-action are the difference between a legitimate endpoint feature and something users or security teams will reject. [practical365](https://practical365.com/practical-protection-should-you-allow-user-application-consent/)
+
+## Direct answer
+
+- **GO**, if your meaning is: when a user installs **BOS-OMEGA**, the installer also offers or includes the local Windows agent as part of normal product setup, with clear disclosure and consent. That is a normal software pattern for endpoint-connected tools and agents. [sentinelone](https://www.sentinelone.com/cybersecurity-101/endpoint-security/endpoint-security-best-practices/)
+- **Not GO** if your meaning is: BOS-OMEGA silently installs a background command-execution agent without clear user notice, permission, and control. Human-in-the-loop and consent-driven access are the safe pattern, and Microsoft’s tool-approval guidance reinforces explicit approval for sensitive actions. [learn.microsoft](https://learn.microsoft.com/en-us/agent-framework/agents/tools/tool-approval)
+
+## What “standard feature” should mean
+
+- The BOS installer can include:
+  - the local agent,
+  - a tray app,
+  - device registration,
+  - approval UI,
+  - optional Windows service components.
+- During setup, the installer should clearly say:
+  - this device can run approved local commands,
+  - commands run under your Windows account by default,
+  - elevated actions require separate approval,
+  - all actions are logged,
+  - you can disable or uninstall the agent.
+- That makes it a **transparent product capability**, not a stealth remote shell. Transparent user consent is the acceptable pattern for delegated local access. [learn.microsoft](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-user-consent)
+
+## Recommended install model
+
+- **Installer bundle**.
+  - Main BOS-OMEGA desktop/web companion installs the local agent by default as a checked option, or as part of the standard package with explicit disclosure.
+- **First-run pairing**.
+  - User signs in, pairs device, names machine, sees permission summary.
+- **Mode selection**.
+  - Standard mode: runs under current user context only.
+  - Advanced mode: allows elevated actions but requires explicit second approval and UAC interaction.
+- **Startup behavior**.
+  - Agent auto-starts after login so BOS-OMEGA is ready, but user can disable it in settings.
+- **Uninstall/control**.
+  - Visible in installed apps, service list if applicable, and BOS settings.
+
+## What makes it acceptable
+
+- **Explicit consent at install time**.
+  - The user knowingly enables local automation capability rather than discovering it later. Consent-backed access models are standard security practice. [learn.microsoft](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-user-consent)
+- **Approval at execution time**.
+  - Installation consent is not enough by itself; sensitive actions still require per-action approval. Microsoft’s human-in-the-loop tool approval flow is directly aligned with this. [learn.microsoft](https://learn.microsoft.com/en-us/agent-framework/agents/tools/tool-approval)
+- **Least privilege by default**.
+  - Run as the user, not permanent admin. Endpoint best-practice guidance consistently favors least privilege and controlled elevation. [osohq](https://www.osohq.com/learn/how-to-prevent-over-permissioned-agents)
+- **Deterministic control boundary**.
+  - Every tool call should go through a non-bypassable, logged enforcement point; that is the right way to prevent an over-permissioned agent. [osohq](https://www.osohq.com/learn/how-to-prevent-over-permissioned-agents)
+
+## What I would require before shipping
+
+- **Clear installer disclosure**.
+  - “Install local automation agent for approved CMD/PowerShell tasks on this PC.”
+- **Per-device registration**.
+  - No anonymous agents.
+- **Approval UX**.
+  - Exact command, summary, affected paths, admin required or not, timeout.
+- **Command guardrails**.
+  - Allowed: diagnostics, file ops in approved zones, scripts from approved library.
+  - Restricted: encoded payloads, persistence changes, security-tool tampering, arbitrary download-and-execute.
+- **Auditing**.
+  - Who requested, who approved, what ran, output hash, exit code, timestamp.
+- **Easy off switch**.
+  - Disable auto-start, disconnect device, uninstall agent.
+
+## My recommendation
+
+- **Yes, make it a standard feature**, but phrase it as:
+  - **“BOS-OMEGA Local Automation Agent”**
+  - automatically installed **with explicit onboarding consent**
+  - automatically started
+  - but **not automatically trusted for arbitrary execution**
+- So the rule should be:
+  - **Auto-install is acceptable.**
+  - **Silent authority is not.**
+  - **Per-action approval remains mandatory.** [learn.microsoft](https://learn.microsoft.com/en-us/agent-framework/agents/tools/tool-approval)
+
+## Product wording I would use
+
+- “BOS-OMEGA includes an optional local automation agent that lets you run approved CMD and PowerShell tasks on your own Windows PC.”
+- “The agent runs under your account, requires explicit approval for actions, and supports stricter approval for elevated tasks.”
+- “You can disable, disconnect, or uninstall it at any time.”
+
+## Decision
+
+- **GO** if:
+  - installer disclosure is explicit,
+  - user consent is captured,
+  - agent runs least-privilege,
+  - approval is required before execution,
+  - audit logs are immutable.
+- **ABORT** if:
+  - the design requires hidden install,
+  - invisible persistence,
+  - unrestricted remote shell,
+  - or blanket auto-approval.
+
+ASCII tree
+```text
+auto-installed-bos-agent
+├── decision: GO
+├── allowed
+│   ├── auto-install as standard feature
+│   ├── auto-start after login
+│   ├── explicit onboarding consent
+│   ├── user-context execution
+│   └── per-action approval
+├── required controls
+│   ├── disclosure in installer
+│   ├── device pairing
+│   ├── audit logging
+│   ├── least privilege
+│   ├── elevation boundary
+│   └── easy disable/uninstall
+├── not allowed
+│   ├── silent hidden install
+│   ├── permanent admin agent
+│   ├── unrestricted remote shell
+│   └── blanket auto-approval
+└── final framing
+    └── standard feature yes, stealth capability no
+```
