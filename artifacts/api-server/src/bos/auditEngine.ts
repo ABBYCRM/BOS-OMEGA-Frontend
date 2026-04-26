@@ -74,7 +74,17 @@ type AuditEventType =
   // audit chain shows which model produced which role's output and
   // which roles failed.
   | "PARALLEL_RESPONSE_RECEIVED"
-  | "PARALLEL_RESPONSE_FAILED";
+  | "PARALLEL_RESPONSE_FAILED"
+  // Follow-up #41: when series_pass / boil_the_ocean cannot produce a
+  // real GO answer because every (or every critical) underlying call
+  // failed — usually mock-mode/no-key or provider outage — we degrade
+  // the final state to HOLD and audit the reason. These complement the
+  // existing SERIES_PASS_ABORTED / BTO_ABORTED events, which fire only
+  // on explicit ABORT signals from the model itself.
+  | "SERIES_PASS_DEGRADED"
+  | "BTO_DEGRADED"
+  | "BTO_SYNTHESIS_FAILED"
+  | "BTO_ADVERSARIAL_FAILED";
 
 const AUDIT_QUEUE_DIR = process.env["AUDIT_QUEUE_DIR"] || path.resolve(process.cwd(), ".local", "audit-queue");
 const AUDIT_QUEUE_FILE = path.join(AUDIT_QUEUE_DIR, "pending.jsonl");

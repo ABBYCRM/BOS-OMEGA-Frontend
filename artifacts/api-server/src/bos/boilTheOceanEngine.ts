@@ -10,7 +10,13 @@ import type { BosOutput, ModelScore, TaskContext } from "./types.js";
 import { validateOutput, extractJsonCandidate } from "./validationEngine.js";
 import { auditLog } from "./auditEngine.js";
 import { callProviderDirect } from "./providerBridge.js";
-import { buildPersonaSystemSuffix } from "../providers/prompts.js";
+import { recordSuccess, recordFailure } from "./circuitBreaker.js";
+import { buildPersonaSystemSuffix, MOCK_MODE_NOTICE } from "../providers/prompts.js";
+// Follow-up #41: pure helper lives in a no-deps module so unit tests can
+// import it without dragging @workspace/db. Re-exported here so existing
+// callers that import from boilTheOceanEngine.ts still work.
+import { assessBtoFinalState } from "./finalStateHelpers.js";
+export { assessBtoFinalState };
 
 export type AgentRole = "ARCHITECT" | "CRITIC" | "RESEARCHER" | "BUILDER" | "VALIDATOR";
 
@@ -245,6 +251,9 @@ export async function runBoilTheOcean(
     if (settled.status === "fulfilled") {
       const { call_result, latency_ms } = settled.value;
       if (call_result.success && call_result.raw_response) {
+        // Follow-up #41: keep provider_health/circuit-breaker counters
+        // consistent with single/parallel paths.
+        await recordSuccess(job.model.provider_id, latency_ms);
         const validation = validateOutput(call_result.raw_response, ctx.task_type);
         let state = "GO";
         let output_text = call_result.raw_response;
@@ -273,12 +282,17 @@ export async function runBoilTheOcean(
           .set({ status: "completed", output: output_text.slice(0, 4000), score: validation.confidence_score, state, latency_ms })
           .where(eq(parallelAgentsTable.id, job.agent_id));
       } else {
+        // Follow-up #41: mock-mode/no-key failures (R-5.4) accrue here too.
+        await recordFailure(job.model.provider_id, call_result.error_type || "unknown_exception");
         await db.update(parallelAgentsTable)
           .set({ status: "failed", error_type: call_result.error_type || "provider_error", latency_ms: settled.value.latency_ms })
           .where(eq(parallelAgentsTable.id, job.agent_id));
       }
     } else {
       const error = settled.reason instanceof Error ? settled.reason.message : "unknown";
+      // Follow-up #41: rejected promises (timeouts, throws) are also
+      // provider-side failures from the breaker's perspective.
+      await recordFailure(job.model.provider_id, error === "agent_timeout" ? "timeout" : "unknown_exception");
       await db.update(parallelAgentsTable)
         .set({ status: "failed", error_type: error })
         .where(eq(parallelAgentsTable.id, job.agent_id));
@@ -368,69 +382,134 @@ export async function runBoilTheOcean(
   await auditLog(ctx.task_id, "BTO_SYNTHESIS_STARTED", `Running synthesis via ${synthesis_model.provider_name}/${synthesis_model.model_name}`);
 
   const synthesis_prompt = buildSynthesisPrompt(ctx.input, successful_outputs.slice(0, 10));
+  const synthesis_start = Date.now();
   const synthesis_result = await callProviderDirect(synthesis_prompt, ctx.task_type, synthesis_model, {
     attachment_context: ctx.attachment_context,
     attachment_images: ctx.attachment_images,
     persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
     task_id: ctx.task_id,
   });
+  const synthesis_latency = Date.now() - synthesis_start;
+  // Follow-up #41: provider_health for the synthesis call.
+  if (synthesis_result.success) {
+    await recordSuccess(synthesis_model.provider_id, synthesis_latency);
+  } else {
+    await recordFailure(synthesis_model.provider_id, synthesis_result.error_type || "unknown_exception");
+  }
 
   let synthesis_answer = "Synthesis could not be generated.";
   let synthesis_parsed: Partial<BosOutput> & { consensus_points?: string[]; contradictions?: string[]; strongest_sections?: string[]; rejected_sections?: string[] } = {};
 
-  if (synthesis_result.success && synthesis_result.raw_response) {
+  // Follow-up #41 (architect medium fix): a synthesis is only "usable" if
+  // both the call succeeded AND a raw_response actually came back. A
+  // success:true with an empty body would otherwise be parsed as success
+  // by the assessment helper while the audit chain logs BTO_SYNTHESIS_FAILED.
+  // Compute one flag and use it for every downstream gate.
+  const synthesis_usable = synthesis_result.success && !!synthesis_result.raw_response;
+
+  if (synthesis_usable) {
     try {
-      const candidate = extractJsonCandidate(synthesis_result.raw_response);
+      const candidate = extractJsonCandidate(synthesis_result.raw_response!);
       if (candidate) {
         synthesis_parsed = JSON.parse(candidate);
-        synthesis_answer = synthesis_parsed.answer || synthesis_result.raw_response.slice(0, 3000);
+        synthesis_answer = synthesis_parsed.answer || synthesis_result.raw_response!.slice(0, 3000);
         if (Array.isArray(synthesis_parsed.consensus_points)) consensus_points.push(...synthesis_parsed.consensus_points);
         if (Array.isArray(synthesis_parsed.contradictions)) contradictions.push(...synthesis_parsed.contradictions);
         if (Array.isArray(synthesis_parsed.strongest_sections)) strongest_sections.push(...synthesis_parsed.strongest_sections);
         if (Array.isArray(synthesis_parsed.rejected_sections)) rejected_sections.push(...synthesis_parsed.rejected_sections);
       }
     } catch {
-      synthesis_answer = synthesis_result.raw_response.slice(0, 3000);
+      synthesis_answer = synthesis_result.raw_response!.slice(0, 3000);
     }
+    await auditLog(ctx.task_id, "BTO_SYNTHESIS_COMPLETED", "Synthesis complete, running adversarial review");
+  } else {
+    // Follow-up #41: synthesis fell into mock mode, hard-failed, or
+    // returned an empty body. The synthesis_answer placeholder above is
+    // just text — it must not be rendered as a successful final answer.
+    await auditLog(
+      ctx.task_id,
+      "BTO_SYNTHESIS_FAILED",
+      `Synthesis call failed (${synthesis_result.error_type || "empty_response"}) — final state will degrade to HOLD`,
+      {
+        provider: synthesis_model.provider_name,
+        model: synthesis_model.model_name,
+        error_type: synthesis_result.error_type || (synthesis_result.success ? "empty_response" : "unknown_exception"),
+        success_flag: synthesis_result.success,
+        had_raw_response: !!synthesis_result.raw_response,
+      },
+    );
   }
 
-  await auditLog(ctx.task_id, "BTO_SYNTHESIS_COMPLETED", "Synthesis complete, running adversarial review");
-
-  // Adversarial review
-  const adversarial_model = bto_models[1] || bto_models[0]!;
-  const adversarial_prompt = buildAdversarialPrompt(ctx.input, synthesis_answer);
-  const adversarial_result = await callProviderDirect(adversarial_prompt, ctx.task_type, adversarial_model, {
-    attachment_context: ctx.attachment_context,
-    attachment_images: ctx.attachment_images,
-    persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
-    task_id: ctx.task_id,
-  });
-
+  // Adversarial review (only meaningful when synthesis itself succeeded;
+  // skipping it on synthesis failure avoids piling another mock call onto
+  // the audit chain when the answer is already condemned to HOLD).
   let final_answer = synthesis_answer;
   const adversarial_findings: string[] = [];
 
-  if (adversarial_result.success && adversarial_result.raw_response) {
-    try {
-      const candidate = extractJsonCandidate(adversarial_result.raw_response);
-      if (candidate) {
-        const adv = JSON.parse(candidate) as Partial<BosOutput> & { adversarial_findings?: string[] };
-        if (adv.answer && adv.answer.length > synthesis_answer.length * 0.5) {
-          final_answer = adv.answer;
+  if (synthesis_usable) {
+    const adversarial_model = bto_models[1] || bto_models[0]!;
+    const adversarial_prompt = buildAdversarialPrompt(ctx.input, synthesis_answer);
+    const adversarial_start = Date.now();
+    const adversarial_result = await callProviderDirect(adversarial_prompt, ctx.task_type, adversarial_model, {
+      attachment_context: ctx.attachment_context,
+      attachment_images: ctx.attachment_images,
+      persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
+      task_id: ctx.task_id,
+    });
+    const adversarial_latency = Date.now() - adversarial_start;
+    // Follow-up #41: provider_health for the adversarial call.
+    if (adversarial_result.success) {
+      await recordSuccess(adversarial_model.provider_id, adversarial_latency);
+    } else {
+      await recordFailure(adversarial_model.provider_id, adversarial_result.error_type || "unknown_exception");
+    }
+
+    if (adversarial_result.success && adversarial_result.raw_response) {
+      try {
+        const candidate = extractJsonCandidate(adversarial_result.raw_response);
+        if (candidate) {
+          const adv = JSON.parse(candidate) as Partial<BosOutput> & { adversarial_findings?: string[] };
+          if (adv.answer && adv.answer.length > synthesis_answer.length * 0.5) {
+            final_answer = adv.answer;
+          }
+          if (Array.isArray(adv.adversarial_findings)) adversarial_findings.push(...adv.adversarial_findings);
         }
-        if (Array.isArray(adv.adversarial_findings)) adversarial_findings.push(...adv.adversarial_findings);
-      }
-    } catch {}
+      } catch {}
+      await auditLog(ctx.task_id, "BTO_ADVERSARIAL_COMPLETED", `Adversarial review done: ${adversarial_findings.length} findings`);
+    } else {
+      // Follow-up #41: adversarial failed but synthesis succeeded — we
+      // still emit the final synthesized answer (with a warning), but
+      // record the audit event so operators can see the gap.
+      await auditLog(
+        ctx.task_id,
+        "BTO_ADVERSARIAL_FAILED",
+        `Adversarial review failed (${adversarial_result.error_type || "unknown"}) — final answer is unhardened synthesis`,
+        {
+          provider: adversarial_model.provider_name,
+          model: adversarial_model.model_name,
+          error_type: adversarial_result.error_type || "unknown_exception",
+        },
+      );
+    }
   }
 
-  await auditLog(ctx.task_id, "BTO_ADVERSARIAL_COMPLETED", `Adversarial review done: ${adversarial_findings.length} findings`);
+  // Follow-up #41: gate the final state on actual usable synthesis.
+  // synthesis_usable (success && raw_response present) is the single source
+  // of truth — using `synthesis_result.success` alone would let an empty-body
+  // success leak through as GO while the audit chain says SYNTHESIS_FAILED.
+  const final_assessment = assessBtoFinalState({
+    successful_agents: successful_outputs.length,
+    total_agents: agent_jobs.length,
+    synthesis_success: synthesis_usable,
+  });
 
-  // Omega validation
+  // Omega validation reflects actual usable synthesis state, not blanket GO.
   const omega_validation = {
-    state: "GO" as const,
-    schema_pass: true,
+    state: final_assessment.final_state,
+    schema_pass: synthesis_usable,
     safety_pass: true,
-    completeness_pass: successful_outputs.length >= 3,
-    notes: `${successful_outputs.length}/${agent_jobs.length} agents succeeded. ${adversarial_findings.length} adversarial findings resolved.`,
+    completeness_pass: successful_outputs.length >= 3 && synthesis_usable,
+    notes: `${successful_outputs.length}/${agent_jobs.length} agents succeeded. Synthesis ${synthesis_usable ? "succeeded" : "FAILED"}. ${adversarial_findings.length} adversarial findings resolved.`,
   };
 
   // Save synthesis report
@@ -448,17 +527,31 @@ export async function runBoilTheOcean(
 
   await db.update(executionRunsTable)
     .set({
-      status: "completed",
+      status: final_assessment.final_state === "GO" ? "completed" : "failed",
       completed_at: new Date(),
       final_score: successful_outputs.reduce((s, a) => s + a.score, 0) / successful_outputs.length,
     })
     .where(eq(executionRunsTable.id, run_id));
 
-  await auditLog(ctx.task_id, "BTO_COMPLETED", `Boil The Ocean complete — final answer ready`, {
-    agents: `${successful_outputs.length}/${agent_jobs.length}`,
-    consensus: consensus_points.length,
-    contradictions: contradictions.length,
-  });
+  if (final_assessment.final_state === "HOLD") {
+    await auditLog(
+      ctx.task_id,
+      "BTO_DEGRADED",
+      `Boil The Ocean degraded to HOLD — ${final_assessment.reason}`,
+      {
+        reason: final_assessment.reason,
+        successful_agents: successful_outputs.length,
+        total_agents: agent_jobs.length,
+        synthesis_success: synthesis_result.success,
+      },
+    );
+  } else {
+    await auditLog(ctx.task_id, "BTO_COMPLETED", `Boil The Ocean complete — final answer ready`, {
+      agents: `${successful_outputs.length}/${agent_jobs.length}`,
+      consensus: consensus_points.length,
+      contradictions: contradictions.length,
+    });
+  }
 
   const parallel_responses = successful_outputs.slice(0, 15).map((ao) => ({
     provider: ao.provider,
@@ -470,16 +563,31 @@ export async function runBoilTheOcean(
     selected: ao.role === "VALIDATOR",
   }));
 
+  // Build the final answer / failure_modes appropriate to the assessed state.
+  let returned_answer = final_answer;
+  let returned_failure_modes = Array.isArray(synthesis_parsed.failure_modes) ? synthesis_parsed.failure_modes : [];
+  let returned_recommended = `Validated best-effort synthesis from ${successful_outputs.length} specialized agents across ${bto_models.length} LLM providers`;
+  if (final_assessment.final_state === "HOLD") {
+    returned_answer = `${MOCK_MODE_NOTICE}\n\nBoil The Ocean degraded — ${final_assessment.reason}. ${successful_outputs.length}/${agent_jobs.length} agents succeeded; synthesis ${synthesis_result.success ? "succeeded but no agents returned a usable response" : "failed"}. The text below (if any) is unvalidated and should not be treated as a confident answer.\n\n${final_answer}`;
+    returned_failure_modes = [
+      `BTO degraded: ${final_assessment.reason}`,
+      ...returned_failure_modes,
+    ];
+    returned_recommended = "Configure provider API keys, check provider health, or rerun with a different mode.";
+  }
+
   return {
     result: {
-      state: "GO",
+      state: final_assessment.final_state,
       task_type: ctx.task_type,
-      answer: final_answer,
+      answer: returned_answer,
       assumptions: Array.isArray(synthesis_parsed.assumptions) ? synthesis_parsed.assumptions : [],
-      uncertainties: adversarial_findings.slice(0, 5).map((f) => `Adversarial finding (resolved): ${f}`),
+      uncertainties: final_assessment.final_state === "HOLD"
+        ? [`BTO degraded: ${final_assessment.reason}`, ...adversarial_findings.slice(0, 4).map((f) => `Adversarial finding: ${f}`)]
+        : adversarial_findings.slice(0, 5).map((f) => `Adversarial finding (resolved): ${f}`),
       missing_inputs: Array.isArray(synthesis_parsed.missing_inputs) ? synthesis_parsed.missing_inputs : [],
-      failure_modes: Array.isArray(synthesis_parsed.failure_modes) ? synthesis_parsed.failure_modes : [],
-      recommended_next_action: `Validated best-effort synthesis from ${successful_outputs.length} specialized agents across ${bto_models.length} LLM providers`,
+      failure_modes: returned_failure_modes,
+      recommended_next_action: returned_recommended,
       merge_strategy: `boil_the_ocean_${bto_models.length}x${agents_per_model}_agents`,
       parallel_responses,
     },

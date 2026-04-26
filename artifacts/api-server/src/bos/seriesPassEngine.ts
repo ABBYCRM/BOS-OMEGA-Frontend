@@ -10,7 +10,13 @@ import { validateOutput, extractJsonCandidate } from "./validationEngine.js";
 import { repairOutput } from "./repairEngine.js";
 import { auditLog } from "./auditEngine.js";
 import { callProviderDirect } from "./providerBridge.js";
+import { recordSuccess, recordFailure } from "./circuitBreaker.js";
 import { MOCK_MODE_NOTICE, buildPersonaSystemSuffix } from "../providers/prompts.js";
+// Follow-up #41: pure helper lives in a no-deps module so unit tests can
+// import it without dragging @workspace/db. Re-exported here so existing
+// callers that import from seriesPassEngine.ts still work.
+import { assessSeriesPassFinalState } from "./finalStateHelpers.js";
+export { assessSeriesPassFinalState };
 
 export type SeriesRole = "DRAFTER" | "CRITIC" | "EXPANDER" | "ADVERSARY" | "SYNTHESIZER" | "OMEGA_VALIDATOR";
 
@@ -93,6 +99,8 @@ export interface SeriesPassResult {
     validation_score: number;
     errors_found: string[];
     latency_ms: number;
+    /** Follow-up #41: explicit success flag from the underlying call (mock-mode failure → false) */
+    success: boolean;
   }>;
 }
 
@@ -161,6 +169,17 @@ export async function runSeriesPass(
       task_id: ctx.task_id,
     });
     const latency_ms = Date.now() - start_time;
+
+    // Follow-up #41: keep provider_health/circuit-breaker counters
+    // consistent with single/parallel execution paths. Mock-mode failures
+    // (R-5.4: success:false from no-key path) accrue here just like real
+    // provider outages, so the breaker accurately reflects unusable
+    // providers regardless of which engine the call came from.
+    if (call_result.success) {
+      await recordSuccess(model_info.provider_id, latency_ms);
+    } else {
+      await recordFailure(model_info.provider_id, call_result.error_type || "unknown_exception");
+    }
 
     const pass_id = randomUUID();
     let pass_output: BosOutput | null = null;
@@ -268,20 +287,57 @@ export async function runSeriesPass(
       validation_score,
       errors_found,
       latency_ms,
+      success: call_result.success,
     });
   }
 
-  // Build final output
-  const final_answer = current_answer || "Series pass could not produce a final answer.";
+  // Follow-up #41: gate the final state on actual pass success. The pure
+  // helper (assessSeriesPassFinalState) returns HOLD whenever no pass
+  // produced a real GO output — this prevents mock-mode/no-key failures
+  // from masquerading as a confident final answer (R-5.4 contract).
+  const assessment = assessSeriesPassFinalState(
+    pass_results.map((p) => ({ state: p.state, success: p.success })),
+  );
+
+  let final_answer: string;
+  let final_failure_modes: string[] = [];
+  let final_recommended: string;
+  if (assessment.final_state === "HOLD") {
+    final_answer = current_answer
+      ? `${MOCK_MODE_NOTICE}\n\nSeries pass degraded — no pass produced a real GO answer (${assessment.failed_count} failed / ${assessment.succeeded_count} non-GO of ${pass_results.length}). The text below is the last available draft and is not validated.\n\n${current_answer}`
+      : `Series pass could not produce a final answer (${assessment.failed_count} failed of ${pass_results.length}). All passes returned mock-mode/no-key failures or provider errors.`;
+    final_failure_modes = [
+      `Series pass degraded: ${assessment.reason}`,
+      `${assessment.failed_count} of ${pass_results.length} passes failed`,
+    ];
+    final_recommended = "Configure provider API keys, check provider health, or rerun with a different mode.";
+    await auditLog(
+      ctx.task_id,
+      "SERIES_PASS_DEGRADED",
+      `Series pass degraded to HOLD — ${assessment.reason} (${assessment.failed_count}/${pass_results.length} failed, ${assessment.succeeded_count} non-GO)`,
+      {
+        reason: assessment.reason,
+        failed_count: assessment.failed_count,
+        succeeded_count: assessment.succeeded_count,
+        total_passes: pass_results.length,
+      },
+    );
+  } else {
+    final_answer = current_answer || "Series pass could not produce a final answer.";
+    final_recommended = "Review the series-refined answer above";
+  }
+
   const final_output: BosOutput = {
-    state: "GO",
+    state: assessment.final_state,
     task_type: ctx.task_type,
     answer: final_answer,
     assumptions: [],
-    uncertainties: [],
+    uncertainties: assessment.final_state === "HOLD"
+      ? [`${assessment.failed_count}/${pass_results.length} passes failed (${assessment.reason})`]
+      : [],
     missing_inputs: [],
-    failure_modes: [],
-    recommended_next_action: "Review the series-refined answer above",
+    failure_modes: final_failure_modes,
+    recommended_next_action: final_recommended,
     merge_strategy: "series_pass_5_roles",
     parallel_responses: pass_results.map((p) => ({
       provider: p.provider,
