@@ -1,0 +1,23 @@
+import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod/v4";
+
+export const tasksTable = pgTable("tasks", {
+  id: text("id").primaryKey(),
+  user_id: text("user_id"),
+  input_text: text("input_text").notNull(),
+  task_type: text("task_type").notNull(),
+  tri_state: text("tri_state").notNull(),
+  selected_provider: text("selected_provider"),
+  selected_model: text("selected_model"),
+  final_status: text("final_status").notNull().default("pending"),
+  final_output: text("final_output"),
+  mode: text("mode").notNull().default("single"),
+  created_at: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertTaskSchema = createInsertSchema(tasksTable).omit({
+  created_at: true,
+});
+export type InsertTask = z.infer<typeof insertTaskSchema>;
+export type Task = typeof tasksTable.$inferSelect;

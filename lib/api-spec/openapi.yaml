@@ -3,20 +3,31 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: BOS-OMEGA Multi-LLM Orchestration Platform API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: tasks
+    description: Task management
+  - name: providers
+    description: LLM provider management
+  - name: models
+    description: LLM model registry
+  - name: audit
+    description: Audit logs
+  - name: memory
+    description: Memory management
+  - name: fallback
+    description: Fallback events
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +35,345 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /tasks:
+    post:
+      operationId: createTask
+      tags: [tasks]
+      summary: Submit a task to BOS-OMEGA pipeline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskBody"
+      responses:
+        "200":
+          description: Task result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    get:
+      operationId: listTasks
+      tags: [tasks]
+      summary: List all tasks
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Task list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskListResponse"
+
+  /tasks/{id}:
+    get:
+      operationId: getTask
+      tags: [tasks]
+      summary: Get full task trace
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task with full trace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /tasks/stats:
+    get:
+      operationId: getTaskStats
+      tags: [tasks]
+      summary: Task statistics and summary
+      responses:
+        "200":
+          description: Task stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskStats"
+
+  /providers:
+    get:
+      operationId: listProviders
+      tags: [providers]
+      summary: List all providers
+      responses:
+        "200":
+          description: Provider list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Provider"
+    post:
+      operationId: createProvider
+      tags: [providers]
+      summary: Add a new provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProviderBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Provider"
+
+  /providers/{id}:
+    patch:
+      operationId: updateProvider
+      tags: [providers]
+      summary: Update provider settings
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProviderBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Provider"
+
+  /models:
+    get:
+      operationId: listModels
+      tags: [models]
+      summary: List model registry
+      responses:
+        "200":
+          description: Model list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LlmModel"
+    post:
+      operationId: createModel
+      tags: [models]
+      summary: Add a model to registry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateModelBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LlmModel"
+
+  /models/{id}:
+    patch:
+      operationId: updateModel
+      tags: [models]
+      summary: Update model config
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateModelBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LlmModel"
+
+  /health/providers:
+    get:
+      operationId: getProviderHealth
+      tags: [providers]
+      summary: Provider health dashboard
+      responses:
+        "200":
+          description: Provider health status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProviderHealth"
+
+  /fallback-events:
+    get:
+      operationId: listFallbackEvents
+      tags: [fallback]
+      summary: List fallback events
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Fallback events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FallbackEvent"
+
+  /audit:
+    get:
+      operationId: listAuditLogs
+      tags: [audit]
+      summary: List audit logs
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: task_id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Audit logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditLog"
+
+  /memory:
+    get:
+      operationId: listMemory
+      tags: [memory]
+      summary: List memory items
+      responses:
+        "200":
+          description: Memory items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MemoryItem"
+    post:
+      operationId: createMemory
+      tags: [memory]
+      summary: Create memory item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMemoryBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryItem"
+
+  /memory/{id}:
+    patch:
+      operationId: updateMemory
+      tags: [memory]
+      summary: Update memory item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMemoryBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryItem"
+
+  /tasks/{id}/attempts:
+    get:
+      operationId: listModelAttempts
+      tags: [tasks]
+      summary: List model attempts for a task
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Model attempts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModelAttempt"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +381,476 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+      required: [error]
+
+    CreateTaskBody:
+      type: object
+      properties:
+        input:
+          type: string
+          description: User input text
+        mode:
+          type: string
+          enum: [single, parallel, consensus]
+          default: single
+          description: Execution mode - single model, parallel with merge, or consensus vote
+        task_type_override:
+          type: string
+          description: Optional override for task classification
+        parallel_models:
+          type: integer
+          description: Number of models to run in parallel (for parallel/consensus mode)
+          default: 3
+      required: [input]
+
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+        input_text:
+          type: string
+        task_type:
+          type: string
+        tri_state:
+          type: string
+          enum: [GO, HOLD, ABORT]
+        selected_provider:
+          type: string
+        selected_model:
+          type: string
+        final_status:
+          type: string
+        final_output:
+          type: string
+        mode:
+          type: string
+        created_at:
+          type: string
+      required: [id, input_text, task_type, tri_state, final_status, created_at]
+
+    TaskDetail:
+      type: object
+      properties:
+        task:
+          $ref: "#/components/schemas/Task"
+        attempts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModelAttempt"
+        validation:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationResult"
+        fallbacks:
+          type: array
+          items:
+            $ref: "#/components/schemas/FallbackEvent"
+        audit:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLog"
+        bos_output:
+          $ref: "#/components/schemas/BosOutput"
+      required: [task, attempts, validation, fallbacks, audit]
+
+    TaskListResponse:
+      type: object
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Task"
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+      required: [tasks, total, limit, offset]
+
+    TaskStats:
+      type: object
+      properties:
+        total_tasks:
+          type: integer
+        go_count:
+          type: integer
+        hold_count:
+          type: integer
+        abort_count:
+          type: integer
+        avg_latency_ms:
+          type: number
+        total_cost_estimate:
+          type: number
+        tasks_by_type:
+          type: object
+          additionalProperties:
+            type: integer
+        tasks_by_provider:
+          type: object
+          additionalProperties:
+            type: integer
+        fallback_count:
+          type: integer
+        success_rate:
+          type: number
+      required: [total_tasks, go_count, hold_count, abort_count]
+
+    Provider:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        base_url:
+          type: string
+        status:
+          type: string
+          enum: [HEALTHY, DEGRADED, OPEN_CIRCUIT, RECOVERY_TEST]
+        enabled:
+          type: boolean
+        priority:
+          type: integer
+        created_at:
+          type: string
+        updated_at:
+          type: string
+      required: [id, name, status, enabled, priority]
+
+    CreateProviderBody:
+      type: object
+      properties:
+        name:
+          type: string
+        base_url:
+          type: string
+        priority:
+          type: integer
+          default: 5
+        api_key_env:
+          type: string
+          description: Name of env variable holding the API key
+      required: [name]
+
+    UpdateProviderBody:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [HEALTHY, DEGRADED, OPEN_CIRCUIT, RECOVERY_TEST]
+        enabled:
+          type: boolean
+        priority:
+          type: integer
+        base_url:
+          type: string
+
+    LlmModel:
+      type: object
+      properties:
+        id:
+          type: string
+        provider_id:
+          type: string
+        provider_name:
+          type: string
+        model_name:
+          type: string
+        capability_tags:
+          type: array
+          items:
+            type: string
+        context_window:
+          type: integer
+        cost_input:
+          type: number
+        cost_output:
+          type: number
+        reliability_score:
+          type: number
+        latency_score:
+          type: number
+        enabled:
+          type: boolean
+      required: [id, provider_id, model_name, capability_tags, enabled]
+
+    CreateModelBody:
+      type: object
+      properties:
+        provider_id:
+          type: string
+        model_name:
+          type: string
+        capability_tags:
+          type: array
+          items:
+            type: string
+        context_window:
+          type: integer
+          default: 8192
+        cost_input:
+          type: number
+          default: 0
+        cost_output:
+          type: number
+          default: 0
+        reliability_score:
+          type: number
+          default: 0.9
+        latency_score:
+          type: number
+          default: 0.8
+      required: [provider_id, model_name, capability_tags]
+
+    UpdateModelBody:
+      type: object
+      properties:
+        capability_tags:
+          type: array
+          items:
+            type: string
+        context_window:
+          type: integer
+        cost_input:
+          type: number
+        cost_output:
+          type: number
+        reliability_score:
+          type: number
+        latency_score:
+          type: number
+        enabled:
+          type: boolean
+
+    ModelAttempt:
+      type: object
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        provider:
+          type: string
+        model:
+          type: string
+        attempt_number:
+          type: integer
+        status:
+          type: string
+        error_type:
+          type: string
+        latency_ms:
+          type: number
+        token_input:
+          type: integer
+        token_output:
+          type: integer
+        cost_estimate:
+          type: number
+        raw_response:
+          type: string
+        is_parallel:
+          type: boolean
+        parallel_group:
+          type: string
+        created_at:
+          type: string
+      required: [id, task_id, provider, model, attempt_number, status, created_at]
+
+    ValidationResult:
+      type: object
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        attempt_id:
+          type: string
+        schema_pass:
+          type: boolean
+        safety_pass:
+          type: boolean
+        instruction_pass:
+          type: boolean
+        completeness_pass:
+          type: boolean
+        confidence_score:
+          type: number
+        notes:
+          type: string
+      required: [id, task_id, schema_pass, safety_pass, instruction_pass, completeness_pass, confidence_score]
+
+    FallbackEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        from_provider:
+          type: string
+        from_model:
+          type: string
+        to_provider:
+          type: string
+        to_model:
+          type: string
+        reason:
+          type: string
+        created_at:
+          type: string
+      required: [id, task_id, reason, created_at]
+
+    ProviderHealth:
+      type: object
+      properties:
+        id:
+          type: string
+        provider_id:
+          type: string
+        provider_name:
+          type: string
+        status:
+          type: string
+          enum: [HEALTHY, DEGRADED, OPEN_CIRCUIT, RECOVERY_TEST]
+        failure_count:
+          type: integer
+        last_failure:
+          type: string
+        last_success:
+          type: string
+        avg_latency_ms:
+          type: number
+      required: [id, provider_id, status, failure_count]
+
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        event_type:
+          type: string
+        message:
+          type: string
+        metadata:
+          type: object
+        created_at:
+          type: string
+      required: [id, event_type, message, created_at]
+
+    MemoryItem:
+      type: object
+      properties:
+        id:
+          type: string
+        layer:
+          type: string
+          enum: [canon, patches, continuity, logs, scratchpad]
+        title:
+          type: string
+        content:
+          type: string
+        authority_level:
+          type: integer
+        created_at:
+          type: string
+        updated_at:
+          type: string
+      required: [id, layer, title, content, authority_level]
+
+    CreateMemoryBody:
+      type: object
+      properties:
+        layer:
+          type: string
+          enum: [canon, patches, continuity, logs, scratchpad]
+        title:
+          type: string
+        content:
+          type: string
+        authority_level:
+          type: integer
+          default: 5
+      required: [layer, title, content]
+
+    UpdateMemoryBody:
+      type: object
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+        authority_level:
+          type: integer
+        layer:
+          type: string
+          enum: [canon, patches, continuity, logs, scratchpad]
+
+    BosOutput:
+      type: object
+      properties:
+        state:
+          type: string
+          enum: [GO, HOLD, ABORT]
+        task_type:
+          type: string
+        answer:
+          type: string
+        assumptions:
+          type: array
+          items:
+            type: string
+        uncertainties:
+          type: array
+          items:
+            type: string
+        missing_inputs:
+          type: array
+          items:
+            type: string
+        failure_modes:
+          type: array
+          items:
+            type: string
+        recommended_next_action:
+          type: string
+        parallel_responses:
+          type: array
+          items:
+            $ref: "#/components/schemas/ParallelResponse"
+        merge_strategy:
+          type: string
+      required: [state, task_type, answer]
+
+    ParallelResponse:
+      type: object
+      properties:
+        provider:
+          type: string
+        model:
+          type: string
+        state:
+          type: string
+        answer:
+          type: string
+        confidence_score:
+          type: number
+        latency_ms:
+          type: number
+        selected:
+          type: boolean
+      required: [provider, model, state, answer]

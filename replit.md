@@ -1,27 +1,102 @@
-# Workspace
+# BOS-OMEGA — Governed Multi-LLM Orchestration Platform
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+Production-grade governed multi-LLM orchestration platform. Full-stack: Node.js/Express 5 backend, React/Vite frontend, PostgreSQL database. Features multi-provider routing, parallel execution, circuit breakers, tri-state evaluation, validation/repair engine, audit logging, and admin dashboard.
+
+## Architecture
+
+```
+pnpm monorepo
+├── artifacts/
+│   ├── api-server/          — Express 5 API server (port via PORT env)
+│   │   └── src/
+│   │       ├── bos/         — BOS engine modules
+│   │       │   ├── pipeline.ts        — Main BOS orchestrator
+│   │       │   ├── executionEngine.ts — Parallel/single/consensus execution
+│   │       │   ├── inputGate.ts       — Input safety gating
+│   │       │   ├── taskClassifier.ts  — Task type classification
+│   │       │   ├── triState.ts        — GO/HOLD/ABORT evaluator
+│   │       │   ├── modelRouter.ts     — Capability-based model routing
+│   │       │   ├── circuitBreaker.ts  — Provider circuit breakers
+│   │       │   ├── validationEngine.ts — Output validation
+│   │       │   ├── repairEngine.ts    — Output repair/retry
+│   │       │   ├── auditEngine.ts     — Audit trail logging
+│   │       │   └── memoryEngine.ts    — Memory layer access
+│   │       ├── providers/   — LLM adapters (OpenAI, Anthropic, Gemini, Ollama, Generic)
+│   │       ├── routes/      — Express routes (tasks, providers, models, health, audit, memory, fallbacks)
+│   │       └── db/          — Drizzle ORM + seed data
+│   └── bos-omega/           — React/Vite frontend (port via PORT env)
+│       └── src/
+│           ├── pages/       — 8 admin pages
+│           ├── components/  — Layout, StatusBadges
+│           └── lib/         — utils
+├── lib/
+│   ├── api-spec/            — OpenAPI 3.1 spec
+│   ├── api-zod/             — Zod schemas (codegen output)
+│   ├── api-client-react/    — React Query hooks (codegen output)
+│   └── db/                  — Drizzle schema (9 tables)
+```
 
 ## Stack
 
-- **Monorepo tool**: pnpm workspaces
-- **Node.js version**: 24
-- **Package manager**: pnpm
-- **TypeScript version**: 5.9
-- **API framework**: Express 5
-- **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
+- **Monorepo**: pnpm workspaces
+- **Node.js**: 24, TypeScript 5.9
+- **Backend**: Express 5, Drizzle ORM, PostgreSQL
+- **Frontend**: React 19, Vite 7, TailwindCSS v4, React Query, Wouter
+- **API codegen**: Orval (OpenAPI → Zod + React Query hooks)
+- **Validation**: Zod v4, drizzle-zod
 - **Build**: esbuild (CJS bundle)
+- **Theme**: Dark mission-control style (deep navy + cyan primary)
 
 ## Key Commands
 
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- `pnpm --filter @workspace/api-server run dev` — run API server locally
+```bash
+pnpm run typecheck                          # Full typecheck all packages
+pnpm run build                              # Typecheck + build all packages
+pnpm --filter @workspace/api-spec run codegen  # Regenerate API hooks from OpenAPI spec
+pnpm --filter @workspace/db run push        # Push DB schema changes (dev only)
+```
 
-See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+## BOS Engine Pipeline
+
+1. **Input Gate** — Safety/content check → GO/HOLD/ABORT signal
+2. **Task Classifier** — Classify task type (analysis, coding, creative, extraction, etc.)
+3. **Tri-State Evaluator** — GO (execute), HOLD (insufficient info), ABORT (unsafe/policy violation)
+4. **Model Router** — Route to best provider/model based on task type + capability tags + circuit breaker state
+5. **Execution Engine** — Single / Parallel / Consensus modes
+6. **Validation Engine** — Schema, safety, instruction, completeness checks
+7. **Repair Engine** — Retry with repair prompt on validation failure
+8. **Audit Engine** — Log all pipeline events to DB
+9. **Memory Engine** — Access canon/patches/continuity layers
+
+## Frontend Pages
+
+- `/console` — Task Console (submit tasks, view structured BOS output)
+- `/providers` — Provider Status Dashboard with circuit breaker controls
+- `/models` — Model Registry with capability tags and scoring
+- `/tasks` — Task Logs with pagination
+- `/tasks/:id` — Task Detail with full pipeline trace
+- `/fallbacks` — Fallback Events log
+- `/memory` — Memory Manager (layered memory CRUD)
+- `/audit` — Full Audit Log stream
+- `/settings` — Provider configuration
+
+## Database Tables
+
+- `providers` — LLM provider registry
+- `models` — Model registry with capability tags
+- `tasks` — Task execution records
+- `model_attempts` — Per-model attempt records
+- `validation_results` — Output validation results
+- `repair_attempts` — Repair attempt records
+- `fallback_events` — Provider fallback events
+- `audit_logs` — Full pipeline audit trail
+- `memory_items` — Layered memory store
+
+## Important Notes
+
+- `lib/api-zod/src/index.ts` must only export `export * from "./generated/api"` — codegen regenerates it with double export; fix manually after each codegen run
+- Providers run in MOCK MODE when no API key is configured — full pipeline still executes but LLM responses are simulated
+- Seed data is idempotent (skips if providers already exist)
+- API keys configured as env vars: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`
