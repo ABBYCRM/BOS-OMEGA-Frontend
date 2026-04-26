@@ -11,10 +11,11 @@ import { eq, desc, count, sql } from "drizzle-orm";
 import { runBosPipeline } from "../bos/pipeline.js";
 import { CreateTaskBody, ListTasksQueryParams } from "@workspace/api-zod";
 import { logger } from "../lib/logger.js";
+import { expensiveLimiter } from "../lib/security/rateLimit.js";
 
 const router = Router();
 
-router.post("/", async (req, res) => {
+router.post("/", expensiveLimiter, async (req, res) => {
   const parsed = CreateTaskBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid request body", code: "INPUT_ERROR" });

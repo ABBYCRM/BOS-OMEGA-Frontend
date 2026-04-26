@@ -1,5 +1,5 @@
 import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout } from "@/components/Layout";
@@ -12,28 +12,44 @@ import { FallbackEvents } from "@/pages/FallbackEvents";
 import { MemoryManager } from "@/pages/MemoryManager";
 import { AuditLog } from "@/pages/AuditLog";
 import { Settings } from "@/pages/Settings";
+import { Login } from "@/pages/Login";
+import { fetchAuthState } from "@/lib/auth";
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: 1,
+      retry(failureCount, err: unknown) {
+        // Never retry 401s — go straight to login.
+        const status = (err as { status?: number } | null)?.status;
+        if (status === 401) return false;
+        return failureCount < 1;
+      },
       refetchOnWindowFocus: false,
     },
   },
 });
 
+queryClient.getQueryCache().subscribe((event) => {
+  if (event.type === "updated" && event.action.type === "error") {
+    const err = event.action.error as { status?: number } | null;
+    if (err?.status === 401) {
+      void queryClient.invalidateQueries({ queryKey: ["auth-state"] });
+    }
+  }
+});
+
 function NotFound() {
   return (
     <div className="flex items-center justify-center h-full">
-      <div className="text-center font-mono">
-        <div className="text-6xl font-bold text-muted-foreground mb-4">404</div>
-        <div className="text-primary text-sm">BOS-OMEGA: Route not found</div>
+      <div className="text-center">
+        <div className="text-6xl font-serif font-semibold text-muted-foreground mb-4">404</div>
+        <div className="text-foreground text-sm">Route not found</div>
       </div>
     </div>
   );
 }
 
-function Router() {
+function AuthedRouter() {
   return (
     <Layout>
       <Switch>
@@ -55,12 +71,35 @@ function Router() {
   );
 }
 
+function AuthGate() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["auth-state"],
+    queryFn: fetchAuthState,
+    staleTime: 30_000,
+    retry: false,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-sm text-muted-foreground">Loading…</div>
+      </div>
+    );
+  }
+
+  if (!data?.authenticated) {
+    return <Login />;
+  }
+
+  return <AuthedRouter />;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Router />
+          <AuthGate />
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

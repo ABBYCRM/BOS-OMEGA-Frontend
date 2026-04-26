@@ -4,14 +4,16 @@ import { providerHealthTable, llmProvidersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { HealthCheckResponse } from "@workspace/api-zod";
 
-const router: IRouter = Router();
-
-router.get("/healthz", (_req, res) => {
+// Public: only minimal liveness — no data leak.
+export const publicHealthRouter: IRouter = Router();
+publicHealthRouter.get("/healthz", (_req, res) => {
   const data = HealthCheckResponse.parse({ status: "ok" });
   res.json(data);
 });
 
-router.get("/health/providers", async (_req, res) => {
+// Protected: detailed provider health (deployed behind requireAuth).
+export const protectedHealthRouter: IRouter = Router();
+protectedHealthRouter.get("/health/providers", async (_req, res) => {
   const rows = await db
     .select({ health: providerHealthTable, provider: llmProvidersTable })
     .from(providerHealthTable)
@@ -31,4 +33,4 @@ router.get("/health/providers", async (_req, res) => {
   res.json(result);
 });
 
-export default router;
+export default publicHealthRouter;

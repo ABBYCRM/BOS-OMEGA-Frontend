@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import healthRouter from "./health.js";
+import { publicHealthRouter, protectedHealthRouter } from "./health.js";
 import tasksRouter from "./tasks.js";
 import providersRouter from "./providers.js";
 import modelsRouter from "./models.js";
@@ -8,10 +8,31 @@ import memoryRouter from "./memory.js";
 import fallbackRouter from "./fallback.js";
 import runsRouter from "./runs.js";
 import triStateRouter from "./triState.js";
+import authRouter from "./auth.js";
+import { requireAuth } from "../lib/security/auth.js";
+import { readLimiter, writeLimiter } from "../lib/security/rateLimit.js";
 
 const router: IRouter = Router();
 
-router.use(healthRouter);
+// ---- Public (unauthenticated) ----
+// Liveness only — no data leak; safe for uptime monitors.
+router.use(publicHealthRouter);
+
+// Auth endpoints — own rate limiter on /login.
+router.use("/auth", authRouter);
+
+// ---- Authenticated ----
+// Everything below requires a valid admin session. The split limiter pattern
+// applies a tighter cap to mutating verbs.
+router.use((req, res, next) => {
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+    return readLimiter(req, res, next);
+  }
+  return writeLimiter(req, res, next);
+});
+router.use(requireAuth);
+
+router.use(protectedHealthRouter);
 router.use("/tasks", tasksRouter);
 router.use("/providers", providersRouter);
 router.use("/models", modelsRouter);

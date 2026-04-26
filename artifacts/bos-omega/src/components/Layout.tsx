@@ -1,5 +1,7 @@
 import { Link, useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { logout } from "@/lib/auth";
 import {
   Terminal,
   Server,
@@ -10,7 +12,27 @@ import {
   ScrollText,
   Settings,
   ShieldCheck,
+  LogOut,
 } from "lucide-react";
+
+function LogoutButton() {
+  const qc = useQueryClient();
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        await logout();
+        await qc.invalidateQueries({ queryKey: ["auth-state"] });
+      }}
+      className="w-full flex items-center gap-2 text-[11px] text-muted-foreground hover:text-foreground mt-2 pt-2 border-t border-sidebar-border transition-colors"
+      data-testid="button-logout"
+      aria-label="Sign out"
+    >
+      <LogOut className="w-3 h-3" strokeWidth={1.75} />
+      <span>Sign out</span>
+    </button>
+  );
+}
 
 const navSections = [
   {
@@ -121,6 +143,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <span className="w-1.5 h-1.5 rounded-full bg-green-600" />
             <span>AES-256-GCM at rest</span>
           </div>
+          <LogoutButton />
         </div>
       </aside>
 

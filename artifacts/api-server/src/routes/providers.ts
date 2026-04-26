@@ -4,11 +4,17 @@ import { llmProvidersTable, providerHealthTable, llmModelsTable } from "@workspa
 import { eq, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { CreateProviderBody, UpdateProviderBody } from "@workspace/api-zod";
+import { z } from "zod";
+
+const ApiKeyBody = z.object({
+  api_key: z.string().min(4).max(2048),
+});
 import { encryptSecret, decryptSecret, maskKey } from "../lib/secrets.js";
 import { resolveProviderKey } from "../lib/keyResolver.js";
 import { testProviderKey, discoverModels } from "../lib/providerAgent.js";
 import { auditLog } from "../bos/auditEngine.js";
 import { logger } from "../lib/logger.js";
+import { expensiveLimiter } from "../lib/security/rateLimit.js";
 
 const router = Router();
 
@@ -84,13 +90,12 @@ router.put("/:id/api-key", async (req, res) => {
   const { id } = req.params;
   if (!id) { res.status(400).json({ error: "Missing id" }); return; }
 
-  const { api_key } = req.body as { api_key?: string };
-  if (!api_key || typeof api_key !== "string" || api_key.length < 4) {
-    res.status(400).json({ error: "api_key must be a non-empty string of at least 4 chars" });
+  const parsed = ApiKeyBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "api_key must be a string of 4-2048 characters", code: "INPUT_ERROR" });
     return;
   }
-
-  const trimmed = api_key.trim();
+  const trimmed = parsed.data.api_key.trim();
   const encrypted = encryptSecret(trimmed);
   const hint = maskKey(trimmed);
 
@@ -128,7 +133,7 @@ router.delete("/:id/api-key", async (req, res) => {
 });
 
 // POST /api/providers/:id/test — agentic key validation against the live provider
-router.post("/:id/test", async (req, res) => {
+router.post("/:id/test", expensiveLimiter, async (req, res) => {
   const { id } = req.params;
   if (!id) { res.status(400).json({ error: "Missing id" }); return; }
 
@@ -164,7 +169,7 @@ router.post("/:id/test", async (req, res) => {
 });
 
 // POST /api/providers/:id/discover-models — agentic auto-registration of provider's models
-router.post("/:id/discover-models", async (req, res) => {
+router.post("/:id/discover-models", expensiveLimiter, async (req, res) => {
   const { id } = req.params;
   if (!id) { res.status(400).json({ error: "Missing id" }); return; }
 

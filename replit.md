@@ -108,3 +108,31 @@ pnpm --filter @workspace/db run push        # Push DB schema changes (dev only)
 - Providers run in MOCK MODE when no API key is configured — full pipeline still executes but LLM responses are simulated
 - Seed data is idempotent (skips if providers already exist)
 - API keys configured as env vars: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`
+
+## Security Posture
+
+Defense-in-depth, industry best practices. Out of scope: nation-state actors with the ability to compromise infrastructure, browser, or supply chain.
+
+- **Auth**: single-admin model. `ADMIN_PASSWORD` env (or `ADMIN_PASSWORD_HASH` for a pre-hashed bcrypt) sets the password. If neither is set, a random 24-byte base64url password is generated on boot and logged once at WARN — set `ADMIN_PASSWORD` as a secret to make it persistent.
+- **Sessions**: HMAC-SHA256-signed cookies (`bos_session`), 24h TTL, `HttpOnly`, `SameSite=Strict`, `Secure` in production. Signed with `SESSION_SECRET` (auto-generated random if unset; warning logged — set it for stable sessions across restarts).
+- **HTTP hardening**: `helmet` with strict CSP (`default-src 'none'`, `connect-src 'self'`, `frame-ancestors 'none'`), HSTS in production, COOP, COEP-ready, X-Frame-Options DENY, X-Content-Type-Options nosniff.
+- **CORS**: same-origin by default; `ALLOWED_ORIGINS` env (comma-separated) to opt-in additional origins. `credentials: true` only against the allowlist.
+- **Rate limiting** (`express-rate-limit` v7, draft-7 headers): login 5/15min, write 60/min, expensive 10/min, read 300/min. Tier mounted before the auth gate so unauthed scans are throttled too.
+- **Body limits**: 1mb JSON max.
+- **SSRF protection**: all outbound HTTP calls to provider URLs (`testGenericOpenAI`, `listOpenAICompatibleModels`, `testOllama`, `listOllamaModels`) go through `safeFetch`, which:
+  - Resolves DNS and rejects IPv4/IPv6 private, loopback, link-local (incl. cloud metadata `169.254.169.254` / `fd00:ec2::254`), CGNAT, and broadcast ranges
+  - Rejects non-http(s) protocols
+  - Sets `redirect: 'manual'` (no auto-following into private space)
+  - `allowLocalhost: true` is opt-in for Ollama only
+- **Input validation**: Zod schemas on all write endpoints (`/runs`, `/triState/*`, `/providers/:id/api-key`).
+- **Error handling**: global error handler sanitizes 5xx messages in production (no stack traces or internals leaked); 404 handler for unknown routes.
+- **Provider data**: `/health/providers` (which leaks provider topology and counts) was moved behind the auth gate. Only `/healthz` is public.
+- **Secrets at rest**: provider API keys encrypted with AES-256-GCM (`KEYRING_KEY` env) before DB persistence.
+- **Audit log**: every governance event recorded with subject + action + outcome.
+- **Trust proxy**: enabled (`trust proxy: 1`) so rate-limit and cookie-Secure work correctly behind the Replit proxy.
+
+### Recommended secrets to set
+- `ADMIN_PASSWORD` — admin password (otherwise regenerated on every restart)
+- `SESSION_SECRET` — cookie signing key (otherwise sessions invalidate on restart)
+- `KEYRING_KEY` — provider-API-key encryption key (otherwise stored keys cannot be decrypted after restart)
+- `ALLOWED_ORIGINS` — comma-separated extra origins (only if not same-origin)

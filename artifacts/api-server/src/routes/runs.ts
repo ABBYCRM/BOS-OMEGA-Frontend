@@ -8,13 +8,23 @@ import {
   tasksTable,
 } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
+import { z } from "zod";
 
 const router = Router();
 
-// GET /api/runs/:id — full execution run
+const IdParam = z.object({ id: z.string().uuid().or(z.string().min(1).max(128)) });
+const ListQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+function parseId(req: { params: Record<string, string | undefined> }): string | null {
+  const r = IdParam.safeParse(req.params);
+  return r.success ? r.data.id : null;
+}
+
 router.get("/:id", async (req, res) => {
-  const { id } = req.params;
-  if (!id) { res.status(400).json({ error: "Missing run id" }); return; }
+  const id = parseId(req);
+  if (!id) { res.status(400).json({ error: "Invalid run id" }); return; }
 
   const [run] = await db.select().from(executionRunsTable).where(eq(executionRunsTable.id, id)).limit(1);
   if (!run) { res.status(404).json({ error: "Run not found" }); return; }
@@ -26,10 +36,9 @@ router.get("/:id", async (req, res) => {
   res.json({ run, task });
 });
 
-// GET /api/runs/:id/series — series pass steps
 router.get("/:id/series", async (req, res) => {
-  const { id } = req.params;
-  if (!id) { res.status(400).json({ error: "Missing run id" }); return; }
+  const id = parseId(req);
+  if (!id) { res.status(400).json({ error: "Invalid run id" }); return; }
 
   const passes = await db
     .select()
@@ -40,10 +49,9 @@ router.get("/:id/series", async (req, res) => {
   res.json(passes);
 });
 
-// GET /api/runs/:id/parallel-agents — BTE agent outputs
 router.get("/:id/parallel-agents", async (req, res) => {
-  const { id } = req.params;
-  if (!id) { res.status(400).json({ error: "Missing run id" }); return; }
+  const id = parseId(req);
+  if (!id) { res.status(400).json({ error: "Invalid run id" }); return; }
 
   const agents = await db
     .select()
@@ -54,10 +62,9 @@ router.get("/:id/parallel-agents", async (req, res) => {
   res.json(agents);
 });
 
-// GET /api/runs/:id/synthesis — synthesis report
 router.get("/:id/synthesis", async (req, res) => {
-  const { id } = req.params;
-  if (!id) { res.status(400).json({ error: "Missing run id" }); return; }
+  const id = parseId(req);
+  if (!id) { res.status(400).json({ error: "Invalid run id" }); return; }
 
   const [report] = await db
     .select()
@@ -69,14 +76,14 @@ router.get("/:id/synthesis", async (req, res) => {
   res.json(report);
 });
 
-// GET /api/runs — list recent runs
 router.get("/", async (req, res) => {
-  const limit = Number(req.query["limit"]) || 50;
+  const parsed = ListQuery.safeParse(req.query);
+  if (!parsed.success) { res.status(400).json({ error: "Invalid query" }); return; }
   const runs = await db
     .select()
     .from(executionRunsTable)
     .orderBy(desc(executionRunsTable.started_at))
-    .limit(limit);
+    .limit(parsed.data.limit);
   res.json(runs);
 });
 

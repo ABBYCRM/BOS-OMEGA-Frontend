@@ -1,4 +1,5 @@
 import { logger } from "./logger.js";
+import { safeFetch, SsrfBlockedError } from "./security/safeFetch.js";
 
 /**
  * Agentic provider helpers — autonomously test API keys and discover models
@@ -147,36 +148,49 @@ async function listGeminiModels(api_key: string): Promise<DiscoveredModel[]> {
 }
 
 // ---------- Ollama ----------
+// Ollama legitimately runs on localhost. We allow loopback here only.
 async function testOllama(base_url: string): Promise<TestResult> {
-  const r = await fetch(`${base_url}/api/tags`, { signal: AbortSignal.timeout(5000) });
-  if (r.status === 200) return { ok: true, status_code: 200, message: "Connected to Ollama", detected_provider: "Ollama" };
-  return { ok: false, status_code: r.status, message: `Ollama not reachable at ${base_url}` };
+  try {
+    const r = await safeFetch(`${base_url}/api/tags`, { allowLocalhost: true, timeoutMs: 5000 });
+    if (r.status === 200) return { ok: true, status_code: 200, message: "Connected to Ollama", detected_provider: "Ollama" };
+    return { ok: false, status_code: r.status, message: `Ollama not reachable at ${base_url}` };
+  } catch (err) {
+    if (err instanceof SsrfBlockedError) return { ok: false, message: `Blocked by SSRF guard: ${err.message}` };
+    throw err;
+  }
 }
 
 async function listOllamaModels(base_url: string): Promise<DiscoveredModel[]> {
-  const r = await fetch(`${base_url}/api/tags`, { signal: AbortSignal.timeout(10000) });
+  const r = await safeFetch(`${base_url}/api/tags`, { allowLocalhost: true, timeoutMs: 10000 });
   if (!r.ok) throw new Error(`Ollama list models returned HTTP ${r.status}`);
   const data = await r.json() as { models?: Array<{ name: string }> };
   return (data.models || []).map((m) => ({ id: m.name }));
 }
 
 // ---------- Generic OpenAI-compatible ----------
+// User-supplied base_url. SSRF guard is mandatory; localhost is NOT allowed
+// for arbitrary providers (Ollama has its own dedicated path above).
 async function testGenericOpenAI(base_url: string, api_key: string): Promise<TestResult> {
   const url = base_url.replace(/\/$/, "") + "/models";
-  const r = await fetch(url, {
-    headers: { Authorization: `Bearer ${api_key}` },
-    signal: AbortSignal.timeout(10000),
-  });
-  if (r.status === 200) return { ok: true, status_code: 200, message: "Authenticated", detected_provider: "OpenAI-compatible" };
-  if (r.status === 401) return { ok: false, status_code: 401, message: "Invalid API key" };
-  return { ok: false, status_code: r.status, message: `Provider returned HTTP ${r.status}` };
+  try {
+    const r = await safeFetch(url, {
+      headers: { Authorization: `Bearer ${api_key}` },
+      timeoutMs: 10000,
+    });
+    if (r.status === 200) return { ok: true, status_code: 200, message: "Authenticated", detected_provider: "OpenAI-compatible" };
+    if (r.status === 401) return { ok: false, status_code: 401, message: "Invalid API key" };
+    return { ok: false, status_code: r.status, message: `Provider returned HTTP ${r.status}` };
+  } catch (err) {
+    if (err instanceof SsrfBlockedError) return { ok: false, message: `Blocked by SSRF guard: ${err.message}` };
+    throw err;
+  }
 }
 
 async function listOpenAICompatibleModels(base_url: string, api_key: string): Promise<DiscoveredModel[]> {
   const url = base_url.replace(/\/$/, "") + "/models";
-  const r = await fetch(url, {
+  const r = await safeFetch(url, {
     headers: { Authorization: `Bearer ${api_key}` },
-    signal: AbortSignal.timeout(15000),
+    timeoutMs: 15000,
   });
   if (!r.ok) throw new Error(`Provider list models returned HTTP ${r.status}`);
   const data = await r.json() as { data?: Array<{ id: string }> };
