@@ -181,6 +181,111 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Provider"
+    delete:
+      operationId: deleteProvider
+      tags: [providers]
+      summary: Remove a provider entirely
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  removed:
+                    type: boolean
+
+  /providers/{id}/api-key:
+    put:
+      operationId: setProviderApiKey
+      tags: [providers]
+      summary: Paste an API key for the provider (encrypted at rest)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                api_key:
+                  type: string
+                  description: The plaintext API key — encrypted with AES-256-GCM before storage
+              required: [api_key]
+      responses:
+        "200":
+          description: Key stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Provider"
+    delete:
+      operationId: clearProviderApiKey
+      tags: [providers]
+      summary: Clear the stored API key (falls back to env var)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Key cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Provider"
+
+  /providers/{id}/test:
+    post:
+      operationId: testProvider
+      tags: [providers]
+      summary: Agentic key validation — tests the configured key against the live provider
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderTestResult"
+
+  /providers/{id}/discover-models:
+    post:
+      operationId: discoverProviderModels
+      tags: [providers]
+      summary: Agentic model discovery — fetches and auto-registers models from the provider
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Discovery result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderDiscoveryResult"
 
   /models:
     get:
@@ -682,11 +787,61 @@ components:
           type: boolean
         priority:
           type: integer
+        api_key_env:
+          type: string
+          description: Optional env var name (legacy fallback)
+        api_key_hint:
+          type: string
+          description: Last 4 chars of the configured key (or null)
+        has_api_key:
+          type: boolean
+          description: True if a DB-stored encrypted key exists
+        last_test_status:
+          type: string
+          enum: [OK, FAILED, NEVER_TESTED]
+        last_test_message:
+          type: string
+        last_test_at:
+          type: string
+        discovered_models_count:
+          type: integer
         created_at:
           type: string
         updated_at:
           type: string
       required: [id, name, status, enabled, priority]
+
+    ProviderTestResult:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        status_code:
+          type: integer
+        message:
+          type: string
+        detected_provider:
+          type: string
+      required: [ok, message]
+
+    ProviderDiscoveryResult:
+      type: object
+      properties:
+        discovered:
+          type: integer
+        newly_registered:
+          type: integer
+        models:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              context_window:
+                type: integer
+            required: [id]
+      required: [discovered, newly_registered, models]
 
     CreateProviderBody:
       type: object

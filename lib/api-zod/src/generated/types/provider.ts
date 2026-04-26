@@ -5,6 +5,7 @@
  * BOS-OMEGA Multi-LLM Orchestration Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { ProviderLastTestStatus } from "./providerLastTestStatus";
 import type { ProviderStatus } from "./providerStatus";
 
 export interface Provider {
@@ -14,6 +15,16 @@ export interface Provider {
   status: ProviderStatus;
   enabled: boolean;
   priority: number;
+  /** Optional env var name (legacy fallback) */
+  api_key_env?: string;
+  /** Last 4 chars of the configured key (or null) */
+  api_key_hint?: string;
+  /** True if a DB-stored encrypted key exists */
+  has_api_key?: boolean;
+  last_test_status?: ProviderLastTestStatus;
+  last_test_message?: string;
+  last_test_at?: string;
+  discovered_models_count?: number;
   created_at?: string;
   updated_at?: string;
 }

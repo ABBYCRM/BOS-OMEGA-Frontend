@@ -14,6 +14,7 @@ import { repairOutput } from "./repairEngine.js";
 import { recordSuccess, recordFailure, ensureProviderHealth } from "./circuitBreaker.js";
 import { auditLog } from "./auditEngine.js";
 import { getCanonMemory, getScratchpad, buildContextFromMemory } from "./memoryEngine.js";
+import { resolveProviderKey } from "../lib/keyResolver.js";
 import { callOpenAI } from "../providers/openaiAdapter.js";
 import { callAnthropic } from "../providers/anthropicAdapter.js";
 import { callGemini } from "../providers/geminiAdapter.js";
@@ -248,21 +249,19 @@ async function callProvider(
     .limit(1);
 
   const provider = provider_row[0];
+  const { key } = await resolveProviderKey(model_info.provider_id, model_info.provider_name);
 
   if (provider_name === "openai") {
-    const key = process.env["OPENAI_API_KEY"];
     if (!key) return mockResult(model_info, input, task_type);
     return callOpenAI(input, task_type, model_info.model_name, key, memory_context);
   }
 
   if (provider_name === "anthropic") {
-    const key = process.env["ANTHROPIC_API_KEY"];
     if (!key) return mockResult(model_info, input, task_type);
     return callAnthropic(input, task_type, model_info.model_name, key, memory_context);
   }
 
   if (provider_name === "gemini" || provider_name === "google gemini") {
-    const key = process.env["GEMINI_API_KEY"];
     if (!key) return mockResult(model_info, input, task_type);
     return callGemini(input, task_type, model_info.model_name, key, memory_context);
   }
@@ -272,7 +271,6 @@ async function callProvider(
     return callOllama(input, task_type, model_info.model_name, base_url, memory_context);
   }
 
-  const key = provider?.api_key_env ? (process.env[provider.api_key_env] || "") : "";
   const base_url = provider?.base_url || "";
   if (!key || !base_url) return mockResult(model_info, input, task_type);
   return callGenericOpenAI(input, task_type, model_info.model_name, base_url, key, memory_context);

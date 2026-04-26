@@ -8,11 +8,12 @@ import { callGemini } from "../providers/geminiAdapter.js";
 import { callOllama } from "../providers/ollamaAdapter.js";
 import { callGenericOpenAI } from "../providers/genericAdapter.js";
 import { MOCK_MODE_NOTICE } from "../providers/prompts.js";
+import { resolveProviderKey } from "../lib/keyResolver.js";
 import type { BosOutput } from "./types.js";
 
 /**
  * Shared provider calling utility for all BOS engine modules.
- * Handles provider selection, key lookup, and mock mode fallback.
+ * Resolves keys via the agentic resolver: DB-stored encrypted key → env var → legacy.
  */
 export async function callProviderDirect(
   prompt: string,
@@ -28,21 +29,19 @@ export async function callProviderDirect(
     .limit(1);
 
   const provider = provider_rows[0];
+  const { key } = await resolveProviderKey(model_info.provider_id, model_info.provider_name);
 
   if (provider_name === "openai") {
-    const key = process.env["OPENAI_API_KEY"];
     if (!key) return mockResult(model_info, prompt, task_type);
     return callOpenAI(prompt, task_type, model_info.model_name, key, "");
   }
 
   if (provider_name === "anthropic") {
-    const key = process.env["ANTHROPIC_API_KEY"];
     if (!key) return mockResult(model_info, prompt, task_type);
     return callAnthropic(prompt, task_type, model_info.model_name, key, "");
   }
 
   if (provider_name === "gemini" || provider_name === "google gemini") {
-    const key = process.env["GEMINI_API_KEY"];
     if (!key) return mockResult(model_info, prompt, task_type);
     return callGemini(prompt, task_type, model_info.model_name, key, "");
   }
@@ -52,14 +51,12 @@ export async function callProviderDirect(
     return callOllama(prompt, task_type, model_info.model_name, base_url, "");
   }
 
-  const key = provider?.api_key_env ? (process.env[provider.api_key_env] || "") : "";
   const base_url = provider?.base_url || "";
   if (!key || !base_url) return mockResult(model_info, prompt, task_type);
   return callGenericOpenAI(prompt, task_type, model_info.model_name, base_url, key, "");
 }
 
 function mockResult(model_info: ModelScore, prompt: string, task_type: string): LLMCallResult {
-  // Generate a realistic mock for series pass / BTO agents
   const preview = prompt.slice(0, 300);
   const role_match = prompt.match(/ROLE: (\w+)/);
   const agent_match = prompt.match(/AGENT: (\w+)/);
@@ -68,15 +65,14 @@ function mockResult(model_info: ModelScore, prompt: string, task_type: string): 
   const mock: BosOutput = {
     state: "GO",
     task_type,
-    answer: `${MOCK_MODE_NOTICE}\n\n[${role} via ${model_info.provider_name}/${model_info.model_name}]\n\nThis agent processed the task in mock mode (no API key configured).\n\nTask preview: "${preview.slice(0, 200)}..."\n\nIn production with real API keys, this agent would contribute its specialized perspective (${role}) to the answer synthesis.`,
+    answer: `${MOCK_MODE_NOTICE}\n\n[${role} via ${model_info.provider_name}/${model_info.model_name}]\n\nThis agent processed the task in mock mode (no API key configured).\n\nTask preview: "${preview.slice(0, 200)}..."\n\nPaste an API key in Settings to enable live agent responses.`,
     assumptions: ["Mock mode active — no real API key configured", `Role: ${role}`],
     uncertainties: ["This response is simulated"],
     missing_inputs: [],
     failure_modes: ["Real API call not made"],
-    recommended_next_action: "Configure provider API keys to enable live agent responses",
+    recommended_next_action: "Paste a provider API key in the Settings tab to enable live agent responses",
   };
 
-  // Add role-specific mock fields
   const extra: Record<string, unknown> = {
     agent_role: role,
     key_points: [`[MOCK] ${role} perspective not available without API key`],

@@ -192,6 +192,15 @@ export const ProviderStatus = {
   RECOVERY_TEST: "RECOVERY_TEST",
 } as const;
 
+export type ProviderLastTestStatus =
+  (typeof ProviderLastTestStatus)[keyof typeof ProviderLastTestStatus];
+
+export const ProviderLastTestStatus = {
+  OK: "OK",
+  FAILED: "FAILED",
+  NEVER_TESTED: "NEVER_TESTED",
+} as const;
+
 export interface Provider {
   id: string;
   name: string;
@@ -199,8 +208,36 @@ export interface Provider {
   status: ProviderStatus;
   enabled: boolean;
   priority: number;
+  /** Optional env var name (legacy fallback) */
+  api_key_env?: string;
+  /** Last 4 chars of the configured key (or null) */
+  api_key_hint?: string;
+  /** True if a DB-stored encrypted key exists */
+  has_api_key?: boolean;
+  last_test_status?: ProviderLastTestStatus;
+  last_test_message?: string;
+  last_test_at?: string;
+  discovered_models_count?: number;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface ProviderTestResult {
+  ok: boolean;
+  status_code?: number;
+  message: string;
+  detected_provider?: string;
+}
+
+export type ProviderDiscoveryResultModelsItem = {
+  id: string;
+  context_window?: number;
+};
+
+export interface ProviderDiscoveryResult {
+  discovered: number;
+  newly_registered: number;
+  models: ProviderDiscoveryResultModelsItem[];
 }
 
 export interface CreateProviderBody {
@@ -512,6 +549,15 @@ export interface TriStateDecision {
 export type ListTasksParams = {
   limit?: number;
   offset?: number;
+};
+
+export type DeleteProvider200 = {
+  removed?: boolean;
+};
+
+export type SetProviderApiKeyBody = {
+  /** The plaintext API key — encrypted with AES-256-GCM before storage */
+  api_key: string;
 };
 
 export type ListFallbackEventsParams = {

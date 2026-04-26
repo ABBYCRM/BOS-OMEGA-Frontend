@@ -22,6 +22,7 @@ import type {
   CreateModelBody,
   CreateProviderBody,
   CreateTaskBody,
+  DeleteProvider200,
   ErrorResponse,
   ExecutionRun,
   FallbackEvent,
@@ -36,9 +37,12 @@ import type {
   ModelAttempt,
   ParallelAgent,
   Provider,
+  ProviderDiscoveryResult,
   ProviderHealth,
+  ProviderTestResult,
   RunDetail,
   SeriesPass,
+  SetProviderApiKeyBody,
   SynthesisReport,
   Task,
   TaskDetail,
@@ -712,6 +716,432 @@ export const useUpdateProvider = <
   TContext
 > => {
   return useMutation(getUpdateProviderMutationOptions(options));
+};
+
+/**
+ * @summary Remove a provider entirely
+ */
+export const getDeleteProviderUrl = (id: string) => {
+  return `/api/providers/${id}`;
+};
+
+export const deleteProvider = async (
+  id: string,
+  options?: RequestInit,
+): Promise<DeleteProvider200> => {
+  return customFetch<DeleteProvider200>(getDeleteProviderUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteProviderMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteProvider>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteProvider>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["deleteProvider"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteProvider>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteProvider(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteProviderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteProvider>>
+>;
+
+export type DeleteProviderMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Remove a provider entirely
+ */
+export const useDeleteProvider = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteProvider>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteProvider>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getDeleteProviderMutationOptions(options));
+};
+
+/**
+ * @summary Paste an API key for the provider (encrypted at rest)
+ */
+export const getSetProviderApiKeyUrl = (id: string) => {
+  return `/api/providers/${id}/api-key`;
+};
+
+export const setProviderApiKey = async (
+  id: string,
+  setProviderApiKeyBody: SetProviderApiKeyBody,
+  options?: RequestInit,
+): Promise<Provider> => {
+  return customFetch<Provider>(getSetProviderApiKeyUrl(id), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(setProviderApiKeyBody),
+  });
+};
+
+export const getSetProviderApiKeyMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setProviderApiKey>>,
+    TError,
+    { id: string; data: BodyType<SetProviderApiKeyBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setProviderApiKey>>,
+  TError,
+  { id: string; data: BodyType<SetProviderApiKeyBody> },
+  TContext
+> => {
+  const mutationKey = ["setProviderApiKey"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setProviderApiKey>>,
+    { id: string; data: BodyType<SetProviderApiKeyBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return setProviderApiKey(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetProviderApiKeyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setProviderApiKey>>
+>;
+export type SetProviderApiKeyMutationBody = BodyType<SetProviderApiKeyBody>;
+export type SetProviderApiKeyMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Paste an API key for the provider (encrypted at rest)
+ */
+export const useSetProviderApiKey = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setProviderApiKey>>,
+    TError,
+    { id: string; data: BodyType<SetProviderApiKeyBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof setProviderApiKey>>,
+  TError,
+  { id: string; data: BodyType<SetProviderApiKeyBody> },
+  TContext
+> => {
+  return useMutation(getSetProviderApiKeyMutationOptions(options));
+};
+
+/**
+ * @summary Clear the stored API key (falls back to env var)
+ */
+export const getClearProviderApiKeyUrl = (id: string) => {
+  return `/api/providers/${id}/api-key`;
+};
+
+export const clearProviderApiKey = async (
+  id: string,
+  options?: RequestInit,
+): Promise<Provider> => {
+  return customFetch<Provider>(getClearProviderApiKeyUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getClearProviderApiKeyMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof clearProviderApiKey>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof clearProviderApiKey>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["clearProviderApiKey"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof clearProviderApiKey>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return clearProviderApiKey(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ClearProviderApiKeyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof clearProviderApiKey>>
+>;
+
+export type ClearProviderApiKeyMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Clear the stored API key (falls back to env var)
+ */
+export const useClearProviderApiKey = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof clearProviderApiKey>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof clearProviderApiKey>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getClearProviderApiKeyMutationOptions(options));
+};
+
+/**
+ * @summary Agentic key validation — tests the configured key against the live provider
+ */
+export const getTestProviderUrl = (id: string) => {
+  return `/api/providers/${id}/test`;
+};
+
+export const testProvider = async (
+  id: string,
+  options?: RequestInit,
+): Promise<ProviderTestResult> => {
+  return customFetch<ProviderTestResult>(getTestProviderUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getTestProviderMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof testProvider>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof testProvider>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["testProvider"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof testProvider>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return testProvider(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type TestProviderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof testProvider>>
+>;
+
+export type TestProviderMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Agentic key validation — tests the configured key against the live provider
+ */
+export const useTestProvider = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof testProvider>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof testProvider>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getTestProviderMutationOptions(options));
+};
+
+/**
+ * @summary Agentic model discovery — fetches and auto-registers models from the provider
+ */
+export const getDiscoverProviderModelsUrl = (id: string) => {
+  return `/api/providers/${id}/discover-models`;
+};
+
+export const discoverProviderModels = async (
+  id: string,
+  options?: RequestInit,
+): Promise<ProviderDiscoveryResult> => {
+  return customFetch<ProviderDiscoveryResult>(
+    getDiscoverProviderModelsUrl(id),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getDiscoverProviderModelsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof discoverProviderModels>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof discoverProviderModels>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["discoverProviderModels"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof discoverProviderModels>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return discoverProviderModels(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DiscoverProviderModelsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof discoverProviderModels>>
+>;
+
+export type DiscoverProviderModelsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Agentic model discovery — fetches and auto-registers models from the provider
+ */
+export const useDiscoverProviderModels = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof discoverProviderModels>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof discoverProviderModels>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getDiscoverProviderModelsMutationOptions(options));
 };
 
 /**

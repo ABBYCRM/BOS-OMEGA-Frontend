@@ -231,6 +231,22 @@ export const ListProvidersResponseItem = zod.object({
   status: zod.enum(["HEALTHY", "DEGRADED", "OPEN_CIRCUIT", "RECOVERY_TEST"]),
   enabled: zod.boolean(),
   priority: zod.number(),
+  api_key_env: zod
+    .string()
+    .optional()
+    .describe("Optional env var name (legacy fallback)"),
+  api_key_hint: zod
+    .string()
+    .optional()
+    .describe("Last 4 chars of the configured key (or null)"),
+  has_api_key: zod
+    .boolean()
+    .optional()
+    .describe("True if a DB-stored encrypted key exists"),
+  last_test_status: zod.enum(["OK", "FAILED", "NEVER_TESTED"]).optional(),
+  last_test_message: zod.string().optional(),
+  last_test_at: zod.string().optional(),
+  discovered_models_count: zod.number().optional(),
   created_at: zod.string().optional(),
   updated_at: zod.string().optional(),
 });
@@ -274,8 +290,143 @@ export const UpdateProviderResponse = zod.object({
   status: zod.enum(["HEALTHY", "DEGRADED", "OPEN_CIRCUIT", "RECOVERY_TEST"]),
   enabled: zod.boolean(),
   priority: zod.number(),
+  api_key_env: zod
+    .string()
+    .optional()
+    .describe("Optional env var name (legacy fallback)"),
+  api_key_hint: zod
+    .string()
+    .optional()
+    .describe("Last 4 chars of the configured key (or null)"),
+  has_api_key: zod
+    .boolean()
+    .optional()
+    .describe("True if a DB-stored encrypted key exists"),
+  last_test_status: zod.enum(["OK", "FAILED", "NEVER_TESTED"]).optional(),
+  last_test_message: zod.string().optional(),
+  last_test_at: zod.string().optional(),
+  discovered_models_count: zod.number().optional(),
   created_at: zod.string().optional(),
   updated_at: zod.string().optional(),
+});
+
+/**
+ * @summary Remove a provider entirely
+ */
+export const DeleteProviderParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const DeleteProviderResponse = zod.object({
+  removed: zod.boolean().optional(),
+});
+
+/**
+ * @summary Paste an API key for the provider (encrypted at rest)
+ */
+export const SetProviderApiKeyParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const SetProviderApiKeyBody = zod.object({
+  api_key: zod
+    .string()
+    .describe(
+      "The plaintext API key — encrypted with AES-256-GCM before storage",
+    ),
+});
+
+export const SetProviderApiKeyResponse = zod.object({
+  id: zod.string(),
+  name: zod.string(),
+  base_url: zod.string().optional(),
+  status: zod.enum(["HEALTHY", "DEGRADED", "OPEN_CIRCUIT", "RECOVERY_TEST"]),
+  enabled: zod.boolean(),
+  priority: zod.number(),
+  api_key_env: zod
+    .string()
+    .optional()
+    .describe("Optional env var name (legacy fallback)"),
+  api_key_hint: zod
+    .string()
+    .optional()
+    .describe("Last 4 chars of the configured key (or null)"),
+  has_api_key: zod
+    .boolean()
+    .optional()
+    .describe("True if a DB-stored encrypted key exists"),
+  last_test_status: zod.enum(["OK", "FAILED", "NEVER_TESTED"]).optional(),
+  last_test_message: zod.string().optional(),
+  last_test_at: zod.string().optional(),
+  discovered_models_count: zod.number().optional(),
+  created_at: zod.string().optional(),
+  updated_at: zod.string().optional(),
+});
+
+/**
+ * @summary Clear the stored API key (falls back to env var)
+ */
+export const ClearProviderApiKeyParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ClearProviderApiKeyResponse = zod.object({
+  id: zod.string(),
+  name: zod.string(),
+  base_url: zod.string().optional(),
+  status: zod.enum(["HEALTHY", "DEGRADED", "OPEN_CIRCUIT", "RECOVERY_TEST"]),
+  enabled: zod.boolean(),
+  priority: zod.number(),
+  api_key_env: zod
+    .string()
+    .optional()
+    .describe("Optional env var name (legacy fallback)"),
+  api_key_hint: zod
+    .string()
+    .optional()
+    .describe("Last 4 chars of the configured key (or null)"),
+  has_api_key: zod
+    .boolean()
+    .optional()
+    .describe("True if a DB-stored encrypted key exists"),
+  last_test_status: zod.enum(["OK", "FAILED", "NEVER_TESTED"]).optional(),
+  last_test_message: zod.string().optional(),
+  last_test_at: zod.string().optional(),
+  discovered_models_count: zod.number().optional(),
+  created_at: zod.string().optional(),
+  updated_at: zod.string().optional(),
+});
+
+/**
+ * @summary Agentic key validation — tests the configured key against the live provider
+ */
+export const TestProviderParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const TestProviderResponse = zod.object({
+  ok: zod.boolean(),
+  status_code: zod.number().optional(),
+  message: zod.string(),
+  detected_provider: zod.string().optional(),
+});
+
+/**
+ * @summary Agentic model discovery — fetches and auto-registers models from the provider
+ */
+export const DiscoverProviderModelsParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const DiscoverProviderModelsResponse = zod.object({
+  discovered: zod.number(),
+  newly_registered: zod.number(),
+  models: zod.array(
+    zod.object({
+      id: zod.string(),
+      context_window: zod.number().optional(),
+    }),
+  ),
 });
 
 /**
