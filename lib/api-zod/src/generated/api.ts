@@ -215,6 +215,12 @@ export const GetTaskResponse = zod.object({
       merge_strategy: zod.string().optional(),
     })
     .optional(),
+  run_id: zod
+    .string()
+    .nullish()
+    .describe(
+      "Latest execution_run id associated with this task, if any. Used by super-admin override UI to enable run-level actions without scraping audit metadata.",
+    ),
 });
 
 /**

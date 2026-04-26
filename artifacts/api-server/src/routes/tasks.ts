@@ -7,6 +7,7 @@ import {
   fallbackEventsTable,
   auditLogsTable,
   attachmentsTable,
+  executionRunsTable,
 } from "@workspace/db";
 import { eq, desc, count, sql, and, or, isNull, inArray } from "drizzle-orm";
 import { runBosPipeline } from "../bos/pipeline.js";
@@ -86,7 +87,14 @@ router.post("/", expensiveLimiter, async (req, res) => {
 
 router.get("/stats", async (req, res) => {
   try {
-    const [totals] = await db
+    // Stats must respect the same role-based visibility model as /tasks.
+    // For non-super users the totals, by-type, by-provider, attempt costs
+    // and fallback counts are all restricted to tasks they can actually
+    // see (own + legacy NULL). Without this, /stats leaks aggregated
+    // cross-tenant activity (counts, totals, costs, latencies).
+    const where = visibilityFilter(req);
+
+    const totalsQuery = db
       .select({
         total_tasks: count(),
         go_count: sql<number>`count(*) filter (where tri_state = 'GO')`,
@@ -94,25 +102,46 @@ router.get("/stats", async (req, res) => {
         abort_count: sql<number>`count(*) filter (where tri_state = 'ABORT')`,
       })
       .from(tasksTable);
+    const [totals] = where ? await totalsQuery.where(where) : await totalsQuery;
 
-    const attempts_stats = await db
-      .select({
-        avg_latency: sql<number>`avg(latency_ms)`,
-        total_cost: sql<number>`sum(cost_estimate)`,
-      })
-      .from(modelAttemptsTable);
+    // For attempts and fallbacks, narrow to tasks visible to this user.
+    // Super_admin (`where === undefined`) skips the join and aggregates
+    // everything, matching the unfiltered list views.
+    const attempts_stats = where
+      ? await db
+          .select({
+            avg_latency: sql<number>`avg(${modelAttemptsTable.latency_ms})`,
+            total_cost: sql<number>`sum(${modelAttemptsTable.cost_estimate})`,
+          })
+          .from(modelAttemptsTable)
+          .innerJoin(tasksTable, eq(tasksTable.id, modelAttemptsTable.task_id))
+          .where(where)
+      : await db
+          .select({
+            avg_latency: sql<number>`avg(latency_ms)`,
+            total_cost: sql<number>`sum(cost_estimate)`,
+          })
+          .from(modelAttemptsTable);
 
-    const fallback_count = await db.select({ c: count() }).from(fallbackEventsTable);
+    const fallback_count = where
+      ? await db
+          .select({ c: count() })
+          .from(fallbackEventsTable)
+          .innerJoin(tasksTable, eq(tasksTable.id, fallbackEventsTable.task_id))
+          .where(where)
+      : await db.select({ c: count() }).from(fallbackEventsTable);
 
-    const by_type_rows = await db
+    const by_type_query = db
       .select({ task_type: tasksTable.task_type, c: count() })
       .from(tasksTable)
       .groupBy(tasksTable.task_type);
+    const by_type_rows = where ? await by_type_query.where(where) : await by_type_query;
 
-    const by_provider_rows = await db
+    const by_provider_query = db
       .select({ provider: tasksTable.selected_provider, c: count() })
       .from(tasksTable)
       .groupBy(tasksTable.selected_provider);
+    const by_provider_rows = where ? await by_provider_query.where(where) : await by_provider_query;
 
     const total = totals?.total_tasks || 0;
     const go = totals?.go_count || 0;
@@ -173,11 +202,20 @@ router.get("/:id", async (req, res) => {
     : await db.select().from(tasksTable).where(eq(tasksTable.id, id)).limit(1);
   if (!task) { res.status(404).json({ error: "Task not found", code: "NOT_FOUND" }); return; }
 
-  const [attempts, validation, fallbacks, audit] = await Promise.all([
+  const [attempts, validation, fallbacks, audit, runs] = await Promise.all([
     db.select().from(modelAttemptsTable).where(eq(modelAttemptsTable.task_id, id)).orderBy(modelAttemptsTable.attempt_number),
     db.select().from(validationResultsTable).where(eq(validationResultsTable.task_id, id)),
     db.select().from(fallbackEventsTable).where(eq(fallbackEventsTable.task_id, id)).orderBy(desc(fallbackEventsTable.created_at)),
     db.select().from(auditLogsTable).where(eq(auditLogsTable.task_id, id)).orderBy(auditLogsTable.created_at),
+    // Surface the latest execution_run id directly so the super-admin
+    // override UI never has to dig through audit metadata to discover
+    // a run id (which isn't reliably stamped on every event).
+    db
+      .select({ id: executionRunsTable.id })
+      .from(executionRunsTable)
+      .where(eq(executionRunsTable.task_id, id))
+      .orderBy(desc(executionRunsTable.started_at))
+      .limit(1),
   ]);
 
   let bos_output = null;
@@ -185,7 +223,8 @@ router.get("/:id", async (req, res) => {
     if (task.final_output) bos_output = JSON.parse(task.final_output);
   } catch {}
 
-  res.json({ task, attempts, validation, fallbacks, audit, bos_output });
+  const run_id = runs[0]?.id ?? null;
+  res.json({ task, attempts, validation, fallbacks, audit, bos_output, run_id });
 });
 
 router.get("/:id/attempts", async (req, res) => {

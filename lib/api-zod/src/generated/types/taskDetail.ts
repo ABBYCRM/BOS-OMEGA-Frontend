@@ -19,4 +19,6 @@ export interface TaskDetail {
   fallbacks: FallbackEvent[];
   audit: AuditLog[];
   bos_output?: BosOutput;
+  /** Latest execution_run id associated with this task, if any. Used by super-admin override UI to enable run-level actions without scraping audit metadata. */
+  run_id?: string | null;
 }

@@ -30,13 +30,17 @@ export function TaskDetail() {
   }
 
   const { task, attempts = [], validation = [], fallbacks = [], audit = [], bos_output } = data;
-  // Pull a run id from the audit metadata if the pipeline stamped one. Falls
-  // back to whatever the latest run-related event references.
+  // Prefer the top-level run_id surfaced by GET /api/tasks/:id (the latest
+  // execution_run for this task). Fall back to scraping audit metadata for
+  // older tasks created before the field existed, so the reset-run override
+  // remains usable on legacy data.
   const runId =
+    (data as { run_id?: string | null }).run_id ??
     (audit
       .map((e) => (e.metadata as Record<string, unknown> | null | undefined)?.["run_id"])
       .filter((v): v is string => typeof v === "string" && v.length > 0)
-      .pop()) ?? null;
+      .pop()) ??
+    null;
 
   return (
     <div className="max-w-5xl mx-auto space-y-5">

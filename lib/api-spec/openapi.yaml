@@ -1084,6 +1084,10 @@ components:
             $ref: "#/components/schemas/AuditLog"
         bos_output:
           $ref: "#/components/schemas/BosOutput"
+        run_id:
+          type: string
+          nullable: true
+          description: Latest execution_run id associated with this task, if any. Used by super-admin override UI to enable run-level actions without scraping audit metadata.
       required: [task, attempts, validation, fallbacks, audit]
 
     Attachment:
