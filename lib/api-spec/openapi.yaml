@@ -22,6 +22,8 @@ tags:
     description: Memory management
   - name: fallback
     description: Fallback events
+  - name: runs
+    description: Execution run traces (Series Pass / Boil The Ocean)
 paths:
   /healthz:
     get:
@@ -374,6 +376,111 @@ paths:
                 items:
                   $ref: "#/components/schemas/ModelAttempt"
 
+  /runs:
+    get:
+      operationId: listRuns
+      tags: [runs]
+      summary: List recent execution runs
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: List of execution runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExecutionRun"
+
+  /runs/{id}:
+    get:
+      operationId: getRun
+      tags: [runs]
+      summary: Get execution run detail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Execution run with task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunDetail"
+        "404":
+          description: Not found
+
+  /runs/{id}/series:
+    get:
+      operationId: getRunSeriesPasses
+      tags: [runs]
+      summary: Get series pass steps for a run
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Series pass steps
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SeriesPass"
+
+  /runs/{id}/parallel-agents:
+    get:
+      operationId: getRunParallelAgents
+      tags: [runs]
+      summary: Get parallel agents for a Boil The Ocean run
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Parallel agent outputs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ParallelAgent"
+
+  /runs/{id}/synthesis:
+    get:
+      operationId: getRunSynthesis
+      tags: [runs]
+      summary: Get synthesis report for a Boil The Ocean run
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Synthesis report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SynthesisReport"
+        "404":
+          description: Not found
+
 components:
   schemas:
     HealthStatus:
@@ -400,9 +507,9 @@ components:
           description: User input text
         mode:
           type: string
-          enum: [single, parallel, consensus]
-          default: single
-          description: Execution mode - single model, parallel with merge, or consensus vote
+          enum: [single, parallel, consensus, series_pass, boil_the_ocean, auto]
+          default: auto
+          description: "Execution mode: auto=BOS selects best mode, series_pass=5-role sequential refinement, boil_the_ocean=parallel multi-LLM × N agents + synthesis + adversarial"
         task_type_override:
           type: string
           description: Optional override for task classification
@@ -410,6 +517,14 @@ components:
           type: integer
           description: Number of models to run in parallel (for parallel/consensus mode)
           default: 3
+        max_models:
+          type: integer
+          description: Max LLM providers to use in Boil The Ocean mode (default 5)
+          default: 5
+        agents_per_model:
+          type: integer
+          description: Number of specialized agents per model in Boil The Ocean mode (default 5)
+          default: 5
       required: [input]
 
     Task:
@@ -854,3 +969,140 @@ components:
         selected:
           type: boolean
       required: [provider, model, state, answer]
+
+    ExecutionRun:
+      type: object
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        mode:
+          type: string
+          enum: [normal, series_pass, boil_the_ocean]
+        status:
+          type: string
+          enum: [running, completed, failed, held, aborted]
+        total_passes:
+          type: integer
+        total_agents:
+          type: integer
+        models_used:
+          type: array
+          items:
+            type: string
+        final_score:
+          type: number
+        started_at:
+          type: string
+        completed_at:
+          type: string
+      required: [id, mode, status, started_at]
+
+    SeriesPass:
+      type: object
+      properties:
+        id:
+          type: string
+        run_id:
+          type: string
+        pass_number:
+          type: integer
+        provider:
+          type: string
+        model:
+          type: string
+        role:
+          type: string
+          enum: [DRAFTER, CRITIC, EXPANDER, ADVERSARY, SYNTHESIZER, OMEGA_VALIDATOR]
+        input_snapshot:
+          type: string
+        output_snapshot:
+          type: string
+        validation_score:
+          type: number
+        errors_found:
+          type: array
+          items:
+            type: string
+        state:
+          type: string
+          enum: [GO, HOLD, ABORT]
+        latency_ms:
+          type: integer
+        created_at:
+          type: string
+      required: [id, run_id, pass_number, provider, model, role]
+
+    ParallelAgent:
+      type: object
+      properties:
+        id:
+          type: string
+        run_id:
+          type: string
+        provider:
+          type: string
+        model:
+          type: string
+        agent_role:
+          type: string
+          enum: [ARCHITECT, CRITIC, RESEARCHER, BUILDER, VALIDATOR]
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        output:
+          type: string
+        score:
+          type: number
+        state:
+          type: string
+          enum: [GO, HOLD, ABORT]
+        error_type:
+          type: string
+        latency_ms:
+          type: integer
+        created_at:
+          type: string
+      required: [id, run_id, provider, model, agent_role, status]
+
+    SynthesisReport:
+      type: object
+      properties:
+        id:
+          type: string
+        run_id:
+          type: string
+        consensus_points:
+          type: array
+          items:
+            type: string
+        contradictions:
+          type: array
+          items:
+            type: string
+        strongest_sections:
+          type: array
+          items:
+            type: string
+        rejected_sections:
+          type: array
+          items:
+            type: string
+        final_synthesis:
+          type: string
+        omega_validation:
+          type: string
+          description: JSON string with omega validation result
+        created_at:
+          type: string
+      required: [id, run_id]
+
+    RunDetail:
+      type: object
+      properties:
+        run:
+          $ref: "#/components/schemas/ExecutionRun"
+        task:
+          $ref: "#/components/schemas/Task"
+      required: [run]

@@ -7,7 +7,7 @@
  */
 
 /**
- * Execution mode - single model, parallel with merge, or consensus vote
+ * Execution mode: auto=BOS selects best mode, series_pass=5-role sequential refinement, boil_the_ocean=parallel multi-LLM × N agents + synthesis + adversarial
  */
 export type CreateTaskBodyMode =
   (typeof CreateTaskBodyMode)[keyof typeof CreateTaskBodyMode];
@@ -16,4 +16,7 @@ export const CreateTaskBodyMode = {
   single: "single",
   parallel: "parallel",
   consensus: "consensus",
+  series_pass: "series_pass",
+  boil_the_ocean: "boil_the_ocean",
+  auto: "auto",
 } as const;

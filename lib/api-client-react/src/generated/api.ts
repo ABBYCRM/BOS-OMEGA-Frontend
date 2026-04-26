@@ -23,16 +23,22 @@ import type {
   CreateProviderBody,
   CreateTaskBody,
   ErrorResponse,
+  ExecutionRun,
   FallbackEvent,
   HealthStatus,
   ListAuditLogsParams,
   ListFallbackEventsParams,
+  ListRunsParams,
   ListTasksParams,
   LlmModel,
   MemoryItem,
   ModelAttempt,
+  ParallelAgent,
   Provider,
   ProviderHealth,
+  RunDetail,
+  SeriesPass,
+  SynthesisReport,
   Task,
   TaskDetail,
   TaskListResponse,
@@ -1547,6 +1553,437 @@ export function useListModelAttempts<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getListModelAttemptsQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List recent execution runs
+ */
+export const getListRunsUrl = (params?: ListRunsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/runs?${stringifiedParams}`
+    : `/api/runs`;
+};
+
+export const listRuns = async (
+  params?: ListRunsParams,
+  options?: RequestInit,
+): Promise<ExecutionRun[]> => {
+  return customFetch<ExecutionRun[]>(getListRunsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListRunsQueryKey = (params?: ListRunsParams) => {
+  return [`/api/runs`, ...(params ? [params] : [])] as const;
+};
+
+export const getListRunsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listRuns>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListRunsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listRuns>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListRunsQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listRuns>>> = ({
+    signal,
+  }) => listRuns(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listRuns>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListRunsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listRuns>>
+>;
+export type ListRunsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List recent execution runs
+ */
+
+export function useListRuns<
+  TData = Awaited<ReturnType<typeof listRuns>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListRunsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listRuns>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListRunsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get execution run detail
+ */
+export const getGetRunUrl = (id: string) => {
+  return `/api/runs/${id}`;
+};
+
+export const getRun = async (
+  id: string,
+  options?: RequestInit,
+): Promise<RunDetail> => {
+  return customFetch<RunDetail>(getGetRunUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRunQueryKey = (id: string) => {
+  return [`/api/runs/${id}`] as const;
+};
+
+export const getGetRunQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRun>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getRun>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetRunQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getRun>>> = ({
+    signal,
+  }) => getRun(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof getRun>>, TError, TData> & {
+    queryKey: QueryKey;
+  };
+};
+
+export type GetRunQueryResult = NonNullable<Awaited<ReturnType<typeof getRun>>>;
+export type GetRunQueryError = ErrorType<void>;
+
+/**
+ * @summary Get execution run detail
+ */
+
+export function useGetRun<
+  TData = Awaited<ReturnType<typeof getRun>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getRun>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRunQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get series pass steps for a run
+ */
+export const getGetRunSeriesPassesUrl = (id: string) => {
+  return `/api/runs/${id}/series`;
+};
+
+export const getRunSeriesPasses = async (
+  id: string,
+  options?: RequestInit,
+): Promise<SeriesPass[]> => {
+  return customFetch<SeriesPass[]>(getGetRunSeriesPassesUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRunSeriesPassesQueryKey = (id: string) => {
+  return [`/api/runs/${id}/series`] as const;
+};
+
+export const getGetRunSeriesPassesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRunSeriesPasses>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRunSeriesPasses>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetRunSeriesPassesQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getRunSeriesPasses>>
+  > = ({ signal }) => getRunSeriesPasses(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRunSeriesPasses>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRunSeriesPassesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRunSeriesPasses>>
+>;
+export type GetRunSeriesPassesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get series pass steps for a run
+ */
+
+export function useGetRunSeriesPasses<
+  TData = Awaited<ReturnType<typeof getRunSeriesPasses>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRunSeriesPasses>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRunSeriesPassesQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get parallel agents for a Boil The Ocean run
+ */
+export const getGetRunParallelAgentsUrl = (id: string) => {
+  return `/api/runs/${id}/parallel-agents`;
+};
+
+export const getRunParallelAgents = async (
+  id: string,
+  options?: RequestInit,
+): Promise<ParallelAgent[]> => {
+  return customFetch<ParallelAgent[]>(getGetRunParallelAgentsUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRunParallelAgentsQueryKey = (id: string) => {
+  return [`/api/runs/${id}/parallel-agents`] as const;
+};
+
+export const getGetRunParallelAgentsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRunParallelAgents>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRunParallelAgents>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetRunParallelAgentsQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getRunParallelAgents>>
+  > = ({ signal }) => getRunParallelAgents(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRunParallelAgents>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRunParallelAgentsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRunParallelAgents>>
+>;
+export type GetRunParallelAgentsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get parallel agents for a Boil The Ocean run
+ */
+
+export function useGetRunParallelAgents<
+  TData = Awaited<ReturnType<typeof getRunParallelAgents>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRunParallelAgents>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRunParallelAgentsQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get synthesis report for a Boil The Ocean run
+ */
+export const getGetRunSynthesisUrl = (id: string) => {
+  return `/api/runs/${id}/synthesis`;
+};
+
+export const getRunSynthesis = async (
+  id: string,
+  options?: RequestInit,
+): Promise<SynthesisReport> => {
+  return customFetch<SynthesisReport>(getGetRunSynthesisUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRunSynthesisQueryKey = (id: string) => {
+  return [`/api/runs/${id}/synthesis`] as const;
+};
+
+export const getGetRunSynthesisQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRunSynthesis>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRunSynthesis>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetRunSynthesisQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getRunSynthesis>>> = ({
+    signal,
+  }) => getRunSynthesis(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRunSynthesis>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRunSynthesisQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRunSynthesis>>
+>;
+export type GetRunSynthesisQueryError = ErrorType<void>;
+
+/**
+ * @summary Get synthesis report for a Boil The Ocean run
+ */
+
+export function useGetRunSynthesis<
+  TData = Awaited<ReturnType<typeof getRunSynthesis>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRunSynthesis>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRunSynthesisQueryOptions(id, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

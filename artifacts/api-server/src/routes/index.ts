@@ -6,6 +6,7 @@ import modelsRouter from "./models.js";
 import auditRouter from "./audit.js";
 import memoryRouter from "./memory.js";
 import fallbackRouter from "./fallback.js";
+import runsRouter from "./runs.js";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use("/models", modelsRouter);
 router.use("/audit", auditRouter);
 router.use("/memory", memoryRouter);
 router.use("/fallback-events", fallbackRouter);
+router.use("/runs", runsRouter);
 
 export default router;

@@ -10,10 +10,14 @@ import type { CreateTaskBodyMode } from "./createTaskBodyMode";
 export interface CreateTaskBody {
   /** User input text */
   input: string;
-  /** Execution mode - single model, parallel with merge, or consensus vote */
+  /** Execution mode: auto=BOS selects best mode, series_pass=5-role sequential refinement, boil_the_ocean=parallel multi-LLM × N agents + synthesis + adversarial */
   mode?: CreateTaskBodyMode;
   /** Optional override for task classification */
   task_type_override?: string;
   /** Number of models to run in parallel (for parallel/consensus mode) */
   parallel_models?: number;
+  /** Max LLM providers to use in Boil The Ocean mode (default 5) */
+  max_models?: number;
+  /** Number of specialized agents per model in Boil The Ocean mode (default 5) */
+  agents_per_model?: number;
 }

@@ -24,13 +24,17 @@ router.post("/", async (req, res) => {
   try {
     const result = await runBosPipeline({
       input: parsed.data.input,
-      mode: parsed.data.mode as "single" | "parallel" | "consensus" | undefined,
+      mode: parsed.data.mode as "single" | "parallel" | "consensus" | "series_pass" | "boil_the_ocean" | "auto" | undefined,
       task_type_override: parsed.data.task_type_override || undefined,
       parallel_models: parsed.data.parallel_models || undefined,
+      max_models: parsed.data.max_models || undefined,
+      agents_per_model: parsed.data.agents_per_model || undefined,
     });
 
-    const task = await db.select().from(tasksTable).where(eq(tasksTable.id, result.task_id)).limit(1);
-    res.json(task[0] || { id: result.task_id, ...result });
+    const task_rows = await db.select().from(tasksTable).where(eq(tasksTable.id, result.task_id)).limit(1);
+    const task = task_rows[0];
+    // Merge run_id and execution_mode into the response
+    res.json(task ? { ...task, run_id: result.run_id, execution_mode: result.execution_mode } : { id: result.task_id, ...result });
   } catch (err) {
     req.log.error({ err }, "Pipeline error");
     res.status(500).json({ error: "Internal pipeline error", code: "SYSTEM_ERROR" });

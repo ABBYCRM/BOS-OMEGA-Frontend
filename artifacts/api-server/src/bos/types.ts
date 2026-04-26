@@ -12,7 +12,7 @@ export type TaskType =
   | "safety_review"
   | "general";
 
-export type ExecutionMode = "single" | "parallel" | "consensus";
+export type ExecutionMode = "single" | "parallel" | "consensus" | "series_pass" | "boil_the_ocean" | "auto";
 
 export type ProviderStatus = "HEALTHY" | "DEGRADED" | "OPEN_CIRCUIT" | "RECOVERY_TEST";
 

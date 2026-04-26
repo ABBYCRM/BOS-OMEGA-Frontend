@@ -8,6 +8,9 @@ import { classifyTask } from "./taskClassifier.js";
 import { evaluateTriState } from "./triState.js";
 import { selectModel } from "./modelRouter.js";
 import { executePipeline } from "./executionEngine.js";
+import { runSeriesPass } from "./seriesPassEngine.js";
+import { runBoilTheOcean } from "./boilTheOceanEngine.js";
+import { selectExecutionMode } from "./modeSelector.js";
 import { auditLog } from "./auditEngine.js";
 import { logger } from "../lib/logger.js";
 
@@ -16,6 +19,8 @@ export interface PipelineInput {
   mode?: ExecutionMode;
   task_type_override?: string;
   parallel_models?: number;
+  max_models?: number;
+  agents_per_model?: number;
 }
 
 export interface PipelineResult {
@@ -26,30 +31,28 @@ export interface PipelineResult {
   selected_model?: string;
   final_status: string;
   bos_output: BosOutput;
+  run_id?: string;
+  execution_mode?: string;
 }
 
 export async function runBosPipeline(pipelineInput: PipelineInput): Promise<PipelineResult> {
   const task_id = randomUUID();
-  const mode: ExecutionMode = pipelineInput.mode || "single";
-  const parallel_count = mode === "single" ? 1 : (pipelineInput.parallel_models || 3);
+  const requested_mode: ExecutionMode = pipelineInput.mode || "auto";
 
-  await auditLog(task_id, "TASK_RECEIVED", "Task received by BOS-OMEGA", { mode, input_length: pipelineInput.input.length });
+  await auditLog(task_id, "TASK_RECEIVED", "Task received by BOS-OMEGA", {
+    mode: requested_mode,
+    input_length: pipelineInput.input.length,
+  });
 
   const gate = runInputGate(pipelineInput.input);
-  await auditLog(task_id, "INPUT_GATE_RESULT", `Input gate: ${gate.state}`, { intent: gate.intent, risk: gate.risk_level });
+  await auditLog(task_id, "INPUT_GATE_RESULT", `Input gate: ${gate.state}`, {
+    intent: gate.intent,
+    risk: gate.risk_level,
+  });
 
   if (gate.state === "ABORT") {
-    const output: BosOutput = {
-      state: "ABORT",
-      task_type: "safety_review",
-      answer: `BOS-OMEGA ABORT: ${gate.reason}`,
-      assumptions: [],
-      uncertainties: [],
-      missing_inputs: [],
-      failure_modes: [gate.reason || "Policy violation"],
-      recommended_next_action: "Review the request and ensure it complies with policy",
-    };
-    await saveTask(task_id, pipelineInput.input, "safety_review", "ABORT", mode, undefined, undefined, "ABORTED", JSON.stringify(output));
+    const output = buildAbortOutput(gate.reason || "Policy violation", task_id);
+    await saveTask(task_id, pipelineInput.input, "safety_review", "ABORT", requested_mode, undefined, undefined, "ABORTED", JSON.stringify(output));
     await auditLog(task_id, "TASK_ABORTED", gate.reason || "Aborted by input gate");
     return { task_id, tri_state: "ABORT", task_type: "safety_review", final_status: "ABORTED", bos_output: output };
   }
@@ -65,7 +68,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
       failure_modes: [],
       recommended_next_action: `Provide the following missing information: ${gate.missing_info.join(", ")}`,
     };
-    await saveTask(task_id, pipelineInput.input, "general", "HOLD", mode, undefined, undefined, "HELD", JSON.stringify(output));
+    await saveTask(task_id, pipelineInput.input, "general", "HOLD", requested_mode, undefined, undefined, "HELD", JSON.stringify(output));
     await auditLog(task_id, "TASK_HELD", gate.reason || "Held by input gate");
     return { task_id, tri_state: "HOLD", task_type: "general", final_status: "HELD", bos_output: output };
   }
@@ -74,7 +77,27 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   const task_type = pipelineInput.task_type_override || classification.task_type;
   await auditLog(task_id, "TASK_CLASSIFIED", `Task type: ${task_type}`, { confidence: classification.confidence });
 
-  const models = await selectModel(task_type, gate.sanitized_input.length, mode, parallel_count + 2);
+  // MODE SELECTION — auto-pick or use explicit request
+  const mode_selection = selectExecutionMode(
+    requested_mode,
+    gate.sanitized_input,
+    task_type,
+    gate.sanitized_input.length,
+  );
+
+  const resolved_mode = mode_selection.mode;
+  await auditLog(task_id, "MODE_SELECTED", `Execution mode: ${resolved_mode}`, {
+    reason: mode_selection.reason,
+    confidence: mode_selection.confidence,
+    requested: requested_mode,
+  });
+
+  // Fetch models — fetch more for BTO and series pass
+  const fetch_count = resolved_mode === "boil_the_ocean" ? 10 :
+    resolved_mode === "series_pass" ? 7 :
+    (pipelineInput.parallel_models || 3) + 2;
+
+  const models = await selectModel(task_type, gate.sanitized_input.length, resolved_mode as "single" | "parallel" | "consensus", fetch_count);
 
   const tri_state_result = evaluateTriState({
     input_safe: gate.state === "GO",
@@ -98,7 +121,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
       failure_modes: [tri_state_result.reason],
       recommended_next_action: "Check provider availability and request validity",
     };
-    await saveTask(task_id, pipelineInput.input, task_type, "ABORT", mode, undefined, undefined, "ABORTED", JSON.stringify(output));
+    await saveTask(task_id, pipelineInput.input, task_type, "ABORT", resolved_mode, undefined, undefined, "ABORTED", JSON.stringify(output));
     return { task_id, tri_state: "ABORT", task_type, final_status: "ABORTED", bos_output: output };
   }
 
@@ -113,47 +136,101 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
       failure_modes: [],
       recommended_next_action: tri_state_result.reason,
     };
-    await saveTask(task_id, pipelineInput.input, task_type, "HOLD", mode, undefined, undefined, "HELD", JSON.stringify(output));
+    await saveTask(task_id, pipelineInput.input, task_type, "HOLD", resolved_mode, undefined, undefined, "HELD", JSON.stringify(output));
     return { task_id, tri_state: "HOLD", task_type, final_status: "HELD", bos_output: output };
   }
 
-  const selected = models.slice(0, parallel_count);
-  if (selected.length > 0) {
-    await auditLog(task_id, "MODEL_SELECTED", `Selected ${selected.map((m) => `${m.provider_name}/${m.model_name}`).join(", ")}`, { count: selected.length });
+  if (models.length > 0) {
+    await auditLog(task_id, "MODEL_SELECTED", `Selected ${models.slice(0, 3).map((m) => `${m.provider_name}/${m.model_name}`).join(", ")}`, {
+      count: models.length,
+    });
   }
 
-  await saveTask(task_id, pipelineInput.input, task_type, "GO", mode,
-    selected[0]?.provider_name, selected[0]?.model_name, "RUNNING", undefined);
+  await saveTask(
+    task_id,
+    pipelineInput.input,
+    task_type,
+    "GO",
+    resolved_mode,
+    models[0]?.provider_name,
+    models[0]?.model_name,
+    "RUNNING",
+    undefined,
+  );
 
   const ctx: TaskContext = {
     task_id,
     input: gate.sanitized_input,
     task_type,
     tri_state: "GO",
-    mode,
-    parallel_models: parallel_count,
+    mode: resolved_mode as ExecutionMode,
+    parallel_models: pipelineInput.parallel_models || 3,
   };
 
-  const { result, attempts_saved } = await executePipeline(ctx, selected);
+  let result: BosOutput;
+  let run_id: string | undefined;
+
+  // Dispatch to correct engine
+  if (resolved_mode === "series_pass") {
+    const sp_result = await runSeriesPass(ctx, models);
+    result = sp_result.result;
+    run_id = sp_result.run_id;
+  } else if (resolved_mode === "boil_the_ocean") {
+    const bto_result = await runBoilTheOcean(
+      ctx,
+      models,
+      pipelineInput.max_models || 5,
+      pipelineInput.agents_per_model || 5,
+    );
+    result = bto_result.result;
+    run_id = bto_result.run_id;
+  } else {
+    // Normal / parallel / consensus → existing engine
+    const parallel_count = resolved_mode === "parallel" || resolved_mode === "consensus"
+      ? (pipelineInput.parallel_models || 3)
+      : 1;
+    const selected = models.slice(0, parallel_count);
+    const { result: exec_result } = await executePipeline(ctx, selected);
+    result = exec_result;
+  }
 
   const final_status = result.state === "ABORT" ? "ABORTED" : result.state === "HOLD" ? "HELD" : "COMPLETED";
+
   await db.update(tasksTable)
     .set({
       final_status,
       final_output: JSON.stringify(result),
-      selected_provider: selected[0]?.provider_name,
-      selected_model: selected[0]?.model_name,
+      selected_provider: models[0]?.provider_name,
+      selected_model: models[0]?.model_name,
+      mode: resolved_mode,
     })
     .where(eq(tasksTable.id, task_id));
+
+  await auditLog(task_id, "TASK_COMPLETED", `Task completed with state ${result.state}`, { mode: resolved_mode, run_id });
 
   return {
     task_id,
     tri_state: result.state,
     task_type,
-    selected_provider: selected[0]?.provider_name,
-    selected_model: selected[0]?.model_name,
+    selected_provider: models[0]?.provider_name,
+    selected_model: models[0]?.model_name,
     final_status,
     bos_output: result,
+    run_id,
+    execution_mode: resolved_mode,
+  };
+}
+
+function buildAbortOutput(reason: string, task_id: string): BosOutput {
+  return {
+    state: "ABORT",
+    task_type: "safety_review",
+    answer: `This request has been blocked by BOS-OMEGA safety policy. Reason: ${reason}`,
+    assumptions: [],
+    uncertainties: [],
+    missing_inputs: [],
+    failure_modes: [reason],
+    recommended_next_action: "Review the request and ensure it complies with policy",
   };
 }
 
@@ -166,7 +243,7 @@ async function saveTask(
   provider?: string,
   model?: string,
   final_status?: string,
-  final_output?: string
+  final_output?: string,
 ): Promise<void> {
   await db.insert(tasksTable).values({
     id: task_id,

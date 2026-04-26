@@ -15,7 +15,7 @@ export interface ErrorResponse {
 }
 
 /**
- * Execution mode - single model, parallel with merge, or consensus vote
+ * Execution mode: auto=BOS selects best mode, series_pass=5-role sequential refinement, boil_the_ocean=parallel multi-LLM × N agents + synthesis + adversarial
  */
 export type CreateTaskBodyMode =
   (typeof CreateTaskBodyMode)[keyof typeof CreateTaskBodyMode];
@@ -24,17 +24,24 @@ export const CreateTaskBodyMode = {
   single: "single",
   parallel: "parallel",
   consensus: "consensus",
+  series_pass: "series_pass",
+  boil_the_ocean: "boil_the_ocean",
+  auto: "auto",
 } as const;
 
 export interface CreateTaskBody {
   /** User input text */
   input: string;
-  /** Execution mode - single model, parallel with merge, or consensus vote */
+  /** Execution mode: auto=BOS selects best mode, series_pass=5-role sequential refinement, boil_the_ocean=parallel multi-LLM × N agents + synthesis + adversarial */
   mode?: CreateTaskBodyMode;
   /** Optional override for task classification */
   task_type_override?: string;
   /** Number of models to run in parallel (for parallel/consensus mode) */
   parallel_models?: number;
+  /** Max LLM providers to use in Boil The Ocean mode (default 5) */
+  max_models?: number;
+  /** Number of specialized agents per model in Boil The Ocean mode (default 5) */
+  agents_per_model?: number;
 }
 
 export type TaskTriState = (typeof TaskTriState)[keyof typeof TaskTriState];
@@ -334,6 +341,139 @@ export interface UpdateMemoryBody {
   layer?: UpdateMemoryBodyLayer;
 }
 
+export type ExecutionRunMode =
+  (typeof ExecutionRunMode)[keyof typeof ExecutionRunMode];
+
+export const ExecutionRunMode = {
+  normal: "normal",
+  series_pass: "series_pass",
+  boil_the_ocean: "boil_the_ocean",
+} as const;
+
+export type ExecutionRunStatus =
+  (typeof ExecutionRunStatus)[keyof typeof ExecutionRunStatus];
+
+export const ExecutionRunStatus = {
+  running: "running",
+  completed: "completed",
+  failed: "failed",
+  held: "held",
+  aborted: "aborted",
+} as const;
+
+export interface ExecutionRun {
+  id: string;
+  task_id?: string;
+  mode: ExecutionRunMode;
+  status: ExecutionRunStatus;
+  total_passes?: number;
+  total_agents?: number;
+  models_used?: string[];
+  final_score?: number;
+  started_at: string;
+  completed_at?: string;
+}
+
+export type SeriesPassRole =
+  (typeof SeriesPassRole)[keyof typeof SeriesPassRole];
+
+export const SeriesPassRole = {
+  DRAFTER: "DRAFTER",
+  CRITIC: "CRITIC",
+  EXPANDER: "EXPANDER",
+  ADVERSARY: "ADVERSARY",
+  SYNTHESIZER: "SYNTHESIZER",
+  OMEGA_VALIDATOR: "OMEGA_VALIDATOR",
+} as const;
+
+export type SeriesPassState =
+  (typeof SeriesPassState)[keyof typeof SeriesPassState];
+
+export const SeriesPassState = {
+  GO: "GO",
+  HOLD: "HOLD",
+  ABORT: "ABORT",
+} as const;
+
+export interface SeriesPass {
+  id: string;
+  run_id: string;
+  pass_number: number;
+  provider: string;
+  model: string;
+  role: SeriesPassRole;
+  input_snapshot?: string;
+  output_snapshot?: string;
+  validation_score?: number;
+  errors_found?: string[];
+  state?: SeriesPassState;
+  latency_ms?: number;
+  created_at?: string;
+}
+
+export type ParallelAgentAgentRole =
+  (typeof ParallelAgentAgentRole)[keyof typeof ParallelAgentAgentRole];
+
+export const ParallelAgentAgentRole = {
+  ARCHITECT: "ARCHITECT",
+  CRITIC: "CRITIC",
+  RESEARCHER: "RESEARCHER",
+  BUILDER: "BUILDER",
+  VALIDATOR: "VALIDATOR",
+} as const;
+
+export type ParallelAgentStatus =
+  (typeof ParallelAgentStatus)[keyof typeof ParallelAgentStatus];
+
+export const ParallelAgentStatus = {
+  pending: "pending",
+  running: "running",
+  completed: "completed",
+  failed: "failed",
+} as const;
+
+export type ParallelAgentState =
+  (typeof ParallelAgentState)[keyof typeof ParallelAgentState];
+
+export const ParallelAgentState = {
+  GO: "GO",
+  HOLD: "HOLD",
+  ABORT: "ABORT",
+} as const;
+
+export interface ParallelAgent {
+  id: string;
+  run_id: string;
+  provider: string;
+  model: string;
+  agent_role: ParallelAgentAgentRole;
+  status: ParallelAgentStatus;
+  output?: string;
+  score?: number;
+  state?: ParallelAgentState;
+  error_type?: string;
+  latency_ms?: number;
+  created_at?: string;
+}
+
+export interface SynthesisReport {
+  id: string;
+  run_id: string;
+  consensus_points?: string[];
+  contradictions?: string[];
+  strongest_sections?: string[];
+  rejected_sections?: string[];
+  final_synthesis?: string;
+  /** JSON string with omega validation result */
+  omega_validation?: string;
+  created_at?: string;
+}
+
+export interface RunDetail {
+  run: ExecutionRun;
+  task?: Task;
+}
+
 export type ListTasksParams = {
   limit?: number;
   offset?: number;
@@ -346,4 +486,8 @@ export type ListFallbackEventsParams = {
 export type ListAuditLogsParams = {
   limit?: number;
   task_id?: string;
+};
+
+export type ListRunsParams = {
+  limit?: number;
 };

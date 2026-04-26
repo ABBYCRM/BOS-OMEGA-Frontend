@@ -17,16 +17,25 @@ export const HealthCheckResponse = zod.object({
 /**
  * @summary Submit a task to BOS-OMEGA pipeline
  */
-export const createTaskBodyModeDefault = `single`;
+export const createTaskBodyModeDefault = `auto`;
 export const createTaskBodyParallelModelsDefault = 3;
+export const createTaskBodyMaxModelsDefault = 5;
+export const createTaskBodyAgentsPerModelDefault = 5;
 
 export const CreateTaskBody = zod.object({
   input: zod.string().describe("User input text"),
   mode: zod
-    .enum(["single", "parallel", "consensus"])
+    .enum([
+      "single",
+      "parallel",
+      "consensus",
+      "series_pass",
+      "boil_the_ocean",
+      "auto",
+    ])
     .default(createTaskBodyModeDefault)
     .describe(
-      "Execution mode - single model, parallel with merge, or consensus vote",
+      "Execution mode: auto=BOS selects best mode, series_pass=5-role sequential refinement, boil_the_ocean=parallel multi-LLM × N agents + synthesis + adversarial",
     ),
   task_type_override: zod
     .string()
@@ -37,6 +46,16 @@ export const CreateTaskBody = zod.object({
     .default(createTaskBodyParallelModelsDefault)
     .describe(
       "Number of models to run in parallel (for parallel\/consensus mode)",
+    ),
+  max_models: zod
+    .number()
+    .default(createTaskBodyMaxModelsDefault)
+    .describe("Max LLM providers to use in Boil The Ocean mode (default 5)"),
+  agents_per_model: zod
+    .number()
+    .default(createTaskBodyAgentsPerModelDefault)
+    .describe(
+      "Number of specialized agents per model in Boil The Ocean mode (default 5)",
     ),
 });
 
@@ -469,3 +488,148 @@ export const ListModelAttemptsResponseItem = zod.object({
 export const ListModelAttemptsResponse = zod.array(
   ListModelAttemptsResponseItem,
 );
+
+/**
+ * @summary List recent execution runs
+ */
+export const listRunsQueryLimitDefault = 50;
+
+export const ListRunsQueryParams = zod.object({
+  limit: zod.coerce.number().default(listRunsQueryLimitDefault),
+});
+
+export const ListRunsResponseItem = zod.object({
+  id: zod.string(),
+  task_id: zod.string().optional(),
+  mode: zod.enum(["normal", "series_pass", "boil_the_ocean"]),
+  status: zod.enum(["running", "completed", "failed", "held", "aborted"]),
+  total_passes: zod.number().optional(),
+  total_agents: zod.number().optional(),
+  models_used: zod.array(zod.string()).optional(),
+  final_score: zod.number().optional(),
+  started_at: zod.string(),
+  completed_at: zod.string().optional(),
+});
+export const ListRunsResponse = zod.array(ListRunsResponseItem);
+
+/**
+ * @summary Get execution run detail
+ */
+export const GetRunParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetRunResponse = zod.object({
+  run: zod.object({
+    id: zod.string(),
+    task_id: zod.string().optional(),
+    mode: zod.enum(["normal", "series_pass", "boil_the_ocean"]),
+    status: zod.enum(["running", "completed", "failed", "held", "aborted"]),
+    total_passes: zod.number().optional(),
+    total_agents: zod.number().optional(),
+    models_used: zod.array(zod.string()).optional(),
+    final_score: zod.number().optional(),
+    started_at: zod.string(),
+    completed_at: zod.string().optional(),
+  }),
+  task: zod
+    .object({
+      id: zod.string(),
+      input_text: zod.string(),
+      task_type: zod.string(),
+      tri_state: zod.enum(["GO", "HOLD", "ABORT"]),
+      selected_provider: zod.string().optional(),
+      selected_model: zod.string().optional(),
+      final_status: zod.string(),
+      final_output: zod.string().optional(),
+      mode: zod.string().optional(),
+      created_at: zod.string(),
+    })
+    .optional(),
+});
+
+/**
+ * @summary Get series pass steps for a run
+ */
+export const GetRunSeriesPassesParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetRunSeriesPassesResponseItem = zod.object({
+  id: zod.string(),
+  run_id: zod.string(),
+  pass_number: zod.number(),
+  provider: zod.string(),
+  model: zod.string(),
+  role: zod.enum([
+    "DRAFTER",
+    "CRITIC",
+    "EXPANDER",
+    "ADVERSARY",
+    "SYNTHESIZER",
+    "OMEGA_VALIDATOR",
+  ]),
+  input_snapshot: zod.string().optional(),
+  output_snapshot: zod.string().optional(),
+  validation_score: zod.number().optional(),
+  errors_found: zod.array(zod.string()).optional(),
+  state: zod.enum(["GO", "HOLD", "ABORT"]).optional(),
+  latency_ms: zod.number().optional(),
+  created_at: zod.string().optional(),
+});
+export const GetRunSeriesPassesResponse = zod.array(
+  GetRunSeriesPassesResponseItem,
+);
+
+/**
+ * @summary Get parallel agents for a Boil The Ocean run
+ */
+export const GetRunParallelAgentsParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetRunParallelAgentsResponseItem = zod.object({
+  id: zod.string(),
+  run_id: zod.string(),
+  provider: zod.string(),
+  model: zod.string(),
+  agent_role: zod.enum([
+    "ARCHITECT",
+    "CRITIC",
+    "RESEARCHER",
+    "BUILDER",
+    "VALIDATOR",
+  ]),
+  status: zod.enum(["pending", "running", "completed", "failed"]),
+  output: zod.string().optional(),
+  score: zod.number().optional(),
+  state: zod.enum(["GO", "HOLD", "ABORT"]).optional(),
+  error_type: zod.string().optional(),
+  latency_ms: zod.number().optional(),
+  created_at: zod.string().optional(),
+});
+export const GetRunParallelAgentsResponse = zod.array(
+  GetRunParallelAgentsResponseItem,
+);
+
+/**
+ * @summary Get synthesis report for a Boil The Ocean run
+ */
+export const GetRunSynthesisParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetRunSynthesisResponse = zod.object({
+  id: zod.string(),
+  run_id: zod.string(),
+  consensus_points: zod.array(zod.string()).optional(),
+  contradictions: zod.array(zod.string()).optional(),
+  strongest_sections: zod.array(zod.string()).optional(),
+  rejected_sections: zod.array(zod.string()).optional(),
+  final_synthesis: zod.string().optional(),
+  omega_validation: zod
+    .string()
+    .optional()
+    .describe("JSON string with omega validation result"),
+  created_at: zod.string().optional(),
+});
