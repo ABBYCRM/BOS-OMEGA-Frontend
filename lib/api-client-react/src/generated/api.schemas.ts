@@ -796,6 +796,190 @@ export interface OverrideRunResponse {
   run_id: string;
 }
 
+/**
+ * Local-Agent install mode. INDIVIDUAL_CONSENT (default) is a personal
+device paired via 6-char pair code. ADMIN_DEPLOYMENT is a
+managed-fleet device paired with an org enrollment secret.
+
+ */
+export type InstallMode = (typeof InstallMode)[keyof typeof InstallMode];
+
+export const InstallMode = {
+  INDIVIDUAL_CONSENT: "INDIVIDUAL_CONSENT",
+  ADMIN_DEPLOYMENT: "ADMIN_DEPLOYMENT",
+} as const;
+
+export type OrgStatus = (typeof OrgStatus)[keyof typeof OrgStatus];
+
+export const OrgStatus = {
+  active: "active",
+  archived: "archived",
+} as const;
+
+export interface Org {
+  id: string;
+  slug: string;
+  display_name: string;
+  status: OrgStatus;
+  has_enrollment_secret: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrgListResponse {
+  orgs: Org[];
+}
+
+export interface OrgEnvelope {
+  org: Org;
+}
+
+export interface CreateOrgBody {
+  /**
+   * @minLength 2
+   * @maxLength 64
+   * @pattern ^[a-z0-9][a-z0-9_-]{0,63}$
+   */
+  slug: string;
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  display_name: string;
+  /**
+   * @minLength 3
+   * @maxLength 2000
+   */
+  reason: string;
+}
+
+export interface ReasonOnlyBody {
+  /**
+   * @minLength 3
+   * @maxLength 2000
+   */
+  reason: string;
+}
+
+/**
+ * Plaintext enrollment secret. Returned ONCE on rotation; never
+persisted in plaintext server-side.
+
+ */
+export interface EnrollmentSecretResponse {
+  enrollment_secret: string;
+}
+
+export interface OrgDevice {
+  id: string;
+  org_id: string | null;
+  install_mode: InstallMode;
+  display_name: string;
+  hostname?: string | null;
+  status: string;
+  paired_at: string;
+  last_seen_at?: string | null;
+  contract_version: string;
+}
+
+export interface OrgDeviceListResponse {
+  devices: OrgDevice[];
+}
+
+export interface OrgPolicyOverride {
+  id: string;
+  org_id: string;
+  /** @pattern ^[a-z][a-z0-9_]{0,63}(\.[a-z][a-z0-9_]{0,63}){0,15}$ */
+  policy_field_path: string;
+  locked_value: unknown;
+  set_by_user_id: string;
+  set_at: string;
+}
+
+export interface OrgPolicyOverrideListResponse {
+  overrides: OrgPolicyOverride[];
+}
+
+export interface OrgPolicyOverrideEnvelope {
+  override: OrgPolicyOverride;
+}
+
+export interface SetOrgPolicyOverrideBody {
+  /** @pattern ^[a-z][a-z0-9_]{0,63}(\.[a-z][a-z0-9_]{0,63}){0,15}$ */
+  policy_field_path: string;
+  locked_value: unknown;
+  /**
+   * @minLength 3
+   * @maxLength 2000
+   */
+  reason: string;
+}
+
+export interface RegisterDeviceBody {
+  install_mode: InstallMode;
+  /**
+   * Required when install_mode = INDIVIDUAL_CONSENT.
+   * @minLength 4
+   * @maxLength 64
+   */
+  pair_code?: string;
+  /**
+   * Required when install_mode = ADMIN_DEPLOYMENT. Hashed (SHA-256) server-side and looked up against bos_orgs.enrollment_secret_hash.
+   * @minLength 32
+   * @maxLength 512
+   */
+  org_enrollment_secret?: string;
+  /**
+   * @minLength 32
+   * @maxLength 4096
+   */
+  device_pubkey: string;
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  display_name: string;
+  /**
+   * @minLength 1
+   * @maxLength 255
+   */
+  hostname?: string;
+  /**
+   * @minLength 1
+   * @maxLength 32
+   */
+  contract_version: string;
+}
+
+export interface RegisterDeviceResponse {
+  device_id: string;
+  org_id: string | null;
+  install_mode: InstallMode;
+  /**
+   * Per-device HMAC signing secret. Returned exactly once, on registration. The agent MUST persist this in OS-protected local storage; subsequent calls to /api/v1/task-requests and /api/v1/task-requests/{id}/execute are signed with it via the X-BOS-Signature header.
+
+   * @minLength 32
+   * @maxLength 256
+   */
+  signing_secret: string;
+}
+
+export interface MintPairCodeBody {
+  /**
+   * How long the code remains redeemable (default 15)
+   * @minimum 1
+   * @maximum 1440
+   */
+  ttl_minutes?: number;
+}
+
+export interface MintPairCodeResponse {
+  id: string;
+  /** Plain-text code shown exactly once; persist immediately on the operator side */
+  pair_code: string;
+  expires_at: string;
+}
+
 export type ListTasksParams = {
   limit?: number;
   offset?: number;
@@ -842,4 +1026,11 @@ export type AuthLogout200 = {
 
 export type ListTriStateDecisionsParams = {
   limit?: number;
+};
+
+export type RegisterLocalAgentDeviceParams = {
+  /**
+   * Optional duplicate of body.install_mode for MDM URL templating; if present, must match the body.
+   */
+  install_mode?: InstallMode;
 };

@@ -34,6 +34,10 @@ tags:
     description: User management (super_admin only)
   - name: overrides
     description: Super-admin overrides on stuck or held workflows
+  - name: local-agent-orgs
+    description: Local Automation Agent — organizations (super_admin only)
+  - name: local-agent-devices
+    description: Local Automation Agent — device registration (public)
 paths:
   /healthz:
     get:
@@ -996,6 +1000,180 @@ paths:
                 items:
                   $ref: "#/components/schemas/TriStateDecision"
 
+  /v1/orgs:
+    get:
+      operationId: listLocalAgentOrgs
+      tags: [local-agent-orgs]
+      summary: List organizations (super_admin only)
+      responses:
+        "200":
+          description: Organizations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrgListResponse"
+        "401": { description: Unauthenticated, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "403": { description: Not super_admin, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+    post:
+      operationId: createLocalAgentOrg
+      tags: [local-agent-orgs]
+      summary: Create an organization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrgBody"
+      responses:
+        "201":
+          description: Org created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrgEnvelope"
+        "400": { description: Invalid body, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "409": { description: Slug already in use, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+
+  /v1/orgs/{id}/rotate-enrollment-secret:
+    post:
+      operationId: rotateOrgEnrollmentSecret
+      tags: [local-agent-orgs]
+      summary: Rotate the org's enrollment secret (returned plaintext once)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonOnlyBody"
+      responses:
+        "200":
+          description: New plaintext enrollment secret
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrollmentSecretResponse"
+        "404": { description: Not found, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+
+  /v1/orgs/{id}/devices:
+    get:
+      operationId: listOrgDevices
+      tags: [local-agent-orgs]
+      summary: List devices bound to an org
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Devices in the org
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrgDeviceListResponse"
+
+  /v1/orgs/{id}/policy-overrides:
+    get:
+      operationId: listOrgPolicyOverrides
+      tags: [local-agent-orgs]
+      summary: List policy locks set by the org
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Policy overrides
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrgPolicyOverrideListResponse"
+    post:
+      operationId: setOrgPolicyOverride
+      tags: [local-agent-orgs]
+      summary: Set or update a policy lock for the org
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetOrgPolicyOverrideBody"
+      responses:
+        "201":
+          description: Override set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrgPolicyOverrideEnvelope"
+        "400": { description: Invalid or widening lock, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "404": { description: Org not found, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+
+  /v1/devices/register:
+    post:
+      operationId: registerLocalAgentDevice
+      tags: [local-agent-devices]
+      summary: Register a Local Automation Agent device (public, rate-limited)
+      parameters:
+        - name: install_mode
+          in: query
+          required: false
+          description: Optional duplicate of body.install_mode for MDM URL templating; if present, must match the body.
+          schema:
+            $ref: "#/components/schemas/InstallMode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterDeviceBody"
+      responses:
+        "201":
+          description: Device registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterDeviceResponse"
+        "400": { description: Invalid body, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "401": { description: Enrollment secret or pair code rejected, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "403": { description: Install-mode downgrade or org not active, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+
+  /v1/pair-codes:
+    post:
+      operationId: mintLocalAgentPairCode
+      tags: [local-agent-devices]
+      summary: Mint a single-use INDIVIDUAL_CONSENT pair code (super_admin)
+      description: |
+        Returns the plain-text pair code exactly once. Only the SHA-256 of
+        the code is persisted. Hand the plain text to the laptop user; the
+        reference agent presents it to /v1/devices/register.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MintPairCodeBody"
+      responses:
+        "201":
+          description: Pair code minted (plaintext shown once)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MintPairCodeResponse"
+        "400": { description: Invalid body, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "401": { description: Unauthenticated, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "403": { description: Forbidden, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+
 components:
   schemas:
     HealthStatus:
@@ -1955,3 +2133,213 @@ components:
         run_id:
           type: string
       required: [ok, run_id]
+
+    InstallMode:
+      type: string
+      enum: [INDIVIDUAL_CONSENT, ADMIN_DEPLOYMENT]
+      description: |
+        Local-Agent install mode. INDIVIDUAL_CONSENT (default) is a personal
+        device paired via 6-char pair code. ADMIN_DEPLOYMENT is a
+        managed-fleet device paired with an org enrollment secret.
+
+    Org:
+      type: object
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        display_name: { type: string }
+        status: { type: string, enum: [active, archived] }
+        has_enrollment_secret: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+      required: [id, slug, display_name, status, has_enrollment_secret, created_at, updated_at]
+
+    OrgListResponse:
+      type: object
+      properties:
+        orgs:
+          type: array
+          items: { $ref: "#/components/schemas/Org" }
+      required: [orgs]
+
+    OrgEnvelope:
+      type: object
+      properties:
+        org: { $ref: "#/components/schemas/Org" }
+      required: [org]
+
+    CreateOrgBody:
+      type: object
+      properties:
+        slug:
+          type: string
+          minLength: 2
+          maxLength: 64
+          pattern: "^[a-z0-9][a-z0-9_-]{0,63}$"
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 2000
+      required: [slug, display_name, reason]
+
+    ReasonOnlyBody:
+      type: object
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 2000
+      required: [reason]
+
+    EnrollmentSecretResponse:
+      type: object
+      description: |
+        Plaintext enrollment secret. Returned ONCE on rotation; never
+        persisted in plaintext server-side.
+      properties:
+        enrollment_secret: { type: string }
+      required: [enrollment_secret]
+
+    OrgDevice:
+      type: object
+      properties:
+        id: { type: string }
+        org_id:
+          type: string
+          nullable: true
+        install_mode: { $ref: "#/components/schemas/InstallMode" }
+        display_name: { type: string }
+        hostname:
+          type: string
+          nullable: true
+        status: { type: string }
+        paired_at: { type: string, format: date-time }
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        contract_version: { type: string }
+      required: [id, org_id, install_mode, display_name, status, paired_at, contract_version]
+
+    OrgDeviceListResponse:
+      type: object
+      properties:
+        devices:
+          type: array
+          items: { $ref: "#/components/schemas/OrgDevice" }
+      required: [devices]
+
+    OrgPolicyOverride:
+      type: object
+      properties:
+        id: { type: string }
+        org_id: { type: string }
+        policy_field_path:
+          type: string
+          pattern: "^[a-z][a-z0-9_]{0,63}(\\.[a-z][a-z0-9_]{0,63}){0,15}$"
+        locked_value: {}
+        set_by_user_id: { type: string }
+        set_at: { type: string, format: date-time }
+      required: [id, org_id, policy_field_path, locked_value, set_by_user_id, set_at]
+
+    OrgPolicyOverrideListResponse:
+      type: object
+      properties:
+        overrides:
+          type: array
+          items: { $ref: "#/components/schemas/OrgPolicyOverride" }
+      required: [overrides]
+
+    OrgPolicyOverrideEnvelope:
+      type: object
+      properties:
+        override: { $ref: "#/components/schemas/OrgPolicyOverride" }
+      required: [override]
+
+    SetOrgPolicyOverrideBody:
+      type: object
+      properties:
+        policy_field_path:
+          type: string
+          pattern: "^[a-z][a-z0-9_]{0,63}(\\.[a-z][a-z0-9_]{0,63}){0,15}$"
+        locked_value: {}
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 2000
+      required: [policy_field_path, locked_value, reason]
+
+    RegisterDeviceBody:
+      type: object
+      properties:
+        install_mode: { $ref: "#/components/schemas/InstallMode" }
+        pair_code:
+          type: string
+          minLength: 4
+          maxLength: 64
+          description: Required when install_mode = INDIVIDUAL_CONSENT.
+        org_enrollment_secret:
+          type: string
+          minLength: 32
+          maxLength: 512
+          description: Required when install_mode = ADMIN_DEPLOYMENT. Hashed (SHA-256) server-side and looked up against bos_orgs.enrollment_secret_hash.
+        device_pubkey:
+          type: string
+          minLength: 32
+          maxLength: 4096
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        hostname:
+          type: string
+          minLength: 1
+          maxLength: 255
+        contract_version:
+          type: string
+          minLength: 1
+          maxLength: 32
+      required: [install_mode, device_pubkey, display_name, contract_version]
+
+    RegisterDeviceResponse:
+      type: object
+      properties:
+        device_id: { type: string }
+        org_id:
+          type: string
+          nullable: true
+        install_mode: { $ref: "#/components/schemas/InstallMode" }
+        signing_secret:
+          type: string
+          minLength: 32
+          maxLength: 256
+          description: >
+            Per-device HMAC signing secret. Returned exactly once, on
+            registration. The agent MUST persist this in OS-protected
+            local storage; subsequent calls to /api/v1/task-requests
+            and /api/v1/task-requests/{id}/execute are signed with it
+            via the X-BOS-Signature header.
+      required: [device_id, org_id, install_mode, signing_secret]
+
+    MintPairCodeBody:
+      type: object
+      properties:
+        ttl_minutes:
+          type: integer
+          minimum: 1
+          maximum: 1440
+          description: How long the code remains redeemable (default 15)
+
+    MintPairCodeResponse:
+      type: object
+      properties:
+        id: { type: string }
+        pair_code:
+          type: string
+          description: Plain-text code shown exactly once; persist immediately on the operator side
+        expires_at: { type: string, format: date-time }
+      required: [id, pair_code, expires_at]

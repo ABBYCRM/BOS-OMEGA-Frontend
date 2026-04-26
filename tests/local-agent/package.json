@@ -1,0 +1,16 @@
+{
+  "name": "@workspace/local-agent-test-cases",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./bos-ent-cases.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@workspace/local-agent-contracts": "workspace:*",
+    "@workspace/local-agent-policy": "workspace:*"
+  }
+}

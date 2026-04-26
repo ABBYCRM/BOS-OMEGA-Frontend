@@ -15,6 +15,7 @@ import {
   Users as UsersIcon,
   ShieldCheck,
   LogOut,
+  Laptop,
 } from "lucide-react";
 
 function LogoutButton() {
@@ -64,6 +65,7 @@ const navSections: NavSection[] = [
       { href: "/models", label: "Model Registry", icon: Cpu },
       { href: "/memory", label: "Memory", icon: Brain },
       { href: "/local-memory", label: "Local Memory", icon: HardDrive },
+      { href: "/local-agent", label: "Local Agent", icon: Laptop },
     ],
   },
   {

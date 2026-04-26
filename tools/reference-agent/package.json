@@ -1,0 +1,22 @@
+{
+  "name": "@workspace/reference-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start:interactive": "tsx src/cli.ts --mode interactive",
+    "start:enrollment": "tsx src/cli.ts --mode enrollment"
+  },
+  "dependencies": {
+    "@workspace/local-agent-contracts": "workspace:*",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsx": "catalog:"
+  }
+}

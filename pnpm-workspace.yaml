@@ -3,6 +3,8 @@ packages:
   - lib/*
   - lib/integrations/*
   - scripts
+  - tools/*
+  - tests/*
 
 autoInstallPeers: false
 

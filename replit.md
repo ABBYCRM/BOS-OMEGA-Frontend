@@ -77,6 +77,44 @@ Theme is persisted to localStorage (`bos.theme.v1`), initialized in `main.tsx` v
 
 ## Recent Changes
 
+### 2026-04-26 — Local Automation Agent: multi-user / enterprise foundation (Task #32)
+**New shared packages**
+- `lib/local-agent-contracts/` — zero-runtime TS types + zod schemas for `OrgScope`, `EnterprisePolicyBinding`, `WindowsSessionInfo`, `LocalAgentTransport`, `InstallMode` (`INDIVIDUAL_CONSENT` | `ADMIN_DEPLOYMENT`), `LocalAgentRejectionReason`, `EnterpriseAgentConfigFile`, plus a branded `PolicyFieldPath`. `LOCAL_AGENT_CONTRACT_VERSION = "0.1.0"`.
+- `lib/local-agent-policy/` — pure I/O-free policy engine: `evaluatePolicyEdit`, `evaluateApproval`, `evaluateExecutionGate`, `evaluateInstallModeChange`. Honors org locks, cross-org approval rejection, session-binding mismatch, and install-mode downgrade denial.
+
+**Database (`lib/db/src/schema/localAgent.ts`)**
+- New tables: `bos_orgs`, `bos_devices`, `bos_agent_policies`, `bos_org_policy_overrides`, `bos_task_requests`, `bos_approval_tokens`, `bos_task_executions`, `bos_audit_log`. Defaults (`org_id NULL`, `install_mode = INDIVIDUAL_CONSENT`) preserve the personal-install path. `bos_audit_log` is a per-device hash-chained ledger. Schema pushed via `pnpm --filter @workspace/db push`.
+
+**API server**
+- `lib/localAgent/signedRequest.ts` validates HMAC sig + `WindowsSessionInfo` shape and persists onto rows.
+- `lib/localAgent/auditChain.ts` appends `prev_hash`/`row_hash` linked rows. Chain selection is three-tier: device-bound → per-device chain; device-less + org-bound → per-org admin chain (`device_id IS NULL AND org_id = X`); device-less + org-less → single global chain. Org-level admin actions (org create / override set / enrollment-secret rotate / pair-code mint) are now tamper-evident.
+- New routes mounted at `/api/v1`:
+  - `POST /api/v1/devices/register` — public, dual-mode. INDIVIDUAL_CONSENT path now does real pair-code redemption: SHA-256 the presented code, atomic `UPDATE ... WHERE code_hash = ? AND consumed_at IS NULL RETURNING ...` against `bos_pair_codes`, fail with `PAIR_CODE_REJECTED` on miss/expired/already-consumed. Single-use is enforced by the atomic update so concurrent registrations cannot both consume the same code. ADMIN_DEPLOYMENT path validates `org_enrollment_secret` against `bos_orgs.enrollment_secret_hash`. Rejects install-mode downgrades.
+  - `POST /api/v1/pair-codes` (super_admin) — mints a 16-character single-use code (4 groups of 4 from a 32-char unambiguous alphabet), returns plaintext exactly once with `expires_at`; only SHA-256 stored. Default TTL 15 min, max 1440. Audited as `PAIR_CODE_MINTED`.
+  - `GET|POST /api/v1/orgs`, `POST /api/v1/orgs/:id/rotate-enrollment-secret` (returns plaintext once; only SHA-256 hash persisted), `GET /api/v1/orgs/:id/devices`, `GET|POST /api/v1/orgs/:id/policy-overrides` — all super_admin-only.
+- Rate-limit middleware moved to apply to `/v1` too so the public device-register surface is bounded.
+
+**Reference agent (`tools/reference-agent/`)**
+- `agent.ts` makes a real HTTP `POST` to `/api/v1/devices/register` with a pluggable `fetchImpl` (defaults to global `fetch`), then adopts the server-issued `device_id` / `org_id` / `install_mode` (the agent never picks its own ids). `interactivePairing.ts` and `enrollmentPairing.ts` now drive that real call; the previous "fake registration" stubs are gone. `enterpriseConfig.ts` loads `agent.config.json` (gated by `BOS_AGENT_CONFIG_PATH`). `cli.ts` is the dev/test entry point.
+
+**Frontend (`artifacts/bos-omega`)**
+- New page `pages/LocalAgent.tsx` mounted at `/local-agent` with tabs Devices / Policy / Enterprise. Enterprise tab is super_admin-only and surfaces org create + enrollment-secret rotation + per-org policy locks + per-org device list. Field-level Zod validation issues are now surfaced inline.
+- `Layout.tsx` gains a "Local Agent" item under Infrastructure.
+
+**Spec test cases**
+- `tests/local-agent/bos-ent-cases.ts` (`@workspace/local-agent-test-cases`) defines BOS-ENT-001..006: cross-org approval, session-binding mismatch, locked-field widening, install-mode downgrade guard, dual-mode pairing, audit-chain integrity.
+
+**OpenAPI / API codegen**
+- `lib/api-spec/openapi.yaml` adds tags `local-agent-orgs` / `local-agent-devices`, paths `/v1/orgs*` and `/v1/devices/register`, and schemas (`Org`, `OrgListResponse`, `OrgEnvelope`, `CreateOrgBody`, `EnrollmentSecretResponse`, `OrgDevice`, `OrgPolicyOverride`, `RegisterDeviceBody`, `RegisterDeviceResponse`, `InstallMode`). `pnpm --filter @workspace/api-spec run codegen` succeeds.
+
+**Documentation**
+- `docs/local-automation-agent/enterprise-config.md` — operator + MDM authoring guide (install modes, `agent.config.json` shape, secret rotation, audit chain).
+
+**Verification**
+- All packages typecheck (`reference-agent`, `local-agent-test-cases`, `api-server`, `bos-omega`, `api-spec`).
+- API smoke: healthz 200; `/api/v1/devices/register` accepts a valid INDIVIDUAL_CONSENT body (201) and rejects a malformed body (400 with field issues); `/api/v1/orgs` is 401 unauthenticated.
+- E2E test passed: super_admin login → /local-agent → Enterprise tab → create org → rotate enrollment secret → "bos_org_…" plaintext surfaced once.
+
 ### 2026-04-26 — Hardening v1.1 (governance controls)
 **Backend (`artifacts/api-server/src/bos/`)**
 - `types.ts`: extended `BosOutput` with `repair_applied`, `why_decision_was_made`, `safe_alternative` (all optional, additive).

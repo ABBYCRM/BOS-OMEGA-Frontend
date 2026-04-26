@@ -14,6 +14,7 @@ import { LocalMemoryPage } from "@/pages/LocalMemory";
 import { AuditLog } from "@/pages/AuditLog";
 import { Settings } from "@/pages/Settings";
 import { Users } from "@/pages/Users";
+import { LocalAgent } from "@/pages/LocalAgent";
 import { Login } from "@/pages/Login";
 import { fetchAuthState } from "@/lib/auth";
 
@@ -68,6 +69,7 @@ function AuthedRouter() {
         <Route path="/local-memory" component={LocalMemoryPage} />
         <Route path="/audit" component={AuditLog} />
         <Route path="/users" component={Users} />
+        <Route path="/local-agent" component={LocalAgent} />
         <Route path="/settings" component={Settings} />
         <Route component={NotFound} />
       </Switch>

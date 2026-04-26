@@ -23,12 +23,14 @@ import type {
   AuthMeResponse,
   CreateMemoryBody,
   CreateModelBody,
+  CreateOrgBody,
   CreateProviderBody,
   CreateTaskBody,
   CreateUserBody,
   DeleteAttachment200,
   DeleteMemory404,
   DeleteProvider200,
+  EnrollmentSecretResponse,
   ErrorResponse,
   ExecutionRun,
   FallbackEvent,
@@ -43,7 +45,14 @@ import type {
   LoginBody,
   LoginResponse,
   MemoryItem,
+  MintPairCodeBody,
+  MintPairCodeResponse,
   ModelAttempt,
+  OrgDeviceListResponse,
+  OrgEnvelope,
+  OrgListResponse,
+  OrgPolicyOverrideEnvelope,
+  OrgPolicyOverrideListResponse,
   OverrideRunResponse,
   OverrideTaskResponse,
   OverrideTriStateResponse,
@@ -52,11 +61,16 @@ import type {
   ProviderDiscoveryResult,
   ProviderHealth,
   ProviderTestResult,
+  ReasonOnlyBody,
+  RegisterDeviceBody,
+  RegisterDeviceResponse,
+  RegisterLocalAgentDeviceParams,
   ResetPasswordBody,
   ResetPasswordResponse,
   ResetRunBody,
   RunDetail,
   SeriesPass,
+  SetOrgPolicyOverrideBody,
   SetProviderApiKeyBody,
   SynthesisReport,
   Task,
@@ -3810,3 +3824,732 @@ export function useListTriStateDecisions<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary List organizations (super_admin only)
+ */
+export const getListLocalAgentOrgsUrl = () => {
+  return `/api/v1/orgs`;
+};
+
+export const listLocalAgentOrgs = async (
+  options?: RequestInit,
+): Promise<OrgListResponse> => {
+  return customFetch<OrgListResponse>(getListLocalAgentOrgsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListLocalAgentOrgsQueryKey = () => {
+  return [`/api/v1/orgs`] as const;
+};
+
+export const getListLocalAgentOrgsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listLocalAgentOrgs>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listLocalAgentOrgs>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListLocalAgentOrgsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listLocalAgentOrgs>>
+  > = ({ signal }) => listLocalAgentOrgs({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listLocalAgentOrgs>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListLocalAgentOrgsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listLocalAgentOrgs>>
+>;
+export type ListLocalAgentOrgsQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary List organizations (super_admin only)
+ */
+
+export function useListLocalAgentOrgs<
+  TData = Awaited<ReturnType<typeof listLocalAgentOrgs>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listLocalAgentOrgs>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListLocalAgentOrgsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create an organization
+ */
+export const getCreateLocalAgentOrgUrl = () => {
+  return `/api/v1/orgs`;
+};
+
+export const createLocalAgentOrg = async (
+  createOrgBody: CreateOrgBody,
+  options?: RequestInit,
+): Promise<OrgEnvelope> => {
+  return customFetch<OrgEnvelope>(getCreateLocalAgentOrgUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createOrgBody),
+  });
+};
+
+export const getCreateLocalAgentOrgMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createLocalAgentOrg>>,
+    TError,
+    { data: BodyType<CreateOrgBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createLocalAgentOrg>>,
+  TError,
+  { data: BodyType<CreateOrgBody> },
+  TContext
+> => {
+  const mutationKey = ["createLocalAgentOrg"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createLocalAgentOrg>>,
+    { data: BodyType<CreateOrgBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createLocalAgentOrg(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateLocalAgentOrgMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createLocalAgentOrg>>
+>;
+export type CreateLocalAgentOrgMutationBody = BodyType<CreateOrgBody>;
+export type CreateLocalAgentOrgMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Create an organization
+ */
+export const useCreateLocalAgentOrg = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createLocalAgentOrg>>,
+    TError,
+    { data: BodyType<CreateOrgBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createLocalAgentOrg>>,
+  TError,
+  { data: BodyType<CreateOrgBody> },
+  TContext
+> => {
+  return useMutation(getCreateLocalAgentOrgMutationOptions(options));
+};
+
+/**
+ * @summary Rotate the org's enrollment secret (returned plaintext once)
+ */
+export const getRotateOrgEnrollmentSecretUrl = (id: string) => {
+  return `/api/v1/orgs/${id}/rotate-enrollment-secret`;
+};
+
+export const rotateOrgEnrollmentSecret = async (
+  id: string,
+  reasonOnlyBody: ReasonOnlyBody,
+  options?: RequestInit,
+): Promise<EnrollmentSecretResponse> => {
+  return customFetch<EnrollmentSecretResponse>(
+    getRotateOrgEnrollmentSecretUrl(id),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(reasonOnlyBody),
+    },
+  );
+};
+
+export const getRotateOrgEnrollmentSecretMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rotateOrgEnrollmentSecret>>,
+    TError,
+    { id: string; data: BodyType<ReasonOnlyBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof rotateOrgEnrollmentSecret>>,
+  TError,
+  { id: string; data: BodyType<ReasonOnlyBody> },
+  TContext
+> => {
+  const mutationKey = ["rotateOrgEnrollmentSecret"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof rotateOrgEnrollmentSecret>>,
+    { id: string; data: BodyType<ReasonOnlyBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return rotateOrgEnrollmentSecret(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RotateOrgEnrollmentSecretMutationResult = NonNullable<
+  Awaited<ReturnType<typeof rotateOrgEnrollmentSecret>>
+>;
+export type RotateOrgEnrollmentSecretMutationBody = BodyType<ReasonOnlyBody>;
+export type RotateOrgEnrollmentSecretMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Rotate the org's enrollment secret (returned plaintext once)
+ */
+export const useRotateOrgEnrollmentSecret = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rotateOrgEnrollmentSecret>>,
+    TError,
+    { id: string; data: BodyType<ReasonOnlyBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof rotateOrgEnrollmentSecret>>,
+  TError,
+  { id: string; data: BodyType<ReasonOnlyBody> },
+  TContext
+> => {
+  return useMutation(getRotateOrgEnrollmentSecretMutationOptions(options));
+};
+
+/**
+ * @summary List devices bound to an org
+ */
+export const getListOrgDevicesUrl = (id: string) => {
+  return `/api/v1/orgs/${id}/devices`;
+};
+
+export const listOrgDevices = async (
+  id: string,
+  options?: RequestInit,
+): Promise<OrgDeviceListResponse> => {
+  return customFetch<OrgDeviceListResponse>(getListOrgDevicesUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListOrgDevicesQueryKey = (id: string) => {
+  return [`/api/v1/orgs/${id}/devices`] as const;
+};
+
+export const getListOrgDevicesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listOrgDevices>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listOrgDevices>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListOrgDevicesQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listOrgDevices>>> = ({
+    signal,
+  }) => listOrgDevices(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listOrgDevices>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListOrgDevicesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listOrgDevices>>
+>;
+export type ListOrgDevicesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List devices bound to an org
+ */
+
+export function useListOrgDevices<
+  TData = Awaited<ReturnType<typeof listOrgDevices>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listOrgDevices>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListOrgDevicesQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List policy locks set by the org
+ */
+export const getListOrgPolicyOverridesUrl = (id: string) => {
+  return `/api/v1/orgs/${id}/policy-overrides`;
+};
+
+export const listOrgPolicyOverrides = async (
+  id: string,
+  options?: RequestInit,
+): Promise<OrgPolicyOverrideListResponse> => {
+  return customFetch<OrgPolicyOverrideListResponse>(
+    getListOrgPolicyOverridesUrl(id),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListOrgPolicyOverridesQueryKey = (id: string) => {
+  return [`/api/v1/orgs/${id}/policy-overrides`] as const;
+};
+
+export const getListOrgPolicyOverridesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listOrgPolicyOverrides>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listOrgPolicyOverrides>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListOrgPolicyOverridesQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listOrgPolicyOverrides>>
+  > = ({ signal }) => listOrgPolicyOverrides(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listOrgPolicyOverrides>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListOrgPolicyOverridesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listOrgPolicyOverrides>>
+>;
+export type ListOrgPolicyOverridesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List policy locks set by the org
+ */
+
+export function useListOrgPolicyOverrides<
+  TData = Awaited<ReturnType<typeof listOrgPolicyOverrides>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listOrgPolicyOverrides>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListOrgPolicyOverridesQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Set or update a policy lock for the org
+ */
+export const getSetOrgPolicyOverrideUrl = (id: string) => {
+  return `/api/v1/orgs/${id}/policy-overrides`;
+};
+
+export const setOrgPolicyOverride = async (
+  id: string,
+  setOrgPolicyOverrideBody: SetOrgPolicyOverrideBody,
+  options?: RequestInit,
+): Promise<OrgPolicyOverrideEnvelope> => {
+  return customFetch<OrgPolicyOverrideEnvelope>(
+    getSetOrgPolicyOverrideUrl(id),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(setOrgPolicyOverrideBody),
+    },
+  );
+};
+
+export const getSetOrgPolicyOverrideMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setOrgPolicyOverride>>,
+    TError,
+    { id: string; data: BodyType<SetOrgPolicyOverrideBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setOrgPolicyOverride>>,
+  TError,
+  { id: string; data: BodyType<SetOrgPolicyOverrideBody> },
+  TContext
+> => {
+  const mutationKey = ["setOrgPolicyOverride"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setOrgPolicyOverride>>,
+    { id: string; data: BodyType<SetOrgPolicyOverrideBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return setOrgPolicyOverride(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetOrgPolicyOverrideMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setOrgPolicyOverride>>
+>;
+export type SetOrgPolicyOverrideMutationBody =
+  BodyType<SetOrgPolicyOverrideBody>;
+export type SetOrgPolicyOverrideMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Set or update a policy lock for the org
+ */
+export const useSetOrgPolicyOverride = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setOrgPolicyOverride>>,
+    TError,
+    { id: string; data: BodyType<SetOrgPolicyOverrideBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof setOrgPolicyOverride>>,
+  TError,
+  { id: string; data: BodyType<SetOrgPolicyOverrideBody> },
+  TContext
+> => {
+  return useMutation(getSetOrgPolicyOverrideMutationOptions(options));
+};
+
+/**
+ * @summary Register a Local Automation Agent device (public, rate-limited)
+ */
+export const getRegisterLocalAgentDeviceUrl = (
+  params?: RegisterLocalAgentDeviceParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/v1/devices/register?${stringifiedParams}`
+    : `/api/v1/devices/register`;
+};
+
+export const registerLocalAgentDevice = async (
+  registerDeviceBody: RegisterDeviceBody,
+  params?: RegisterLocalAgentDeviceParams,
+  options?: RequestInit,
+): Promise<RegisterDeviceResponse> => {
+  return customFetch<RegisterDeviceResponse>(
+    getRegisterLocalAgentDeviceUrl(params),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(registerDeviceBody),
+    },
+  );
+};
+
+export const getRegisterLocalAgentDeviceMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof registerLocalAgentDevice>>,
+    TError,
+    {
+      data: BodyType<RegisterDeviceBody>;
+      params?: RegisterLocalAgentDeviceParams;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof registerLocalAgentDevice>>,
+  TError,
+  {
+    data: BodyType<RegisterDeviceBody>;
+    params?: RegisterLocalAgentDeviceParams;
+  },
+  TContext
+> => {
+  const mutationKey = ["registerLocalAgentDevice"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof registerLocalAgentDevice>>,
+    {
+      data: BodyType<RegisterDeviceBody>;
+      params?: RegisterLocalAgentDeviceParams;
+    }
+  > = (props) => {
+    const { data, params } = props ?? {};
+
+    return registerLocalAgentDevice(data, params, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RegisterLocalAgentDeviceMutationResult = NonNullable<
+  Awaited<ReturnType<typeof registerLocalAgentDevice>>
+>;
+export type RegisterLocalAgentDeviceMutationBody = BodyType<RegisterDeviceBody>;
+export type RegisterLocalAgentDeviceMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Register a Local Automation Agent device (public, rate-limited)
+ */
+export const useRegisterLocalAgentDevice = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof registerLocalAgentDevice>>,
+    TError,
+    {
+      data: BodyType<RegisterDeviceBody>;
+      params?: RegisterLocalAgentDeviceParams;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof registerLocalAgentDevice>>,
+  TError,
+  {
+    data: BodyType<RegisterDeviceBody>;
+    params?: RegisterLocalAgentDeviceParams;
+  },
+  TContext
+> => {
+  return useMutation(getRegisterLocalAgentDeviceMutationOptions(options));
+};
+
+/**
+ * Returns the plain-text pair code exactly once. Only the SHA-256 of
+the code is persisted. Hand the plain text to the laptop user; the
+reference agent presents it to /v1/devices/register.
+
+ * @summary Mint a single-use INDIVIDUAL_CONSENT pair code (super_admin)
+ */
+export const getMintLocalAgentPairCodeUrl = () => {
+  return `/api/v1/pair-codes`;
+};
+
+export const mintLocalAgentPairCode = async (
+  mintPairCodeBody?: MintPairCodeBody,
+  options?: RequestInit,
+): Promise<MintPairCodeResponse> => {
+  return customFetch<MintPairCodeResponse>(getMintLocalAgentPairCodeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(mintPairCodeBody),
+  });
+};
+
+export const getMintLocalAgentPairCodeMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mintLocalAgentPairCode>>,
+    TError,
+    { data: BodyType<MintPairCodeBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof mintLocalAgentPairCode>>,
+  TError,
+  { data: BodyType<MintPairCodeBody> },
+  TContext
+> => {
+  const mutationKey = ["mintLocalAgentPairCode"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof mintLocalAgentPairCode>>,
+    { data: BodyType<MintPairCodeBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return mintLocalAgentPairCode(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MintLocalAgentPairCodeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof mintLocalAgentPairCode>>
+>;
+export type MintLocalAgentPairCodeMutationBody = BodyType<MintPairCodeBody>;
+export type MintLocalAgentPairCodeMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Mint a single-use INDIVIDUAL_CONSENT pair code (super_admin)
+ */
+export const useMintLocalAgentPairCode = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof mintLocalAgentPairCode>>,
+    TError,
+    { data: BodyType<MintPairCodeBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof mintLocalAgentPairCode>>,
+  TError,
+  { data: BodyType<MintPairCodeBody> },
+  TContext
+> => {
+  return useMutation(getMintLocalAgentPairCodeMutationOptions(options));
+};

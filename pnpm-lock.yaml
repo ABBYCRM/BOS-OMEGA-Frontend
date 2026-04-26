@@ -178,6 +178,12 @@ importers:
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
+      '@workspace/local-agent-contracts':
+        specifier: workspace:*
+        version: link:../../lib/local-agent-contracts
+      '@workspace/local-agent-policy':
+        specifier: workspace:*
+        version: link:../../lib/local-agent-policy
       bcryptjs:
         specifier: ^3.0.3
         version: 3.0.3
@@ -682,7 +688,52 @@ importers:
         specifier: ^0.31.9
         version: 0.31.9
 
+  lib/local-agent-contracts:
+    dependencies:
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.3.5
+
+  lib/local-agent-policy:
+    dependencies:
+      '@workspace/local-agent-contracts':
+        specifier: workspace:*
+        version: link:../local-agent-contracts
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.3.5
+
   scripts:
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.3.5
+      tsx:
+        specifier: 'catalog:'
+        version: 4.21.0
+
+  tests/local-agent:
+    dependencies:
+      '@workspace/local-agent-contracts':
+        specifier: workspace:*
+        version: link:../../lib/local-agent-contracts
+      '@workspace/local-agent-policy':
+        specifier: workspace:*
+        version: link:../../lib/local-agent-policy
+
+  tools/reference-agent:
+    dependencies:
+      '@workspace/local-agent-contracts':
+        specifier: workspace:*
+        version: link:../../lib/local-agent-contracts
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

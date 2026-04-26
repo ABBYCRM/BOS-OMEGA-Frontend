@@ -1170,3 +1170,234 @@ export const ListTriStateDecisionsResponseItem = zod
 export const ListTriStateDecisionsResponse = zod.array(
   ListTriStateDecisionsResponseItem,
 );
+
+/**
+ * @summary List organizations (super_admin only)
+ */
+export const ListLocalAgentOrgsResponse = zod.object({
+  orgs: zod.array(
+    zod.object({
+      id: zod.string(),
+      slug: zod.string(),
+      display_name: zod.string(),
+      status: zod.enum(["active", "archived"]),
+      has_enrollment_secret: zod.boolean(),
+      created_at: zod.coerce.date(),
+      updated_at: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Create an organization
+ */
+export const createLocalAgentOrgBodySlugMin = 2;
+export const createLocalAgentOrgBodySlugMax = 64;
+
+export const createLocalAgentOrgBodySlugRegExp = new RegExp(
+  "^[a-z0-9][a-z0-9_-]{0,63}$",
+);
+export const createLocalAgentOrgBodyDisplayNameMax = 200;
+
+export const createLocalAgentOrgBodyReasonMin = 3;
+export const createLocalAgentOrgBodyReasonMax = 2000;
+
+export const CreateLocalAgentOrgBody = zod.object({
+  slug: zod
+    .string()
+    .min(createLocalAgentOrgBodySlugMin)
+    .max(createLocalAgentOrgBodySlugMax)
+    .regex(createLocalAgentOrgBodySlugRegExp),
+  display_name: zod.string().min(1).max(createLocalAgentOrgBodyDisplayNameMax),
+  reason: zod
+    .string()
+    .min(createLocalAgentOrgBodyReasonMin)
+    .max(createLocalAgentOrgBodyReasonMax),
+});
+
+/**
+ * @summary Rotate the org's enrollment secret (returned plaintext once)
+ */
+export const RotateOrgEnrollmentSecretParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const rotateOrgEnrollmentSecretBodyReasonMin = 3;
+export const rotateOrgEnrollmentSecretBodyReasonMax = 2000;
+
+export const RotateOrgEnrollmentSecretBody = zod.object({
+  reason: zod
+    .string()
+    .min(rotateOrgEnrollmentSecretBodyReasonMin)
+    .max(rotateOrgEnrollmentSecretBodyReasonMax),
+});
+
+export const RotateOrgEnrollmentSecretResponse = zod
+  .object({
+    enrollment_secret: zod.string(),
+  })
+  .describe(
+    "Plaintext enrollment secret. Returned ONCE on rotation; never\npersisted in plaintext server-side.\n",
+  );
+
+/**
+ * @summary List devices bound to an org
+ */
+export const ListOrgDevicesParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ListOrgDevicesResponse = zod.object({
+  devices: zod.array(
+    zod.object({
+      id: zod.string(),
+      org_id: zod.string().nullable(),
+      install_mode: zod
+        .enum(["INDIVIDUAL_CONSENT", "ADMIN_DEPLOYMENT"])
+        .describe(
+          "Local-Agent install mode. INDIVIDUAL_CONSENT (default) is a personal\ndevice paired via 6-char pair code. ADMIN_DEPLOYMENT is a\nmanaged-fleet device paired with an org enrollment secret.\n",
+        ),
+      display_name: zod.string(),
+      hostname: zod.string().nullish(),
+      status: zod.string(),
+      paired_at: zod.coerce.date(),
+      last_seen_at: zod.coerce.date().nullish(),
+      contract_version: zod.string(),
+    }),
+  ),
+});
+
+/**
+ * @summary List policy locks set by the org
+ */
+export const ListOrgPolicyOverridesParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const listOrgPolicyOverridesResponseOverridesItemPolicyFieldPathRegExp =
+  new RegExp("^[a-z][a-z0-9_]{0,63}(\\.[a-z][a-z0-9_]{0,63}){0,15}$");
+
+export const ListOrgPolicyOverridesResponse = zod.object({
+  overrides: zod.array(
+    zod.object({
+      id: zod.string(),
+      org_id: zod.string(),
+      policy_field_path: zod
+        .string()
+        .regex(
+          listOrgPolicyOverridesResponseOverridesItemPolicyFieldPathRegExp,
+        ),
+      locked_value: zod.unknown(),
+      set_by_user_id: zod.string(),
+      set_at: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Set or update a policy lock for the org
+ */
+export const SetOrgPolicyOverrideParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const setOrgPolicyOverrideBodyPolicyFieldPathRegExp = new RegExp(
+  "^[a-z][a-z0-9_]{0,63}(\\.[a-z][a-z0-9_]{0,63}){0,15}$",
+);
+export const setOrgPolicyOverrideBodyReasonMin = 3;
+export const setOrgPolicyOverrideBodyReasonMax = 2000;
+
+export const SetOrgPolicyOverrideBody = zod.object({
+  policy_field_path: zod
+    .string()
+    .regex(setOrgPolicyOverrideBodyPolicyFieldPathRegExp),
+  locked_value: zod.unknown(),
+  reason: zod
+    .string()
+    .min(setOrgPolicyOverrideBodyReasonMin)
+    .max(setOrgPolicyOverrideBodyReasonMax),
+});
+
+/**
+ * @summary Register a Local Automation Agent device (public, rate-limited)
+ */
+export const RegisterLocalAgentDeviceQueryParams = zod.object({
+  install_mode: zod
+    .enum(["INDIVIDUAL_CONSENT", "ADMIN_DEPLOYMENT"])
+    .optional()
+    .describe(
+      "Optional duplicate of body.install_mode for MDM URL templating; if present, must match the body.",
+    ),
+});
+
+export const registerLocalAgentDeviceBodyPairCodeMin = 4;
+export const registerLocalAgentDeviceBodyPairCodeMax = 64;
+
+export const registerLocalAgentDeviceBodyOrgEnrollmentSecretMin = 32;
+export const registerLocalAgentDeviceBodyOrgEnrollmentSecretMax = 512;
+
+export const registerLocalAgentDeviceBodyDevicePubkeyMin = 32;
+export const registerLocalAgentDeviceBodyDevicePubkeyMax = 4096;
+
+export const registerLocalAgentDeviceBodyDisplayNameMax = 200;
+
+export const registerLocalAgentDeviceBodyHostnameMax = 255;
+
+export const registerLocalAgentDeviceBodyContractVersionMax = 32;
+
+export const RegisterLocalAgentDeviceBody = zod.object({
+  install_mode: zod
+    .enum(["INDIVIDUAL_CONSENT", "ADMIN_DEPLOYMENT"])
+    .describe(
+      "Local-Agent install mode. INDIVIDUAL_CONSENT (default) is a personal\ndevice paired via 6-char pair code. ADMIN_DEPLOYMENT is a\nmanaged-fleet device paired with an org enrollment secret.\n",
+    ),
+  pair_code: zod
+    .string()
+    .min(registerLocalAgentDeviceBodyPairCodeMin)
+    .max(registerLocalAgentDeviceBodyPairCodeMax)
+    .optional()
+    .describe("Required when install_mode = INDIVIDUAL_CONSENT."),
+  org_enrollment_secret: zod
+    .string()
+    .min(registerLocalAgentDeviceBodyOrgEnrollmentSecretMin)
+    .max(registerLocalAgentDeviceBodyOrgEnrollmentSecretMax)
+    .optional()
+    .describe(
+      "Required when install_mode = ADMIN_DEPLOYMENT. Hashed (SHA-256) server-side and looked up against bos_orgs.enrollment_secret_hash.",
+    ),
+  device_pubkey: zod
+    .string()
+    .min(registerLocalAgentDeviceBodyDevicePubkeyMin)
+    .max(registerLocalAgentDeviceBodyDevicePubkeyMax),
+  display_name: zod
+    .string()
+    .min(1)
+    .max(registerLocalAgentDeviceBodyDisplayNameMax),
+  hostname: zod
+    .string()
+    .min(1)
+    .max(registerLocalAgentDeviceBodyHostnameMax)
+    .optional(),
+  contract_version: zod
+    .string()
+    .min(1)
+    .max(registerLocalAgentDeviceBodyContractVersionMax),
+});
+
+/**
+ * Returns the plain-text pair code exactly once. Only the SHA-256 of
+the code is persisted. Hand the plain text to the laptop user; the
+reference agent presents it to /v1/devices/register.
+
+ * @summary Mint a single-use INDIVIDUAL_CONSENT pair code (super_admin)
+ */
+export const mintLocalAgentPairCodeBodyTtlMinutesMax = 1440;
+
+export const MintLocalAgentPairCodeBody = zod.object({
+  ttl_minutes: zod
+    .number()
+    .min(1)
+    .max(mintLocalAgentPairCodeBodyTtlMinutesMax)
+    .optional()
+    .describe("How long the code remains redeemable (default 15)"),
+});
