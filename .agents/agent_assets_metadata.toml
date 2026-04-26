@@ -12,3 +12,9 @@ id = "ttgNWL9c8dbKy4mauaz2P"
 uri = "file://artifacts/api-server/RUNTIME_AUDIT_2026-04-26.md"
 type = "text"
 title = "BOS-OMEGA Runtime Forensic Audit — 2026-04-26"
+
+[[outputs]]
+id = "dfX3ExJA0wRe6plha6HfQ"
+uri = "file://artifacts/api-server/R1_R5_IMPLEMENTATION_PLAN.md"
+type = "text"
+title = "R-1 + R-5 Implementation Plan"
