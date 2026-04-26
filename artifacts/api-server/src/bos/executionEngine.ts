@@ -30,9 +30,11 @@ export async function executePipeline(
   ctx: TaskContext,
   selected_models: ModelScore[]
 ): Promise<{ result: BosOutput; attempts_saved: string[] }> {
+  // v1.1: relevance-aware memory selection — pass the task input so canon and
+  // scratchpad items are ranked by overlap with the actual question, not just authority.
   const [canon, scratchpad] = await Promise.all([
-    getCanonMemory(),
-    getScratchpad(),
+    getCanonMemory(ctx.input),
+    getScratchpad(ctx.input),
   ]);
   const memory_context = buildContextFromMemory(canon, scratchpad);
 

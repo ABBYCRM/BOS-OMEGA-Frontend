@@ -575,10 +575,100 @@ bullet([
   "Push expensive checks to the edges. The input gate runs before any model is selected; validation and repair run after the model returns and before the answer is persisted.",
 ]);
 
+// ============================================================
+// 16. v1.1 HARDENING ADDENDUM
+// ============================================================
+H1("16. v1.1 Hardening Addendum");
+
+P("This release adds twelve production controls in response to a hardened-spec review. The controls are layered so that when any one of them fails the safe default is always HOLD, never GO. Every denied or held task now also carries a structured plain-English explanation suitable for end-user presentation.");
+
+H2("16.1 Hardened Tri-State Collapse");
+P("The collapse rule has been replaced with a sequence that defaults to HOLD unless GO is strongly justified. Implemented in artifacts/api-server/src/bos/triState.ts.");
+bullet([
+  "1. hard_safety_abort → ABORT (hard veto, bypasses vector math).",
+  "2. abort amplitude ≥ 0.65 → ABORT (down from 0.70).",
+  "3. missing required inputs → HOLD.",
+  "4. no provider available → HOLD.",
+  "5. (go ≥ 0.75 ∧ validation_passed ∧ confidence ≥ requiredConfidence) → GO.",
+  "6. otherwise → HOLD.",
+  "requiredConfidence is 0.85 for legal / medical / financial / code / security tasks, 0.70 elsewhere.",
+]);
+
+H2("16.2 Repair Engine — Defaults to HOLD");
+P("The repair engine no longer synthesises a state=GO BosOutput from malformed model output. Any structurally incomplete envelope collapses to HOLD with repair_applied=true, failure_modes contains malformed_model_output, and recommended_next_action asks the caller to retry with stricter structured-output enforcement. Implemented in artifacts/api-server/src/bos/repairEngine.ts.");
+
+H2("16.3 Budget Governor");
+P("Per-mode ceilings on cost, model calls, fallbacks, repair attempts, parallel agents, synthesis retries, series depth, and validation retries. A breach forces HOLD with the budget_exceeded failure mode. Implemented in artifacts/api-server/src/bos/budgets.ts and applied in pipeline.ts.");
+kv([
+  ["normal",         "max_models=1, max_fallbacks=2, max_repair_attempts=2, max_cost_usd=$0.10."],
+  ["parallel",       "max_models=4, max_fallbacks=2, max_repair_attempts=2, max_cost_usd=$0.40."],
+  ["consensus",      "max_models=5, max_fallbacks=2, max_repair_attempts=2, max_cost_usd=$0.50."],
+  ["series_pass",    "max_models=7, max_fallbacks=3, max_repair_attempts=2, max_cost_usd=$0.50, max_series_depth=7."],
+  ["boil_the_ocean", "max_models=10, max_parallel_agents=10, max_synthesis_retries=2, max_repair_attempts=2, max_cost_usd=$2.00."],
+]);
+
+H2("16.4 Loop Guards");
+P("The budget governor doubles as the loop guard: max_repair_attempts=2, max_fallbacks≤3, max_series_depth=7, max_synthesis_retries=2, max_validation_retries=2. Crossing any of them collapses the task to HOLD with a 'recursion / retry limit exceeded' explanation.");
+
+H2("16.5 Deterministic Router Tie-Break");
+P("modelRouter.ts now sorts by composite score (desc), then capability_match, reliability_score, latency_score, cost_score, context_fit, and finally a lexicographic comparison on `provider_id:model_id`. Two identical configurations route the same way every time.");
+
+H2("16.6 Attachment Injection Defense");
+P("All attachment-derived context is now wrapped in a `[UNTRUSTED ATTACHMENT CONTENT]` block that explicitly tells the model to treat the body as data, not as system / developer / user instruction. The loader scans extracted text for prompt-injection patterns (\"ignore previous instructions\", \"system prompt\", \"developer message\", \"you are now\", \"override policy\", line-starting `assistant:`, \"act as\", \"disable safety\") and:");
+bullet([
+  "Adds a per-attachment note naming the offending file.",
+  "Surfaces a separate ATTACHMENT_INJECTION_FLAGGED audit event.",
+  "Keeps the content available, but with the warning preamble preserved through to the model.",
+]);
+
+H2("16.7 Memory Layer Token Budgets and Relevance");
+P("memoryEngine.ts now enforces per-layer token budgets — canon=3000, patches=1000, continuity=1500, scratchpad=750 — and ranks items inside each layer by authority_level, then relevance to the current task input (keyword overlap), then recency, before greedy-filling the budget. Canon still wins as a layer, but it no longer floods context with off-topic items.");
+
+H2("16.8 Audit Durability");
+P("auditEngine.ts retries the DB write up to three times with linear backoff. If all retries fail the event is appended to a durable JSONL queue under .local/audit-queue/pending.jsonl, a CRITICAL_AUDIT_FAILURE log line is emitted, and an in-process flag is set. When COMPLIANCE_MODE=true, the pipeline reads that flag and forces the task to HOLD per the failure-mode matrix.");
+
+H2("16.9 Denial / HOLD Explanation Engine");
+P("Every BosOutput in HOLD or ABORT now carries three fields the UI can render verbatim:");
+kv([
+  ["why_decision_was_made", "A plain-English governance explanation of the specific rule that fired."],
+  ["safe_alternative",      "An allowed alternative path the user can pursue."],
+  ["recommended_next_action", "A concrete next step (existing field, now always populated)."],
+]);
+P("Causes covered: input_gate_abort, input_gate_hold_missing_info, tri_state_abort, tri_state_hold_no_provider, tri_state_hold_low_confidence, tri_state_hold_default, budget_exceeded, compliance_audit_failure.");
+
+H2("16.10 Failure-Mode Matrix");
+kv([
+  ["Input gate failure",         "HOLD all tasks with explicit missing_info."],
+  ["Tri-State engine failure",   "HOLD task — collapse defaults to HOLD."],
+  ["Router finds no provider",   "HOLD: provider unavailable (with denial explanation)."],
+  ["Model timeout",              "Fallback provider, then HOLD if exhausted."],
+  ["Validation failure",         "Repair → revalidate → HOLD if still invalid."],
+  ["Repair failure",             "HOLD; never GO. (repair_applied=true)"],
+  ["Audit DB failure",           "Retry → durable queue → CRITICAL_AUDIT_FAILURE → HOLD in compliance mode."],
+  ["Memory corruption",          "Skip memory + alert (graceful degradation)."],
+  ["Attachment extraction fail", "Continue with note; never fabricate."],
+  ["Budget exceeded",            "HOLD with budget_exceeded failure mode."],
+]);
+
+H2("16.11 RBAC — Acknowledged Scope");
+P("RBAC (Super Admin / Admin / Operator / Auditor / Read Only) was specified in the v1.1 hardening list but is intentionally NOT shipped in this release. The current authentication model is single-admin; a five-role design requires a users table, sign-up / invitation flow, per-route guards, and a session-shape migration. Treating RBAC as a separate, scoped task avoids rushing a partial implementation that would weaken the rest of the v1.1 controls. The denial explanation engine, audit durability, and budget governor described above all compose cleanly on top of any future RBAC layer.");
+
+H2("16.12 Self-Check");
+bullet([
+  "The repair engine state=GO default is FIXED. Malformed output now collapses to HOLD with repair_applied=true.",
+  "Tri-State collapse defaults to HOLD; GO requires go≥0.75 and validation_passed and confidence≥requiredConfidence.",
+  "Budget governor and loop guards are in the pipeline.",
+  "Router tie-break is deterministic.",
+  "Attachments are wrapped as untrusted data with injection patterns flagged.",
+  "Memory layers enforce per-layer token budgets and rank by relevance.",
+  "Audit writes are durable through DB retries plus an on-disk JSONL queue, with COMPLIANCE_MODE escalation to HOLD.",
+  "Every denied or held task carries why_decision_was_made and safe_alternative.",
+]);
+
 rule();
 
 doc.fillColor(MUTED).font("Helvetica-Oblique").fontSize(9)
-  .text("End of document. Generated from the live BOS-OMEGA codebase.", { align: "center" });
+  .text("End of document. Generated from the live BOS-OMEGA codebase. v1.1 Hardened.", { align: "center" });
 
 doc.end();
 

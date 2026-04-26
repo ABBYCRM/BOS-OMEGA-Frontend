@@ -65,6 +65,12 @@ export interface BosOutput {
   recommended_next_action: string;
   parallel_responses?: ParallelResponse[];
   merge_strategy?: string;
+  /** True when the repair engine had to patch the model output. */
+  repair_applied?: boolean;
+  /** Plain-English explanation of the governance decision (HOLD/ABORT only). */
+  why_decision_was_made?: string;
+  /** Allowed alternative path the user can take when blocked or held. */
+  safe_alternative?: string;
 }
 
 export interface ParallelResponse {

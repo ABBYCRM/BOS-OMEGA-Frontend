@@ -55,6 +55,19 @@ export interface TriStateInput {
   illegal_instruction?: boolean;
   ambiguity_detected?: boolean;
   task_type?: string;
+
+  // v1.1 hardening signals
+  /** When true, collapse() returns ABORT immediately regardless of vector math. */
+  hard_safety_abort?: boolean;
+}
+
+/**
+ * Required confidence floor for a task to be allowed to collapse to GO.
+ * High-stakes domains require materially higher confidence than general tasks.
+ */
+export function requiredConfidenceForTaskType(task_type?: string): number {
+  const HIGH_STAKES = new Set(["legal", "medical", "financial", "code", "security"]);
+  return HIGH_STAKES.has((task_type ?? "").toLowerCase()) ? 0.85 : 0.70;
 }
 
 export interface TriStateResult {
@@ -292,33 +305,55 @@ function gatherSignals(input: TriStateInput): EvidenceSignal[] {
 /**
  * Apply collapse rules — converts the probabilistic vector into a single
  * runtime state. The vector is advisory until this collapse happens.
+ *
+ * v1.1 hardened collapse rules (in evaluation order):
+ *   1. hard_safety_abort  → ABORT (hard veto, bypasses vector math)
+ *   2. abort ≥ 0.65       → ABORT
+ *   3. missing inputs     → HOLD
+ *   4. no provider        → HOLD
+ *   5. (go ≥ 0.75 ∧ validation_passed ∧ confidence ≥ requiredConfidence) → GO
+ *   6. otherwise          → HOLD (safe default)
  */
 function collapse(
   vector: TriStateVector,
-  hasMissingOrErrors: boolean,
+  input: TriStateInput,
   validationPassed: boolean,
+  computed_confidence: number,
 ): { state: TriState; reason: string } {
-  if (vector.abort >= 0.70) {
+  if (input.hard_safety_abort) {
     return {
       state: "ABORT",
-      reason: `ABORT amplitude ${(vector.abort * 100).toFixed(0)}% ≥ threshold 70%`,
+      reason: "Hard safety veto — request matched a non-negotiable safety rule",
     };
   }
-  if (vector.hold >= 0.45 && hasMissingOrErrors) {
+  if (vector.abort >= 0.65) {
+    return {
+      state: "ABORT",
+      reason: `ABORT amplitude ${(vector.abort * 100).toFixed(0)}% ≥ hardened threshold 65%`,
+    };
+  }
+  if (input.missing_info.length > 0) {
     return {
       state: "HOLD",
-      reason: `HOLD amplitude ${(vector.hold * 100).toFixed(0)}% ≥ 45% with missing inputs/errors`,
+      reason: `Missing required inputs: ${input.missing_info.join(", ")}`,
     };
   }
-  if (vector.go >= 0.60 && validationPassed) {
+  if (!input.provider_available) {
+    return {
+      state: "HOLD",
+      reason: "No LLM provider available to handle this task",
+    };
+  }
+  const required_confidence = requiredConfidenceForTaskType(input.task_type);
+  if (vector.go >= 0.75 && validationPassed && computed_confidence >= required_confidence) {
     return {
       state: "GO",
-      reason: `GO amplitude ${(vector.go * 100).toFixed(0)}% ≥ threshold 60% and validation passed`,
+      reason: `GO amplitude ${(vector.go * 100).toFixed(0)}% ≥ 75%, validation passed, confidence ${(computed_confidence * 100).toFixed(0)}% ≥ required ${(required_confidence * 100).toFixed(0)}%`,
     };
   }
   return {
     state: "HOLD",
-    reason: `No threshold met (GO=${(vector.go * 100).toFixed(0)}%, HOLD=${(vector.hold * 100).toFixed(0)}%, ABORT=${(vector.abort * 100).toFixed(0)}%) — defaulting to HOLD`,
+    reason: `Hardened default: GO=${(vector.go * 100).toFixed(0)}%, HOLD=${(vector.hold * 100).toFixed(0)}%, ABORT=${(vector.abort * 100).toFixed(0)}%, confidence=${(computed_confidence * 100).toFixed(0)}%, required=${(required_confidence * 100).toFixed(0)}% — collapsing to HOLD`,
   };
 }
 
@@ -334,20 +369,16 @@ export function evaluateTriState(input: TriStateInput): TriStateResult {
 
   const final_pre_collapse = { ...vector };
 
-  const has_missing_or_errors =
-    input.missing_info.length > 0 ||
-    input.unsupported_factual_claim === true ||
-    input.validation_passed === false;
-
   const validation_passed = input.validation_passed !== false;
 
-  const { state, reason } = collapse(final_pre_collapse, has_missing_or_errors, validation_passed);
-
-  // Confidence in the collapse: how dominant the chosen amplitude is
+  // Confidence in the collapse: how dominant the chosen amplitude is.
+  // Computed before collapse() so the threshold rule can use it.
   const max_amplitude = Math.max(final_pre_collapse.go, final_pre_collapse.hold, final_pre_collapse.abort);
   const second = [final_pre_collapse.go, final_pre_collapse.hold, final_pre_collapse.abort]
     .sort((a, b) => b - a)[1] ?? 0;
   const confidence_score = Math.max(0, Math.min(1, max_amplitude - second + max_amplitude * 0.5));
+
+  const { state, reason } = collapse(final_pre_collapse, input, validation_passed, confidence_score);
 
   return {
     state,

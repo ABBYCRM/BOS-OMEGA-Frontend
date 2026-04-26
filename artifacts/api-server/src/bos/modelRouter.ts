@@ -79,7 +79,24 @@ export async function selectModel(
     });
   }
 
-  scores.sort((a, b) => b.score - a.score);
+  // v1.1 deterministic tie-break:
+  //   1. composite score (desc)
+  //   2. capability_match (desc)
+  //   3. reliability_score (desc)
+  //   4. latency_score (desc, higher = lower observed latency)
+  //   5. cost_score (desc, higher = cheaper)
+  //   6. context_fit (desc)
+  //   7. lex order on `provider_id:model_id` (asc) — final guarantee of stable order
+  // Two identical configurations route the same way every time.
+  scores.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (b.capability_match !== a.capability_match) return b.capability_match - a.capability_match;
+    if (b.reliability_score !== a.reliability_score) return b.reliability_score - a.reliability_score;
+    if (b.latency_score !== a.latency_score) return b.latency_score - a.latency_score;
+    if (b.cost_score !== a.cost_score) return b.cost_score - a.cost_score;
+    if (b.context_fit !== a.context_fit) return b.context_fit - a.context_fit;
+    return `${a.provider_id}:${a.model_id}`.localeCompare(`${b.provider_id}:${b.model_id}`);
+  });
 
   if (scores.length === 0) {
     logger.warn({ task_type }, "No models available for routing");

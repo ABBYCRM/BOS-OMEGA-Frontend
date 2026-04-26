@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
-import { tasksTable, triStateDecisionsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { tasksTable, triStateDecisionsTable, modelAttemptsTable } from "@workspace/db";
+import { eq, sql, inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import type { BosOutput, ExecutionMode, TaskContext, TriState } from "./types.js";
 import { runInputGate } from "./inputGate.js";
@@ -11,13 +11,98 @@ import { executePipeline } from "./executionEngine.js";
 import { runSeriesPass } from "./seriesPassEngine.js";
 import { runBoilTheOcean } from "./boilTheOceanEngine.js";
 import { selectExecutionMode } from "./modeSelector.js";
-import { auditLog } from "./auditEngine.js";
+import { auditLog, complianceHoldRequired, clearComplianceFailure } from "./auditEngine.js";
 import { logger } from "../lib/logger.js";
 import { loadAttachmentBundle } from "../lib/uploads/loader.js";
+import { budgetForMode, checkBudget, type BudgetUsage } from "./budgets.js";
 import { attachmentsTable } from "@workspace/db";
-import { inArray } from "drizzle-orm";
 
-const HIGH_STAKES_DOMAINS = new Set(["legal", "medical", "financial", "research", "code"]);
+// v1.1 hardening: must mirror requiredConfidenceForTaskType() in triState.ts
+// so a task that demands 0.85 confidence is also flagged as high_stakes_domain
+// in the gather/collapse signals.
+const HIGH_STAKES_DOMAINS = new Set(["legal", "medical", "financial", "code", "security"]);
+
+/**
+ * v1.1 — Denial / HOLD explanation engine.
+ * Maps a structured denial cause to a plain-English `why_decision_was_made` and a
+ * `safe_alternative` the user can pursue. Every BosOutput in HOLD/ABORT carries these.
+ */
+type DenialCause =
+  | "input_gate_abort"
+  | "input_gate_hold_missing_info"
+  | "tri_state_abort"
+  | "tri_state_hold_no_provider"
+  | "tri_state_hold_low_confidence"
+  | "tri_state_hold_default"
+  | "budget_exceeded"
+  | "compliance_audit_failure";
+
+function denialExplanation(cause: DenialCause, reason: string): {
+  why_decision_was_made: string;
+  safe_alternative: string;
+  recommended_next_action: string;
+} {
+  switch (cause) {
+    case "input_gate_abort":
+      return {
+        why_decision_was_made: "The request was blocked by the safety gate before any model was called. BOS-OMEGA enforces a hard veto on requests that match its non-negotiable safety policy.",
+        safe_alternative: "Rephrase the request without illegal, harmful, or policy-violating intent, or pursue the goal through a sanctioned channel (legal counsel, licensed professional, official documentation).",
+        recommended_next_action: "Review the request against safety policy and resubmit a version that does not match the prohibited intent.",
+      };
+    case "input_gate_hold_missing_info":
+      return {
+        why_decision_was_made: "The input gate detected that required information for this task is missing. BOS-OMEGA holds the task rather than guessing.",
+        safe_alternative: "Resubmit the task with the missing details filled in, or break the request into smaller steps that can be answered with the information you do have.",
+        recommended_next_action: reason || "Provide the missing information and resubmit.",
+      };
+    case "tri_state_abort":
+      return {
+        why_decision_was_made: "The Tri-State engine collapsed to ABORT — the aggregated evidence (intent, risk, validation, signals) crossed the hardened ABORT threshold of 65%.",
+        safe_alternative: "Reduce the risk surface (narrower scope, lower-stakes domain, or non-action-taking phrasing) and resubmit.",
+        recommended_next_action: reason,
+      };
+    case "tri_state_hold_no_provider":
+      return {
+        why_decision_was_made: "No LLM provider is currently available to handle this task type. BOS-OMEGA refuses to route to a provider that lacks the required capability or whose circuit breaker is open.",
+        safe_alternative: "Add or enable a provider that has the required capability tags, or wait for the open circuit breaker to recover.",
+        recommended_next_action: "Configure an eligible provider/model and retry.",
+      };
+    case "tri_state_hold_low_confidence":
+      return {
+        why_decision_was_made: "GO amplitude or computed confidence fell below the hardened thresholds (GO ≥ 0.75, validation passed, confidence ≥ 0.85 for high-stakes domains else 0.70). HOLD is the safe default.",
+        safe_alternative: "Provide more context, narrow the scope, or downgrade the task type from a high-stakes domain to a lower-stakes one if appropriate.",
+        recommended_next_action: reason,
+      };
+    case "tri_state_hold_default":
+      return {
+        why_decision_was_made: "The Tri-State engine could not justify GO under the hardened collapse rules, so it defaulted to HOLD. Doing nothing is safer than answering with low confidence.",
+        safe_alternative: "Refine the request, supply additional context, or split it into smaller well-scoped sub-tasks.",
+        recommended_next_action: reason,
+      };
+    case "budget_exceeded":
+      return {
+        why_decision_was_made: "Execution exceeded the budget governor's ceiling for this mode (cost, model calls, fallbacks, or repair attempts).",
+        safe_alternative: "Reduce scope, switch to a cheaper mode (e.g. single instead of boil_the_ocean), or approve a higher budget.",
+        recommended_next_action: "Reduce scope or approve higher budget.",
+      };
+    case "compliance_audit_failure":
+      return {
+        why_decision_was_made: "Audit-log durability failed and the system is running in compliance mode, which requires every task to be fully auditable. Continuing without durable audit would violate compliance posture.",
+        safe_alternative: "Investigate the audit-log datastore (DB connectivity, disk space, queue health) and retry once it is healthy.",
+        recommended_next_action: "Restore audit durability before retrying this task.",
+      };
+  }
+}
+
+function attachDenial(output: BosOutput, cause: DenialCause, reason: string): BosOutput {
+  const exp = denialExplanation(cause, reason);
+  return {
+    ...output,
+    why_decision_was_made: exp.why_decision_was_made,
+    safe_alternative: exp.safe_alternative,
+    recommended_next_action: output.recommended_next_action || exp.recommended_next_action,
+  };
+}
 
 async function persistTriStateDecision(task_id: string, result: TriStateResult): Promise<string> {
   const id = randomUUID();
@@ -77,6 +162,15 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     await auditLog(task_id, "ATTACHMENT_NOTES", "Attachment processing notes", {
       notes: attachment_bundle.notes,
     });
+    // v1.1: surface prompt-injection flagging as its own audit event
+    const injection_notes = attachment_bundle.notes.filter((n) =>
+      n.includes("prompt-injection patterns detected"),
+    );
+    if (injection_notes.length > 0) {
+      await auditLog(task_id, "ATTACHMENT_INJECTION_FLAGGED", "Attachment injection patterns detected", {
+        flagged: injection_notes,
+      });
+    }
   }
 
   // Link attachments to this task as soon as we know the task id.
@@ -94,14 +188,15 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   });
 
   if (gate.state === "ABORT") {
-    const output = buildAbortOutput(gate.reason || "Policy violation", task_id);
+    const base = buildAbortOutput(gate.reason || "Policy violation", task_id);
+    const output = attachDenial(base, "input_gate_abort", gate.reason || "Policy violation");
     await saveTask(task_id, pipelineInput.input, "safety_review", "ABORT", requested_mode, undefined, undefined, "ABORTED", JSON.stringify(output));
     await auditLog(task_id, "TASK_ABORTED", gate.reason || "Aborted by input gate");
     return { task_id, tri_state: "ABORT", task_type: "safety_review", final_status: "ABORTED", bos_output: output };
   }
 
   if (gate.state === "HOLD") {
-    const output: BosOutput = {
+    const base: BosOutput = {
       state: "HOLD",
       task_type: "general",
       answer: `BOS-OMEGA HOLD: ${gate.reason}`,
@@ -111,6 +206,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
       failure_modes: [],
       recommended_next_action: `Provide the following missing information: ${gate.missing_info.join(", ")}`,
     };
+    const output = attachDenial(base, "input_gate_hold_missing_info", gate.reason || "Missing required info");
     await saveTask(task_id, pipelineInput.input, "general", "HOLD", requested_mode, undefined, undefined, "HELD", JSON.stringify(output));
     await auditLog(task_id, "TASK_HELD", gate.reason || "Held by input gate");
     return { task_id, tri_state: "HOLD", task_type: "general", final_status: "HELD", bos_output: output };
@@ -151,9 +247,14 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     missing_info: gate.missing_info,
     intent_clarity: classification.confidence,
     confidence_score: classification.confidence,
+    validation_passed: true,
     high_stakes_domain: HIGH_STAKES_DOMAINS.has(task_type),
     task_type,
     ambiguity_detected: gate.intent === "unclear" || classification.confidence < 0.5,
+    // The input gate has already short-circuited true ABORTs above. Set
+    // hard_safety_abort=false here; the only path to ABORT from here is via
+    // the abort-amplitude rule.
+    hard_safety_abort: false,
   });
 
   // Persist the qubit-inspired decision (vector + signals + collapse reason)
@@ -170,7 +271,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   });
 
   if (tri_state_result.state === "ABORT") {
-    const output: BosOutput = {
+    const base: BosOutput = {
       state: "ABORT",
       task_type,
       answer: `BOS-OMEGA ABORT: ${tri_state_result.reason}`,
@@ -180,12 +281,20 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
       failure_modes: [tri_state_result.reason],
       recommended_next_action: "Check provider availability and request validity",
     };
+    const output = attachDenial(base, "tri_state_abort", tri_state_result.reason);
     await saveTask(task_id, pipelineInput.input, task_type, "ABORT", resolved_mode, undefined, undefined, "ABORTED", JSON.stringify(output));
+    await auditLog(task_id, "TASK_ABORTED", tri_state_result.reason);
     return { task_id, tri_state: "ABORT", task_type, final_status: "ABORTED", bos_output: output };
   }
 
   if (tri_state_result.state === "HOLD") {
-    const output: BosOutput = {
+    // Pick the right denial cause based on what the collapse rule said.
+    const cause: DenialCause = models.length === 0
+      ? "tri_state_hold_no_provider"
+      : tri_state_result.reason.startsWith("Hardened default")
+        ? "tri_state_hold_low_confidence"
+        : "tri_state_hold_default";
+    const base: BosOutput = {
       state: "HOLD",
       task_type,
       answer: `BOS-OMEGA HOLD: ${tri_state_result.reason}`,
@@ -195,7 +304,9 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
       failure_modes: [],
       recommended_next_action: tri_state_result.reason,
     };
+    const output = attachDenial(base, cause, tri_state_result.reason);
     await saveTask(task_id, pipelineInput.input, task_type, "HOLD", resolved_mode, undefined, undefined, "HELD", JSON.stringify(output));
+    await auditLog(task_id, "TASK_HELD", tri_state_result.reason);
     return { task_id, tri_state: "HOLD", task_type, final_status: "HELD", bos_output: output };
   }
 
@@ -255,19 +366,102 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     result = exec_result;
   }
 
+  // === v1.1 post-execution governance checks ===
+
+  // 1) Budget governor — read the actual model_attempts rows that the engine
+  //    persisted for this task and aggregate cost / model count from them.
+  //    This is the source of truth for what was actually spent; using
+  //    `parallel_responses?.length` would under-count fallback attempts and
+  //    serial-mode hops. We `.max(., 1)` so a single-mode task always counts
+  //    at least one model call.
+  const budget = budgetForMode(resolved_mode as ExecutionMode);
+  let attempts_count = 1;
+  let attempts_cost = 0;
+  try {
+    const rows = await db
+      .select({
+        n: sql<number>`COUNT(*)::int`,
+        total: sql<number>`COALESCE(SUM(${modelAttemptsTable.cost_estimate}), 0)::float`,
+      })
+      .from(modelAttemptsTable)
+      .where(eq(modelAttemptsTable.task_id, task_id));
+    attempts_count = Math.max(rows[0]?.n ?? 1, 1);
+    attempts_cost = rows[0]?.total ?? 0;
+  } catch (err) {
+    logger.warn({ err, task_id }, "budget governor: failed to read model_attempts; falling back to in-memory proxy");
+    attempts_count = Math.max(result.parallel_responses?.length ?? 1, 1);
+  }
+  const usage: BudgetUsage = {
+    models_used: attempts_count,
+    fallbacks_used: Math.max(attempts_count - 1, 0),
+    repair_attempts_used: result.repair_applied ? 1 : 0,
+    cost_usd_used: attempts_cost,
+  };
+  const verdict = checkBudget(budget, usage);
+  if (!verdict.ok) {
+    const base: BosOutput = {
+      state: "HOLD",
+      task_type,
+      answer: `BOS-OMEGA HOLD: ${verdict.reason}`,
+      assumptions: [],
+      uncertainties: [],
+      missing_inputs: [],
+      failure_modes: ["budget_exceeded"],
+      recommended_next_action: verdict.reason || "Reduce scope or approve higher budget.",
+    };
+    const output = attachDenial(base, "budget_exceeded", verdict.reason || "");
+    await db.update(tasksTable)
+      .set({ final_status: "HELD", final_output: JSON.stringify(output), mode: resolved_mode })
+      .where(eq(tasksTable.id, task_id));
+    await auditLog(task_id, "BUDGET_EXCEEDED", verdict.reason || "Budget exceeded", { mode: resolved_mode, usage });
+    await auditLog(task_id, "TASK_HELD", verdict.reason || "Held by budget governor");
+    return { task_id, tri_state: "HOLD", task_type, final_status: "HELD", bos_output: output, run_id, execution_mode: resolved_mode };
+  }
+
+  // 2) Audit durability — if the audit DB was unhealthy and we're in compliance
+  //    mode, the failure-mode matrix says HOLD the task.
+  if (complianceHoldRequired()) {
+    clearComplianceFailure();
+    const base: BosOutput = {
+      state: "HOLD",
+      task_type,
+      answer: "BOS-OMEGA HOLD: Audit-log durability is compromised and the system is in compliance mode.",
+      assumptions: [],
+      uncertainties: [],
+      missing_inputs: [],
+      failure_modes: ["audit_db_failure"],
+      recommended_next_action: "Restore audit datastore health and retry.",
+    };
+    const output = attachDenial(base, "compliance_audit_failure", "audit_db_failure");
+    await db.update(tasksTable)
+      .set({ final_status: "HELD", final_output: JSON.stringify(output), mode: resolved_mode })
+      .where(eq(tasksTable.id, task_id));
+    await auditLog(task_id, "TASK_HELD", "Held by compliance audit-failure rule");
+    return { task_id, tri_state: "HOLD", task_type, final_status: "HELD", bos_output: output, run_id, execution_mode: resolved_mode };
+  }
+
   const final_status = result.state === "ABORT" ? "ABORTED" : result.state === "HOLD" ? "HELD" : "COMPLETED";
+
+  // v1.1: ensure HOLD/ABORT outputs from the engines also carry denial fields.
+  const result_with_denial: BosOutput = result.state === "GO"
+    ? result
+    : attachDenial(
+        result,
+        result.state === "ABORT" ? "tri_state_abort" : "tri_state_hold_default",
+        result.recommended_next_action || result.answer,
+      );
 
   await db.update(tasksTable)
     .set({
       final_status,
-      final_output: JSON.stringify(result),
+      final_output: JSON.stringify(result_with_denial),
       selected_provider: models[0]?.provider_name,
       selected_model: models[0]?.model_name,
       mode: resolved_mode,
     })
     .where(eq(tasksTable.id, task_id));
 
-  await auditLog(task_id, "TASK_COMPLETED", `Task completed with state ${result.state}`, { mode: resolved_mode, run_id });
+  await auditLog(task_id, "TASK_COMPLETED", `Task completed with state ${result_with_denial.state}`, { mode: resolved_mode, run_id });
 
   return {
     task_id,
