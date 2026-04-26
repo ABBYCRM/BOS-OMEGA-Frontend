@@ -9,7 +9,11 @@ export function TaskDetail() {
   const [, params] = useRoute("/tasks/:id");
   const id = params?.id || "";
 
-  const { data, isLoading } = useGetTask(id, { query: { enabled: !!id, retry: false } });
+  // Provide queryKey explicitly to satisfy orval's generated UseQueryOptions
+  // type (matches the URL pattern orval uses internally for caching).
+  const { data, isLoading } = useGetTask(id, {
+    query: { queryKey: [`/api/tasks/${id}`], enabled: !!id, retry: false },
+  });
 
   if (isLoading) {
     return <div className="text-xs font-mono text-muted-foreground">Loading task trace...</div>;

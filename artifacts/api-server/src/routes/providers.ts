@@ -132,9 +132,17 @@ router.delete("/:id/api-key", async (req, res) => {
   res.json(sanitize(updated));
 });
 
+// Express 5 widens `req.params.X` to `string | string[]` (proxies that send
+// the same key twice put an array there). Our routes only ever consume a single
+// id, so coerce to a plain string after the !id non-empty check.
+function paramId(raw: string | string[] | undefined): string | null {
+  if (!raw) return null;
+  return Array.isArray(raw) ? (raw[0] ?? null) : raw;
+}
+
 // POST /api/providers/:id/test — agentic key validation against the live provider
 router.post("/:id/test", expensiveLimiter, async (req, res) => {
-  const { id } = req.params;
+  const id = paramId(req.params["id"]);
   if (!id) { res.status(400).json({ error: "Missing id" }); return; }
 
   const [provider] = await db.select().from(llmProvidersTable).where(eq(llmProvidersTable.id, id)).limit(1);
@@ -148,17 +156,22 @@ router.post("/:id/test", expensiveLimiter, async (req, res) => {
 
   const result = await testProviderKey(provider.name, key, provider.base_url ?? undefined);
 
+  const now = new Date();
   await db.update(llmProvidersTable).set({
     last_test_status: result.ok ? "OK" : "FAILED",
     last_test_message: result.message,
-    last_test_at: new Date(),
+    last_test_at: now,
     status: result.ok ? "HEALTHY" : "DEGRADED",
-    updated_at: new Date(),
+    updated_at: now,
   }).where(eq(llmProvidersTable.id, id));
 
+  // providerHealthTable does not have a `last_check_at` column. Use the real
+  // schema columns: stamp last_success or last_failure depending on outcome
+  // (and updated_at fires on every write via defaultNow / our explicit set).
   await db.update(providerHealthTable).set({
     status: result.ok ? "HEALTHY" : "DEGRADED",
-    last_check_at: new Date(),
+    ...(result.ok ? { last_success: now } : { last_failure: now }),
+    updated_at: now,
   }).where(eq(providerHealthTable.provider_id, id));
 
   await auditLog(`provider:${id}`, "PROVIDER_TESTED", `${provider.name}: ${result.ok ? "OK" : "FAILED"}`, {
@@ -170,7 +183,7 @@ router.post("/:id/test", expensiveLimiter, async (req, res) => {
 
 // POST /api/providers/:id/discover-models — agentic auto-registration of provider's models
 router.post("/:id/discover-models", expensiveLimiter, async (req, res) => {
-  const { id } = req.params;
+  const id = paramId(req.params["id"]);
   if (!id) { res.status(400).json({ error: "Missing id" }); return; }
 
   const [provider] = await db.select().from(llmProvidersTable).where(eq(llmProvidersTable.id, id)).limit(1);
@@ -195,7 +208,9 @@ router.post("/:id/discover-models", expensiveLimiter, async (req, res) => {
   }
   const discovered = outcome.models;
 
-  // Auto-register any newly discovered models that don't already exist for THIS provider
+  // Auto-register any newly discovered models that don't already exist for THIS provider.
+  // The model schema uses cost_input/cost_output and a capability_tags[] array
+  // — the legacy good_for_* / cost_per_*_token columns no longer exist.
   let registered = 0;
   for (const m of discovered) {
     const [existing] = await db.select().from(llmModelsTable)
@@ -205,17 +220,22 @@ router.post("/:id/discover-models", expensiveLimiter, async (req, res) => {
       )).limit(1);
     if (existing) continue;
     try {
+      const tags: string[] = [];
+      if (/code|coder|deepseek|qwen-coder/i.test(m.id)) tags.push("coding");
+      if (/sonnet|opus|gpt-4|gemini/i.test(m.id)) tags.push("reasoning");
+      if (/opus|o1|sonnet|gpt-4o|gemini-2/i.test(m.id)) tags.push("reasoning");
+      if ((m.context_window ?? 0) >= 100000) tags.push("long_context");
+      // dedupe — multiple regex hits can push "reasoning" twice
+      const capability_tags = Array.from(new Set(tags));
+
       await db.insert(llmModelsTable).values({
         id: randomUUID(),
         provider_id: id,
         model_name: m.id,
         context_window: m.context_window ?? 8192,
-        cost_per_input_token: 0,
-        cost_per_output_token: 0,
-        good_for_code: /code|coder|deepseek|qwen-coder/i.test(m.id) ? 1 : 0,
-        good_for_creative: /sonnet|opus|gpt-4|gemini/i.test(m.id) ? 1 : 0,
-        good_for_reasoning: /opus|o1|sonnet|gpt-4o|gemini-2/i.test(m.id) ? 1 : 0,
-        good_for_long_context: (m.context_window ?? 0) >= 100000 ? 1 : 0,
+        cost_input: 0,
+        cost_output: 0,
+        capability_tags,
         enabled: true,
       });
       registered += 1;
@@ -235,7 +255,7 @@ router.post("/:id/discover-models", expensiveLimiter, async (req, res) => {
 
 // DELETE /api/providers/:id — remove a provider entirely
 router.delete("/:id", async (req, res) => {
-  const { id } = req.params;
+  const id = paramId(req.params["id"]);
   if (!id) { res.status(400).json({ error: "Missing id" }); return; }
 
   await db.delete(providerHealthTable).where(eq(providerHealthTable.provider_id, id));

@@ -216,10 +216,13 @@ function ExecutionTrace({ run_id, mode }: { run_id: string; mode: string }) {
     mode === "series_pass" ? "series" : "agents",
   );
   const { data: run } = useGetRun(run_id);
+  // Use `as const` so the array literal preserves the narrow id literal types
+  // and survives the .filter() — without it the inferred id widens to string
+  // and the consumers (setActiveTab, tab.id) can't pattern-match.
   const tabs: Array<{ id: "series" | "agents" | "synthesis"; label: string; show: boolean }> = [
-    { id: "series", label: "SERIES PASSES", show: mode === "series_pass" },
-    { id: "agents", label: "PARALLEL AGENTS", show: mode === "boil_the_ocean" },
-    { id: "synthesis", label: "SYNTHESIS REPORT", show: mode === "boil_the_ocean" },
+    { id: "series" as const, label: "SERIES PASSES", show: mode === "series_pass" },
+    { id: "agents" as const, label: "PARALLEL AGENTS", show: mode === "boil_the_ocean" },
+    { id: "synthesis" as const, label: "SYNTHESIS REPORT", show: mode === "boil_the_ocean" },
   ].filter((t) => t.show);
 
   return (

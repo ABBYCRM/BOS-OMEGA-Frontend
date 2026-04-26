@@ -119,9 +119,20 @@ export async function runSeriesPass(
   const validation_notes: string[] = [];
   const pass_results: SeriesPassResult["passes"] = [];
 
-  // Distribute models across series roles
+  // Distribute models across series roles. We require at least 2 distinct
+  // models — series-pass with a single model collapses to "model A critiquing
+  // model A's draft for 5 rounds" which is precisely the failure mode the
+  // architecture is designed to avoid (audit H-2). The pipeline is responsible
+  // for choosing a fallback when this throws.
+  if (models.length < 2) {
+    throw new Error(
+      `series-pass requires >= 2 distinct models for role diversity (got ${models.length})`,
+    );
+  }
   const pass_models = models.slice(0, SERIES_ROLES.length);
-  // If fewer models than roles, reuse from the beginning
+  // If fewer models than roles, rotate through the available pool. Adjacent
+  // roles will collide for very small pools (2 models -> ABABA), but at least
+  // every role gets a different *neighbor* model.
   while (pass_models.length < SERIES_ROLES.length) {
     pass_models.push(models[pass_models.length % models.length]!);
   }

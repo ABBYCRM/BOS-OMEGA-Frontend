@@ -9,7 +9,7 @@ import {
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import type { BosOutput, LLMCallResult, ModelScore, TaskContext, ParallelResponse } from "./types.js";
-import { validateOutput } from "./validationEngine.js";
+import { validateOutput, extractJsonCandidate } from "./validationEngine.js";
 import { repairOutput } from "./repairEngine.js";
 import { recordSuccess, recordFailure, ensureProviderHealth } from "./circuitBreaker.js";
 import { auditLog } from "./auditEngine.js";
@@ -189,7 +189,11 @@ function mergeParallelResponses(responses: ParallelResponse[], mode: string): Bo
     const majority = Math.ceil(responses.length / 2);
 
     if (abort_count > 0) {
-      responses[responses.length - 1]!.selected = true;
+      // Audit-trace the response that actually drove the merger to ABORT —
+      // not the lowest-confidence row, which is what `responses[length-1]`
+      // pointed to after the descending sort above (audit C-1).
+      const aborter = responses.find((r) => r.state === "ABORT") ?? responses[0]!;
+      aborter.selected = true;
       return buildAbortOutput("Consensus: at least one model flagged ABORT");
     }
 
@@ -372,9 +376,11 @@ async function logFallback(task_id: string, from: ModelScore, to: ModelScore, re
 
 function parseOutput(raw: string, input: string): BosOutput {
   try {
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (match) {
-      const parsed = JSON.parse(match[0]) as Partial<BosOutput>;
+    // Reuse the hardened JSON extractor from validationEngine so prose-mixed
+    // and fenced model outputs don't silently default to GO.
+    const candidate = extractJsonCandidate(raw);
+    if (candidate) {
+      const parsed = JSON.parse(candidate) as Partial<BosOutput>;
       return {
         state: (["GO", "HOLD", "ABORT"].includes(parsed.state as string) ? parsed.state : "GO") as BosOutput["state"],
         task_type: parsed.task_type || "general",

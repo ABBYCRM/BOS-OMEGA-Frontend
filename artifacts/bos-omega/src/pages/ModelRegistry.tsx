@@ -26,14 +26,16 @@ export function ModelRegistry() {
   });
 
   function handleToggle(id: string, enabled: boolean) {
-    updateModel.mutate({ id, enabled }, {
+    // orval mutation expects { id, data: UpdateModelBody } (audit C-2).
+    updateModel.mutate({ id, data: { enabled } }, {
       onSuccess: () => queryClient.invalidateQueries({ queryKey: getListModelsQueryKey() }),
     });
   }
 
   function handleAdd() {
     if (!newModel.provider_id || !newModel.model_name) return;
-    createModel.mutate(newModel, {
+    // orval mutation expects { data: CreateModelBody } (audit C-2).
+    createModel.mutate({ data: newModel }, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListModelsQueryKey() });
         setShowAdd(false);

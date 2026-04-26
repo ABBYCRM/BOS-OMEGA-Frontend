@@ -335,15 +335,29 @@ export async function runBoilTheOcean(
     by_role.set(ao.role, existing);
   }
 
-  // Find consensus/contradiction from VALIDATOR outputs
+  // Find consensus/contradiction from VALIDATOR outputs.
+  //
+  // HOLD is *not* a contradiction — it means "I need more info to judge",
+  // which is a different signal than two validators positively disagreeing
+  // (audit H-1). True contradictions are GO+ABORT pairs; HOLD-only means
+  // "validators uncertain", which we surface separately so the synthesis
+  // pass treats it as a confidence cap, not as adversarial disagreement.
   const validator_outputs = successful_outputs.filter((a) => a.role === "VALIDATOR");
   const validator_states = validator_outputs.map((v) => v.state);
-  const all_go = validator_states.every((s) => s === "GO");
-  const any_hold = validator_states.some((s) => s === "HOLD");
+  const has_go = validator_states.some((s) => s === "GO");
+  const has_abort = validator_states.some((s) => s === "ABORT");
+  const has_hold = validator_states.some((s) => s === "HOLD");
+  const all_go = validator_states.length > 0 && validator_states.every((s) => s === "GO");
 
   if (validator_states.length > 1) {
-    if (all_go) consensus_points.push("All validator agents returned GO");
-    else if (any_hold) contradictions.push("Validator agents disagreed on completeness");
+    if (all_go) {
+      consensus_points.push("All validator agents returned GO");
+    } else if (has_go && has_abort) {
+      contradictions.push("Validator agents disagreed (GO vs ABORT)");
+    } else if (has_hold) {
+      // Surface uncertainty without falsely flagging contradiction.
+      consensus_points.push("Validator agents uncertain (one or more returned HOLD)");
+    }
   }
 
   // Run synthesis on top model's best model

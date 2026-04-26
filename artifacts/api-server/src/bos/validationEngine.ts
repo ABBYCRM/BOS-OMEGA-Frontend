@@ -12,14 +12,14 @@ export function validateOutput(
   let parsed: BosOutput | null = null;
   let schema_pass = false;
 
-  try {
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      parsed = JSON.parse(jsonMatch[0]) as BosOutput;
+  const candidate = extractJsonCandidate(raw);
+  if (candidate) {
+    try {
+      parsed = JSON.parse(candidate) as BosOutput;
       schema_pass = validateSchema(parsed);
+    } catch {
+      schema_pass = false;
     }
-  } catch {
-    schema_pass = false;
   }
 
   const safety_pass = checkSafety(raw);
@@ -38,6 +38,55 @@ export function validateOutput(
     notes,
     passed: schema_pass && safety_pass && instruction_pass && completeness_pass && confidence_score >= 0.5,
   };
+}
+
+/**
+ * Robustly extract a JSON object string from an LLM raw response.
+ *
+ * Strategies tried in order (audit H-3 — fragile single-regex was misparsing
+ * fenced blocks and merging unrelated brace pairs across prose):
+ *   1) ```json … ``` fenced block (most explicit)
+ *   2) bare ``` … ``` fenced block
+ *   3) balanced-brace scan from the first `{`, depth-tracked, with proper
+ *      string-literal handling so braces inside strings don't confuse us.
+ *
+ * Returns the candidate substring (suitable for JSON.parse) or null.
+ */
+export function extractJsonCandidate(raw: string): string | null {
+  // 1) ```json … ```
+  const fencedJson = raw.match(/```json\s*([\s\S]*?)```/i);
+  if (fencedJson?.[1]) {
+    const trimmed = fencedJson[1].trim();
+    if (trimmed.startsWith("{")) return trimmed;
+  }
+  // 2) ``` … ```
+  const fencedAny = raw.match(/```\s*([\s\S]*?)```/);
+  if (fencedAny?.[1]) {
+    const trimmed = fencedAny[1].trim();
+    if (trimmed.startsWith("{")) return trimmed;
+  }
+  // 3) Balanced-brace scan
+  const start = raw.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let in_string = false;
+  let escape = false;
+  for (let i = start; i < raw.length; i++) {
+    const ch = raw[i]!;
+    if (in_string) {
+      if (escape) { escape = false; continue; }
+      if (ch === "\\") { escape = true; continue; }
+      if (ch === '"') { in_string = false; }
+      continue;
+    }
+    if (ch === '"') { in_string = true; continue; }
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return raw.slice(start, i + 1);
+    }
+  }
+  return null;
 }
 
 function validateSchema(obj: unknown): boolean {

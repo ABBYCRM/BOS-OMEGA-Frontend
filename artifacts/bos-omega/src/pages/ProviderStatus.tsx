@@ -12,8 +12,10 @@ export function ProviderStatus() {
   const queryClient = useQueryClient();
 
   function handleToggle(id: string, enabled: boolean) {
+    // orval-generated mutation expects { id, data: UpdateProviderBody } — sending
+    // a flat { id, enabled } shape was returning 400 INPUT_ERROR (audit C-2).
     updateProvider.mutate(
-      { id, enabled },
+      { id, data: { enabled } },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListProvidersQueryKey() });
@@ -24,7 +26,7 @@ export function ProviderStatus() {
 
   function handleStatusChange(id: string, status: string) {
     updateProvider.mutate(
-      { id, status: status as "HEALTHY" | "DEGRADED" | "OPEN_CIRCUIT" | "RECOVERY_TEST" },
+      { id, data: { status: status as "HEALTHY" | "DEGRADED" | "OPEN_CIRCUIT" | "RECOVERY_TEST" } },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getGetProviderHealthQueryKey() });

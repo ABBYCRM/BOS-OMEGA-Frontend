@@ -37,7 +37,11 @@ function formatImpact(impact: { go: number; hold: number; abort: number }): stri
 }
 
 export function TriStateVector({ task_id }: { task_id: string }) {
-  const { data: decision, isLoading } = useGetTriStateByTask(task_id, { query: { retry: false } });
+  // Provide queryKey explicitly to satisfy orval's generated UseQueryOptions
+  // type (matches the URL pattern orval uses internally for caching).
+  const { data: decision, isLoading } = useGetTriStateByTask(task_id, {
+    query: { queryKey: [`/api/tri-state/by-task/${task_id}`], retry: false },
+  });
 
   if (isLoading) {
     return (

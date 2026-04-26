@@ -23,7 +23,10 @@ const COMPLEX_TYPES: (TaskType | string)[] = [
 ];
 
 export interface ModeSelectorResult {
-  mode: "normal" | "series_pass" | "boil_the_ocean";
+  // Must mirror the full ExecutionMode union — narrowing it here was the root
+  // cause of the audit's C-3 finding (parallel/consensus silently degrading
+  // to single-shot because pipeline.ts:361 couldn't see them).
+  mode: "single" | "normal" | "parallel" | "consensus" | "series_pass" | "boil_the_ocean";
   reason: string;
   confidence: number;
 }
@@ -36,12 +39,22 @@ export function selectExecutionMode(
 ): ModeSelectorResult {
   const lc = input.toLowerCase();
 
-  // Explicit user override
+  // Explicit user override — honor every concrete ExecutionMode the caller
+  // can ask for. "auto" is the only value that falls through to heuristics.
   if (requested_mode === "boil_the_ocean") {
     return { mode: "boil_the_ocean", reason: "Explicitly requested by user", confidence: 1.0 };
   }
   if (requested_mode === "series_pass") {
     return { mode: "series_pass", reason: "Explicitly requested by user", confidence: 1.0 };
+  }
+  if (requested_mode === "consensus") {
+    return { mode: "consensus", reason: "Explicitly requested by user", confidence: 1.0 };
+  }
+  if (requested_mode === "parallel") {
+    return { mode: "parallel", reason: "Explicitly requested by user", confidence: 1.0 };
+  }
+  if (requested_mode === "single") {
+    return { mode: "single", reason: "Explicitly requested by user", confidence: 1.0 };
   }
   if (requested_mode === "normal") {
     return { mode: "normal", reason: "Explicitly requested by user", confidence: 1.0 };
