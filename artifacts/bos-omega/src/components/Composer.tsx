@@ -8,7 +8,7 @@ export type ReadyAttachment = UploadedAttachment;
 interface Props {
   value: string;
   onChange: (v: string) => void;
-  onSubmit: (text: string, attachment_ids: string[]) => void;
+  onSubmit: (text: string, attachment_ids: string[], attachments: UploadedAttachment[]) => void;
   disabled?: boolean;
   placeholder?: string;
   submitLabel: React.ReactNode;
@@ -149,13 +149,14 @@ export function Composer({
     if (e.dataTransfer?.files?.length) handleFiles(e.dataTransfer.files);
   };
 
-  const ready_ids = slots.filter((s): s is ReadySlot => s.phase === "ready").map((s) => s.attachment.id);
+  const ready_attachments = slots.filter((s): s is ReadySlot => s.phase === "ready").map((s) => s.attachment);
+  const ready_ids = ready_attachments.map((a) => a.id);
   const has_uploading = slots.some((s) => s.phase === "uploading");
 
   const handleSubmit = () => {
     if (disabled || has_uploading) return;
     if (!value.trim() && ready_ids.length === 0) return;
-    onSubmit(value, ready_ids);
+    onSubmit(value, ready_ids, ready_attachments);
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
