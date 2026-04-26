@@ -1,0 +1,130 @@
+ARCHITECTURAL DECISIONS
+
+These are now resolved. Proceed using the following as authoritative design decisions.
+
+======================================================================
+1. INSTALLER MODEL
+======================================================================
+
+Production Target:
+- Real signed Windows MSI/EXE installer
+
+Interim Development:
+- PowerShell/bootstrap install permitted for dev/test only
+
+Rules:
+- Bootstrap/script installer may exist only for development/pre-release
+- Production release must use signed installer package
+- Architecture must target MSI/EXE packaging from day one
+- Do not architect around bootstrap-only assumptions
+
+======================================================================
+2. PAIRING / DEVICE TRUST MODEL
+======================================================================
+
+Required:
+- Pairing token for initial registration only
+- Token must be single-use and short-lived
+- On successful pairing:
+  - Generate device-bound keypair locally
+  - Register public key with server
+  - All future requests signed by device private key
+- Support token rotation / re-pair / revoke flows
+- Prevent token reuse / replay
+
+======================================================================
+3. APPROVAL UX MODEL
+======================================================================
+
+Approval Mode:
+Hybrid
+
+Implement:
+- Per-action approval by default
+- Batched approval for task bundles/workflows
+- Scoped temporary approvals supported
+
+Allowed Scoped Approvals:
+- Approve exact task template for N minutes
+- Approve exact signed script bundle for one execution window
+- Approve workflow batch as single reviewed unit
+
+Forbidden:
+- Blanket trust forever
+- Approve all commands
+- Disable approval globally (except explicit enterprise policy mode if later added)
+
+======================================================================
+4. AUDIT LOG IMMUTABILITY
+======================================================================
+
+Required Model:
+- Append-only audit table/database
+- Hash-chain each audit entry to prior entry
+- Store cryptographic integrity fields per record
+- Cloud-backed authoritative audit store
+- Export support for external archival/SIEM later
+
+Rules:
+- No mutable in-place audit edits
+- No hard delete without super-admin retention workflow
+- Audit reads/writes themselves should be logged
+
+======================================================================
+5. WINDOWS USER MODEL
+======================================================================
+
+Primary Target:
+- Single-user workstation / laptop
+
+Secondary Support:
+- Multi-user capable architecture
+
+Rules:
+- Agent must bind approvals/execution to active approved Windows user/session
+- Shared workstation/session handling must be designed, even if later-phase implementation
+- Do not hardcode assumptions that only one user exists
+
+======================================================================
+6. UPDATE MODEL
+======================================================================
+
+Required:
+- Secure auto-update architecture planned now
+- Signed update packages only
+- Update channel verification required
+- Rollback support planned
+- Forced critical security update path supported
+
+May Defer Implementation:
+- Actual updater implementation if environment-blocked
+
+======================================================================
+7. DEPLOYMENT MODEL
+======================================================================
+
+Support Both:
+A. Individual self-install users
+B. Managed enterprise deployment later
+
+Architect For:
+- Admin deployment mode
+- Policy-managed org installs
+- Future Intune/GPO/RMM compatibility
+
+Do Not:
+- Hardcode personal-consent-only assumptions
+
+======================================================================
+IMPLEMENTATION DIRECTIVE
+======================================================================
+
+Proceed with full architecture using the above decisions.
+
+Build:
+- Everything feasible in current environment now
+- Plan Windows-native/deferred pieces against these assumptions
+
+Do NOT reopen these questions unless blocked by technical impossibility.
+
+Treat this as final architectural authority unless superseded.

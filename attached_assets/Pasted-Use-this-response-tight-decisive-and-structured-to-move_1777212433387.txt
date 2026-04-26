@@ -1,0 +1,106 @@
+Use this response—tight, decisive, and structured to move execution forward without reopening settled architecture.
+
+```text
+Proceed with full planning now.
+
+AUTHORITATIVE DIRECTION:
+Plan all seven workstreams upfront.
+Do not defer architectural planning.
+We need complete system decomposition before implementation sequencing.
+
+RATIONALE:
+This is a tightly coupled security-sensitive subsystem.
+Planning piecemeal risks interface drift, dependency mistakes, and redesign debt.
+
+======================================================================
+TASK CONSOLIDATION DIRECTIVES
+======================================================================
+
+1. TASK #15
+Fold Task #15 into the Hybrid Approval System workstream.
+
+Reason:
+Command policy safety tests are acceptance criteria / validation harness for approval-policy enforcement.
+They are not a standalone architectural concern.
+
+2. TASK #17
+Fold Task #17 into Device Identity and Pairing Hardening.
+
+Reason:
+Offline token/agent revocation is part of device trust lifecycle management.
+It belongs inside pairing/device identity architecture.
+
+======================================================================
+PLANNING OUTPUT REQUIRED
+======================================================================
+
+Produce complete implementation plans for all seven workstreams:
+
+1. Signed Installer + Agent Packaging
+2. Device Identity and Pairing Hardening
+3. Hybrid Approval System
+4. Hash-Chained Append-Only Audit Log
+5. Onboarding and Consent UI
+6. Update Channel Architecture
+7. Multi-User and Enterprise Hooks
+
+For EACH workstream provide:
+
+- Objective
+- Scope
+- In Scope
+- Out of Scope
+- Dependencies
+- Architectural Components
+- Data Models / Schema Changes
+- API / Contract Changes
+- Security Considerations
+- Failure Modes
+- Edge Cases
+- Test Strategy
+- Acceptance Criteria
+- Migration / Rollout Plan
+- Risks / Open Questions
+- Estimated Implementation Order
+
+======================================================================
+GLOBAL REQUIREMENTS
+======================================================================
+
+- Maintain consistency across all workstreams
+- Cross-reference dependencies explicitly
+- Do not duplicate responsibilities between workstreams
+- Identify shared primitives/platform services
+- Define canonical ownership boundaries
+- Flag architectural conflicts immediately
+- Use production-grade assumptions only
+- No MVP / placeholder planning
+
+======================================================================
+FINAL DELIVERABLE
+======================================================================
+
+Return:
+
+LOCAL_AUTOMATION_AGENT_MASTER_IMPLEMENTATION_PLAN
+├── Workstream 1 …
+├── Workstream 2 …
+├── Workstream 3 …
+├── Workstream 4 …
+├── Workstream 5 …
+├── Workstream 6 …
+├── Workstream 7 …
+├── Dependency Graph
+├── Recommended Execution Sequence
+└── Critical Path Analysis
+
+Proceed.
+```
+
+```ascii
+PLAN_DIRECTIVE
+├── Plan Scope ............. ALL 7 WORKSTREAMS
+├── Task #15 ............... MERGE INTO APPROVAL SYSTEM
+├── Task #17 ............... MERGE INTO DEVICE IDENTITY
+└── Deliverable ............ MASTER IMPLEMENTATION PLAN
+```

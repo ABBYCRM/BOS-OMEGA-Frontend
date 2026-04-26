@@ -1,0 +1,100 @@
+Use this response:
+
+```text id="3mxjkk"
+Understood.
+
+I will manually cancel Task #4 and obsolete Task #15.
+
+Proceed with the replacement architecture and planning as proposed.
+
+APPROVED PLAN STRUCTURE
+
+Build 9 plan files total.
+
+======================================================================
+BUILD-NOW TASKS
+======================================================================
+
+A. Core Transport / Interface Layer
+- Define canonical LocalAgentTransport interface
+- Define transport contracts/protocols
+- Define signing/request envelope schemas
+- Define versioning/compatibility model
+- This becomes the authoritative interface for all future Windows-native components
+
+B. Server Policy / Trust Framework
+- Policy engine
+- Device trust / pairing lifecycle
+- Signed request verification
+- Replay protection
+- Revocation logic
+
+C. Audit / Logging Infrastructure
+- Append-only audit schema
+- Hash chaining
+- Integrity verification tooling
+- Audit export interfaces
+
+D. Approval / Frontend UX System
+- Approval workflows
+- Scoped/batched approvals
+- Consent/pairing/onboarding UX
+- Trust settings / audit review UI
+
+E. Reference Test Agent + Validation Harness
+- Non-production reference agent implementation
+- Gated dev-only console
+- Integration/safety/spec compliance tests
+- Ship-gate / architecture verification matrix
+
+======================================================================
+WINDOWS-NATIVE DEFERRED TASKS
+======================================================================
+
+F. Native Runtime Agent
+- Windows service/runtime architecture
+- Session binding / multi-user handling
+- Native process management
+
+G. Tray / Native Prompt UX
+- System tray app
+- Native approval prompts
+- Agent status / controls
+
+H. UAC / Elevation Broker
+- Secure elevation broker
+- UAC orchestration
+- Elevated task execution path
+
+I. Installer / Packaging / Update Channel
+- Signed MSI/EXE architecture
+- Install/uninstall/update flows
+- Auto-update channel
+- Rollback/recovery paths
+
+======================================================================
+REQUIREMENTS
+======================================================================
+
+- All 9 tasks must align to single canonical LocalAgentTransport contract
+- No throwaway/mock-only interfaces
+- No architectural drift between build-now and deferred tasks
+- Deferred Windows tasks must be production-implementable against build-now interfaces without redesign
+- Explicit dependency graph required across all tasks
+
+FINAL DIRECTIVE
+
+Proceed with plan generation.
+
+Return the complete 9-file planning set plus dependency graph and recommended execution order.
+```
+
+```ascii id="xh2w44"
+STATUS
+├── Task #4 ............. USER WILL CANCEL
+├── Task #15 ............ USER WILL CANCEL
+└── REPLACEMENT ......... APPROVED
+    ├── 5 Build-Now Plans
+    ├── 4 Deferred Windows Plans
+    └── Shared Canonical Interface
+```
