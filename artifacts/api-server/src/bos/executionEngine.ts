@@ -43,6 +43,14 @@ export async function executePipeline(
   return executeSingle(ctx, selected_models, memory_context);
 }
 
+function buildOptions(ctx: TaskContext, memory_context: string, supports_vision: boolean) {
+  return {
+    memory_context,
+    attachment_context: ctx.attachment_context,
+    images: supports_vision ? ctx.attachment_images : undefined,
+  };
+}
+
 async function executeSingle(
   ctx: TaskContext,
   models: ModelScore[],
@@ -58,7 +66,7 @@ async function executeSingle(
       await ensureProviderHealth(model_info.provider_id);
       await auditLog(ctx.task_id, "LLM_CALL_STARTED", `Calling ${model_info.provider_name}/${model_info.model_name}`, { attempt });
 
-      const result = await callProvider(ctx.input, ctx.task_type, model_info, memory_context);
+      const result = await callProvider(ctx, model_info, memory_context);
       const attempt_id = await saveAttempt(ctx.task_id, model_info, result, attempt + 1, false, undefined);
       attempts_saved.push(attempt_id);
 
@@ -120,7 +128,7 @@ async function executeParallel(
   await auditLog(ctx.task_id, "PARALLEL_EXECUTION_STARTED", `Running ${models.length} models in parallel`);
 
   const parallel_group = randomUUID();
-  const calls = models.map((m) => callProvider(ctx.input, ctx.task_type, m, memory_context));
+  const calls = models.map((m) => callProvider(ctx, m, memory_context));
   const results = await Promise.allSettled(calls);
 
   const attempts_saved: string[] = [];
@@ -236,12 +244,13 @@ function synthesizeAnswers(answers: string[]): string {
 }
 
 async function callProvider(
-  input: string,
-  task_type: string,
+  ctx: TaskContext,
   model_info: ModelScore,
-  memory_context: string
+  memory_context: string,
 ): Promise<LLMCallResult> {
   const provider_name = model_info.provider_name.toLowerCase();
+  const input = ctx.input;
+  const task_type = ctx.task_type;
   const provider_row = await db
     .select()
     .from(llmProvidersTable)
@@ -251,29 +260,34 @@ async function callProvider(
   const provider = provider_row[0];
   const { key } = await resolveProviderKey(model_info.provider_id, model_info.provider_name);
 
+  // Vision is only safe to send when the model itself is multimodal.
+  // Sending image content to text-only models on a vision-capable provider
+  // (e.g. gpt-3.5 on OpenAI) will produce 400s or silently misbehave.
+  const supports_vision = (model_info.capability_tags ?? []).includes("multimodal");
+
   if (provider_name === "openai") {
     if (!key) return mockResult(model_info, input, task_type);
-    return callOpenAI(input, task_type, model_info.model_name, key, memory_context);
+    return callOpenAI(input, task_type, model_info.model_name, key, buildOptions(ctx, memory_context, supports_vision));
   }
 
   if (provider_name === "anthropic") {
     if (!key) return mockResult(model_info, input, task_type);
-    return callAnthropic(input, task_type, model_info.model_name, key, memory_context);
+    return callAnthropic(input, task_type, model_info.model_name, key, buildOptions(ctx, memory_context, supports_vision));
   }
 
   if (provider_name === "gemini" || provider_name === "google gemini") {
     if (!key) return mockResult(model_info, input, task_type);
-    return callGemini(input, task_type, model_info.model_name, key, memory_context);
+    return callGemini(input, task_type, model_info.model_name, key, buildOptions(ctx, memory_context, supports_vision));
   }
 
   if (provider_name === "ollama") {
     const base_url = provider?.base_url || process.env["OLLAMA_BASE_URL"] || "http://localhost:11434";
-    return callOllama(input, task_type, model_info.model_name, base_url, memory_context);
+    return callOllama(input, task_type, model_info.model_name, base_url, buildOptions(ctx, memory_context, false));
   }
 
   const base_url = provider?.base_url || "";
   if (!key || !base_url) return mockResult(model_info, input, task_type);
-  return callGenericOpenAI(input, task_type, model_info.model_name, base_url, key, memory_context);
+  return callGenericOpenAI(input, task_type, model_info.model_name, base_url, key, buildOptions(ctx, memory_context, false));
 }
 
 function mockResult(model_info: ModelScore, input: string, task_type: string): LLMCallResult {

@@ -2,18 +2,29 @@ import type { LLMCallResult } from "../bos/types.js";
 import { MASTER_PROMPT_KERNEL } from "./prompts.js";
 import { logger } from "../lib/logger.js";
 
+export interface CallOptions {
+  memory_context?: string;
+  attachment_context?: string;
+}
+
 export async function callOllama(
   input: string,
   task_type: string,
   model: string = "llama3",
   base_url: string = "http://localhost:11434",
-  memory_context?: string
+  options: CallOptions = {},
 ): Promise<LLMCallResult> {
   const start = Date.now();
   const provider = "ollama";
 
   try {
-    const system_prompt = MASTER_PROMPT_KERNEL + (memory_context ? `\n\n${memory_context}` : "");
+    const system_prompt =
+      MASTER_PROMPT_KERNEL +
+      (options.memory_context ? `\n\n${options.memory_context}` : "");
+
+    const user_text =
+      (options.attachment_context ? `${options.attachment_context}\n\n` : "") +
+      `Task type: ${task_type}\n\nInput: ${input}`;
 
     const response = await fetch(`${base_url}/api/chat`, {
       method: "POST",
@@ -22,7 +33,7 @@ export async function callOllama(
         model,
         messages: [
           { role: "system", content: system_prompt },
-          { role: "user", content: `Task type: ${task_type}\n\nInput: ${input}` },
+          { role: "user", content: user_text },
         ],
         stream: false,
         format: "json",

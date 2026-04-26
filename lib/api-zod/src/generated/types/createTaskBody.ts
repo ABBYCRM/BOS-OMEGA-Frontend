@@ -20,4 +20,6 @@ export interface CreateTaskBody {
   max_models?: number;
   /** Number of specialized agents per model in Boil The Ocean mode (default 5) */
   agents_per_model?: number;
+  /** IDs of files previously uploaded via POST /uploads to attach to this task */
+  attachment_ids?: string[];
 }

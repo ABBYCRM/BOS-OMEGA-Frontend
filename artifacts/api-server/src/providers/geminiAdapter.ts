@@ -1,38 +1,65 @@
-import type { LLMCallResult } from "../bos/types.js";
+import type { LLMCallResult, VisionImage } from "../bos/types.js";
 import { MASTER_PROMPT_KERNEL } from "./prompts.js";
 import { logger } from "../lib/logger.js";
+
+export interface CallOptions {
+  memory_context?: string;
+  attachment_context?: string;
+  images?: VisionImage[];
+}
 
 export async function callGemini(
   input: string,
   task_type: string,
   model: string = "gemini-1.5-flash",
   api_key: string,
-  memory_context?: string
+  options: CallOptions = {},
 ): Promise<LLMCallResult> {
   const start = Date.now();
   const provider = "gemini";
 
   try {
-    const system_prompt = MASTER_PROMPT_KERNEL + (memory_context ? `\n\n${memory_context}` : "") +
+    const system_prompt =
+      MASTER_PROMPT_KERNEL +
+      (options.memory_context ? `\n\n${options.memory_context}` : "") +
       "\n\nIMPORTANT: Return ONLY valid JSON matching the BOS output schema.";
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${api_key}`;
+
+    const user_text =
+      (options.attachment_context ? `${options.attachment_context}\n\n` : "") +
+      `Task type: ${task_type}\n\nInput: ${input}`;
+
+    const parts: Array<Record<string, unknown>> = [{ text: user_text }];
+    if (options.images && options.images.length > 0) {
+      for (const img of options.images) {
+        parts.push({
+          inline_data: {
+            mime_type: img.mime,
+            data: img.base64,
+          },
+        });
+      }
+    }
 
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: system_prompt }] },
-        contents: [{ role: "user", parts: [{ text: `Task type: ${task_type}\n\nInput: ${input}` }] }],
+        contents: [{ role: "user", parts }],
         generationConfig: { responseMimeType: "application/json", maxOutputTokens: 4096, temperature: 0.3 },
       }),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(60000),
     });
 
     if (response.status === 401 || response.status === 403) return errResult(provider, model, start, "auth_failure", "Gemini auth failure");
     if (response.status === 429) return errResult(provider, model, start, "rate_limit", "Gemini rate limit");
     if (response.status === 503) return errResult(provider, model, start, "provider_outage", "Gemini unavailable");
-    if (!response.ok) return errResult(provider, model, start, "malformed_response", `Gemini error: ${response.status}`);
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      return errResult(provider, model, start, "malformed_response", `Gemini error: ${response.status} ${body.slice(0, 200)}`);
+    }
 
     const data = await response.json() as {
       candidates?: Array<{ content: { parts: Array<{ text: string }> } }>;

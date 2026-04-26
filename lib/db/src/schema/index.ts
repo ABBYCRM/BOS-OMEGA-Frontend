@@ -12,3 +12,4 @@ export * from "./seriesPasses";
 export * from "./parallelAgents";
 export * from "./synthesisReports";
 export * from "./triStateDecisions";
+export * from "./attachments";

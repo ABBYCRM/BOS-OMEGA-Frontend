@@ -3,6 +3,7 @@ import { useCreateTask, useGetTaskStats, useGetRunSeriesPasses, useGetRunParalle
 import type { BosOutput } from "@workspace/api-client-react";
 import { TriStateBadge } from "@/components/StatusBadge";
 import { TriStateVector } from "@/components/TriStateVector";
+import { Composer } from "@/components/Composer";
 import { formatMs } from "@/lib/utils";
 import {
   Send, ChevronDown, ChevronUp, Loader2, Layers, GitMerge, Vote,
@@ -325,21 +326,24 @@ export function TaskConsole() {
     execution_mode?: string;
   } | null>(null);
   const [showRaw, setShowRaw] = useState(false);
+  const [resetSignal, setResetSignal] = useState(0);
 
   const createTask = useCreateTask();
   const { data: stats } = useGetTaskStats();
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!input.trim()) return;
+  function submitTask(text: string, attachment_ids: string[]) {
+    if (!text.trim() && attachment_ids.length === 0) return;
 
     createTask.mutate(
       {
-        input: input.trim(),
-        mode,
-        parallel_models: parallelCount,
-        max_models: maxModels,
-        agents_per_model: agentsPerModel,
+        data: {
+          input: text.trim() || "(see attached files)",
+          mode,
+          parallel_models: parallelCount,
+          max_models: maxModels,
+          agents_per_model: agentsPerModel,
+          attachment_ids,
+        },
       },
       {
         onSuccess: (task: {
@@ -358,6 +362,8 @@ export function TaskConsole() {
             if (task.final_output) bos_output = JSON.parse(task.final_output);
           } catch {}
           setResult({ ...task, task_id: task.id, bos_output });
+          setInput("");
+          setResetSignal((n) => n + 1);
         },
       }
     );
@@ -552,43 +558,25 @@ export function TaskConsole() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-[12.5px] font-medium text-foreground mb-2">Task description</label>
-            <div className="relative">
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={
-                  mode === "series_pass"
-                    ? "Enter a task that benefits from iterative refinement. The 5-role pipeline will draft, critique, expand, challenge, and synthesize a refined answer…"
-                    : mode === "boil_the_ocean"
-                    ? "Enter a high-stakes task. All available models will be dispatched with specialized agents, then synthesized and Omega-validated…"
-                    : mode === "auto"
-                    ? "Describe what you'd like BOS-Omega to do. The system will pick the optimal mode based on complexity and intent…"
-                    : "Enter your task…"
-                }
-                className="w-full h-36 bg-background border border-input rounded-lg p-4 text-[13.5px] text-foreground placeholder:text-muted-foreground/70 resize-none focus:outline-none focus:ring-2 focus:ring-primary/10 focus:border-primary transition-all"
-                disabled={createTask.isPending}
-              />
-              <div className="absolute bottom-3 right-3 text-[11px] text-muted-foreground">
-                {input.length} characters
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center justify-end">
-            <button
-              type="submit"
-              disabled={createTask.isPending || !input.trim()}
-              className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13px] font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-card ${
-                mode === "boil_the_ocean"
-                  ? "bg-red-700 text-white hover:bg-red-800"
-                  : mode === "series_pass"
-                  ? "bg-violet-700 text-white hover:bg-violet-800"
-                  : "bg-accent text-accent-foreground hover:bg-accent/90"
-              }`}
-            >
-              {createTask.isPending ? (
+        <div className="space-y-2">
+          <label className="block text-[12.5px] font-medium text-foreground">Task description</label>
+          <Composer
+            value={input}
+            onChange={setInput}
+            onSubmit={submitTask}
+            disabled={createTask.isPending}
+            resetSignal={resetSignal}
+            placeholder={
+              mode === "series_pass"
+                ? "Enter a task that benefits from iterative refinement. Drag in files, paste images, or attach video for vision-capable models…"
+                : mode === "boil_the_ocean"
+                ? "Enter a high-stakes task. Attach reference docs, screenshots, audio, or video — they'll be fed to every model…"
+                : mode === "auto"
+                ? "Describe what you'd like BOS-Omega to do. Drag, paste, or attach files — text is extracted, images go to vision models…"
+                : "Enter your task…"
+            }
+            submitLabel={
+              createTask.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
                   {mode === "boil_the_ocean" ? "Boiling the ocean…" : mode === "series_pass" ? "Running series pass…" : "Running pipeline…"}
@@ -602,10 +590,20 @@ export function TaskConsole() {
                     ? "Run series pass"
                     : "Submit to BOS-Omega"}
                 </>
-              )}
-            </button>
+              )
+            }
+            submitClassName={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13px] font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-card ${
+              mode === "boil_the_ocean"
+                ? "bg-red-700 text-white hover:bg-red-800"
+                : mode === "series_pass"
+                ? "bg-violet-700 text-white hover:bg-violet-800"
+                : "bg-accent text-accent-foreground hover:bg-accent/90"
+            }`}
+          />
+          <div className="text-[11px] text-muted-foreground text-right">
+            {input.length} characters
           </div>
-        </form>
+        </div>
       </div>
 
       {/* Result */}

@@ -26,6 +26,8 @@ tags:
     description: Execution run traces (Series Pass / Boil The Ocean)
   - name: tri-state
     description: Qubit-inspired tri-state decision vectors
+  - name: uploads
+    description: File and media uploads (text, code, documents, images, audio, video)
 paths:
   /healthz:
     get:
@@ -609,6 +611,86 @@ paths:
         "404":
           description: Not found
 
+  /uploads:
+    post:
+      operationId: uploadFile
+      tags: [uploads]
+      summary: Upload a file (multipart/form-data, field name "file")
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required: [file]
+      responses:
+        "201":
+          description: Attachment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attachment"
+        "400":
+          description: Invalid upload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: File too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /uploads/{id}:
+    get:
+      operationId: getAttachment
+      tags: [uploads]
+      summary: Get attachment metadata
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Attachment metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attachment"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteAttachment
+      tags: [uploads]
+      summary: Delete an attachment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  deleted: { type: string }
+                required: [ok, deleted]
+
   /tri-state:
     get:
       operationId: listTriStateDecisions
@@ -674,6 +756,11 @@ components:
           type: integer
           description: Number of specialized agents per model in Boil The Ocean mode (default 5)
           default: 5
+        attachment_ids:
+          type: array
+          description: IDs of files previously uploaded via POST /uploads to attach to this task
+          items:
+            type: string
       required: [input]
 
     Task:
@@ -726,6 +813,44 @@ components:
         bos_output:
           $ref: "#/components/schemas/BosOutput"
       required: [task, attempts, validation, fallbacks, audit]
+
+    Attachment:
+      type: object
+      properties:
+        id: { type: string }
+        task_id:
+          type: string
+          nullable: true
+        original_name: { type: string }
+        mime: { type: string }
+        kind:
+          type: string
+          enum: [image, document, spreadsheet, code, text, audio, video, other]
+        size_bytes: { type: integer }
+        width:
+          type: integer
+          nullable: true
+        height:
+          type: integer
+          nullable: true
+        duration_ms:
+          type: integer
+          nullable: true
+        extraction_status:
+          type: string
+          enum: [pending, done, skipped, failed]
+        extraction_error:
+          type: string
+          nullable: true
+        extraction_chars:
+          type: integer
+          description: Number of characters of extracted text the server is holding for this attachment
+        has_thumbnail: { type: boolean }
+        created_at:
+          type: string
+          format: date-time
+      required:
+        [id, original_name, mime, kind, size_bytes, extraction_status, extraction_chars, has_thumbnail, created_at]
 
     TaskListResponse:
       type: object

@@ -9,6 +9,7 @@ import fallbackRouter from "./fallback.js";
 import runsRouter from "./runs.js";
 import triStateRouter from "./triState.js";
 import authRouter from "./auth.js";
+import uploadsRouter from "./uploads.js";
 import { requireAuth } from "../lib/security/auth.js";
 import { readLimiter, writeLimiter } from "../lib/security/rateLimit.js";
 
@@ -41,5 +42,6 @@ router.use("/memory", memoryRouter);
 router.use("/fallback-events", fallbackRouter);
 router.use("/runs", runsRouter);
 router.use("/tri-state", triStateRouter);
+router.use("/uploads", uploadsRouter);
 
 export default router;

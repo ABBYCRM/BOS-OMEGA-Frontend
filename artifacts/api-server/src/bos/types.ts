@@ -89,6 +89,7 @@ export interface ModelScore {
   latency_score: number;
   cost_score: number;
   provider_health_score: number;
+  capability_tags: string[];
 }
 
 export interface TaskContext {
@@ -98,6 +99,17 @@ export interface TaskContext {
   tri_state: TriState;
   mode: ExecutionMode;
   parallel_models: number;
+  attachment_context?: string;
+  attachment_images?: VisionImage[];
+}
+
+export interface VisionImage {
+  /** RFC 2046 mime type, e.g. "image/png" */
+  mime: string;
+  /** raw bytes (base64-encoded, no data: prefix) */
+  base64: string;
+  /** human-friendly source label e.g. filename or "frame 3 of video.mp4" */
+  source?: string;
 }
 
 export interface LLMCallResult {

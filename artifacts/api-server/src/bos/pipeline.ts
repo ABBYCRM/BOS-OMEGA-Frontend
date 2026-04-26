@@ -13,6 +13,9 @@ import { runBoilTheOcean } from "./boilTheOceanEngine.js";
 import { selectExecutionMode } from "./modeSelector.js";
 import { auditLog } from "./auditEngine.js";
 import { logger } from "../lib/logger.js";
+import { loadAttachmentBundle } from "../lib/uploads/loader.js";
+import { attachmentsTable } from "@workspace/db";
+import { inArray } from "drizzle-orm";
 
 const HIGH_STAKES_DOMAINS = new Set(["legal", "medical", "financial", "research", "code"]);
 
@@ -39,6 +42,7 @@ export interface PipelineInput {
   parallel_models?: number;
   max_models?: number;
   agents_per_model?: number;
+  attachment_ids?: string[];
 }
 
 export interface PipelineResult {
@@ -57,10 +61,31 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   const task_id = randomUUID();
   const requested_mode: ExecutionMode = pipelineInput.mode || "auto";
 
+  // === Load attachments early so they're audited and available throughout the run ===
+  const attachment_ids = pipelineInput.attachment_ids ?? [];
+  const attachment_bundle = await loadAttachmentBundle(attachment_ids);
+
   await auditLog(task_id, "TASK_RECEIVED", "Task received by BOS-OMEGA", {
     mode: requested_mode,
     input_length: pipelineInput.input.length,
+    attachments: attachment_ids.length,
+    attachment_images: attachment_bundle.images.length,
+    attachment_context_chars: attachment_bundle.context_block.length,
   });
+
+  if (attachment_bundle.notes.length > 0) {
+    await auditLog(task_id, "ATTACHMENT_NOTES", "Attachment processing notes", {
+      notes: attachment_bundle.notes,
+    });
+  }
+
+  // Link attachments to this task as soon as we know the task id.
+  if (attachment_ids.length > 0) {
+    await db
+      .update(attachmentsTable)
+      .set({ task_id })
+      .where(inArray(attachmentsTable.id, attachment_ids));
+  }
 
   const gate = runInputGate(pipelineInput.input);
   await auditLog(task_id, "INPUT_GATE_RESULT", `Input gate: ${gate.state}`, {
@@ -199,6 +224,8 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     tri_state: "GO",
     mode: resolved_mode as ExecutionMode,
     parallel_models: pipelineInput.parallel_models || 3,
+    attachment_context: attachment_bundle.context_block || undefined,
+    attachment_images: attachment_bundle.images.length > 0 ? attachment_bundle.images : undefined,
   };
 
   let result: BosOutput;

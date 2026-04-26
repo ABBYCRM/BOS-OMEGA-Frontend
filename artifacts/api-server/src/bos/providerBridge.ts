@@ -33,27 +33,27 @@ export async function callProviderDirect(
 
   if (provider_name === "openai") {
     if (!key) return mockResult(model_info, prompt, task_type);
-    return callOpenAI(prompt, task_type, model_info.model_name, key, "");
+    return callOpenAI(prompt, task_type, model_info.model_name, key);
   }
 
   if (provider_name === "anthropic") {
     if (!key) return mockResult(model_info, prompt, task_type);
-    return callAnthropic(prompt, task_type, model_info.model_name, key, "");
+    return callAnthropic(prompt, task_type, model_info.model_name, key);
   }
 
   if (provider_name === "gemini" || provider_name === "google gemini") {
     if (!key) return mockResult(model_info, prompt, task_type);
-    return callGemini(prompt, task_type, model_info.model_name, key, "");
+    return callGemini(prompt, task_type, model_info.model_name, key);
   }
 
   if (provider_name === "ollama") {
     const base_url = provider?.base_url || process.env["OLLAMA_BASE_URL"] || "http://localhost:11434";
-    return callOllama(prompt, task_type, model_info.model_name, base_url, "");
+    return callOllama(prompt, task_type, model_info.model_name, base_url);
   }
 
   const base_url = provider?.base_url || "";
   if (!key || !base_url) return mockResult(model_info, prompt, task_type);
-  return callGenericOpenAI(prompt, task_type, model_info.model_name, base_url, key, "");
+  return callGenericOpenAI(prompt, task_type, model_info.model_name, base_url, key);
 }
 
 function mockResult(model_info: ModelScore, prompt: string, task_type: string): LLMCallResult {

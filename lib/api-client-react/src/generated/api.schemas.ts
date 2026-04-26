@@ -42,6 +42,8 @@ export interface CreateTaskBody {
   max_models?: number;
   /** Number of specialized agents per model in Boil The Ocean mode (default 5) */
   agents_per_model?: number;
+  /** IDs of files previously uploaded via POST /uploads to attach to this task */
+  attachment_ids?: string[];
 }
 
 export type TaskTriState = (typeof TaskTriState)[keyof typeof TaskTriState];
@@ -156,6 +158,48 @@ export interface TaskDetail {
   fallbacks: FallbackEvent[];
   audit: AuditLog[];
   bos_output?: BosOutput;
+}
+
+export type AttachmentKind =
+  (typeof AttachmentKind)[keyof typeof AttachmentKind];
+
+export const AttachmentKind = {
+  image: "image",
+  document: "document",
+  spreadsheet: "spreadsheet",
+  code: "code",
+  text: "text",
+  audio: "audio",
+  video: "video",
+  other: "other",
+} as const;
+
+export type AttachmentExtractionStatus =
+  (typeof AttachmentExtractionStatus)[keyof typeof AttachmentExtractionStatus];
+
+export const AttachmentExtractionStatus = {
+  pending: "pending",
+  done: "done",
+  skipped: "skipped",
+  failed: "failed",
+} as const;
+
+export interface Attachment {
+  id: string;
+  task_id?: string | null;
+  original_name: string;
+  mime: string;
+  kind: AttachmentKind;
+  size_bytes: number;
+  width?: number | null;
+  height?: number | null;
+  duration_ms?: number | null;
+  extraction_status: AttachmentExtractionStatus;
+  extraction_error?: string | null;
+  /** Number of characters of extracted text the server is holding for this attachment */
+  extraction_chars: number;
+  has_thumbnail: boolean;
+  created_at: string;
 }
 
 export interface TaskListResponse {
@@ -571,6 +615,15 @@ export type ListAuditLogsParams = {
 
 export type ListRunsParams = {
   limit?: number;
+};
+
+export type UploadFileBody = {
+  file: Blob;
+};
+
+export type DeleteAttachment200 = {
+  ok: boolean;
+  deleted: string;
 };
 
 export type ListTriStateDecisionsParams = {

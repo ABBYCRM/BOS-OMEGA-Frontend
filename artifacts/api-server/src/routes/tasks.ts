@@ -18,7 +18,12 @@ const router = Router();
 router.post("/", expensiveLimiter, async (req, res) => {
   const parsed = CreateTaskBody.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: "Invalid request body", code: "INPUT_ERROR" });
+    req.log.warn({ issues: parsed.error.issues, body: req.body }, "CreateTask validation failed");
+    res.status(400).json({
+      error: "Invalid request body",
+      code: "INPUT_ERROR",
+      issues: parsed.error.issues.map((i) => ({ path: i.path, message: i.message, code: i.code })),
+    });
     return;
   }
 
@@ -30,6 +35,7 @@ router.post("/", expensiveLimiter, async (req, res) => {
       parallel_models: parsed.data.parallel_models || undefined,
       max_models: parsed.data.max_models || undefined,
       agents_per_model: parsed.data.agents_per_model || undefined,
+      attachment_ids: parsed.data.attachment_ids || undefined,
     });
 
     const task_rows = await db.select().from(tasksTable).where(eq(tasksTable.id, result.task_id)).limit(1);

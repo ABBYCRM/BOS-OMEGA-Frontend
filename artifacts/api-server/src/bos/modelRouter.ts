@@ -75,6 +75,7 @@ export async function selectModel(
       latency_score,
       cost_score,
       provider_health_score,
+      capability_tags: Array.isArray(model.capability_tags) ? model.capability_tags : [],
     });
   }
 

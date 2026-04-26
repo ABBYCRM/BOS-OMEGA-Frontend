@@ -2,19 +2,30 @@ import type { LLMCallResult } from "../bos/types.js";
 import { MASTER_PROMPT_KERNEL } from "./prompts.js";
 import { logger } from "../lib/logger.js";
 
+export interface CallOptions {
+  memory_context?: string;
+  attachment_context?: string;
+}
+
 export async function callGenericOpenAI(
   input: string,
   task_type: string,
   model: string,
   base_url: string,
   api_key: string,
-  memory_context?: string
+  options: CallOptions = {},
 ): Promise<LLMCallResult> {
   const start = Date.now();
   const provider = "generic";
 
   try {
-    const system_prompt = MASTER_PROMPT_KERNEL + (memory_context ? `\n\n${memory_context}` : "");
+    const system_prompt =
+      MASTER_PROMPT_KERNEL +
+      (options.memory_context ? `\n\n${options.memory_context}` : "");
+
+    const user_text =
+      (options.attachment_context ? `${options.attachment_context}\n\n` : "") +
+      `Task type: ${task_type}\n\nInput: ${input}`;
 
     const response = await fetch(`${base_url}/chat/completions`, {
       method: "POST",
@@ -26,7 +37,7 @@ export async function callGenericOpenAI(
         model,
         messages: [
           { role: "system", content: system_prompt },
-          { role: "user", content: `Task type: ${task_type}\n\nInput: ${input}` },
+          { role: "user", content: user_text },
         ],
         max_tokens: 4096,
         temperature: 0.3,

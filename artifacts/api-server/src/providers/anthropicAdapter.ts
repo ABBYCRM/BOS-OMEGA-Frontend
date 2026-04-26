@@ -1,20 +1,52 @@
-import type { LLMCallResult } from "../bos/types.js";
+import type { LLMCallResult, VisionImage } from "../bos/types.js";
 import { MASTER_PROMPT_KERNEL } from "./prompts.js";
 import { logger } from "../lib/logger.js";
+
+export interface CallOptions {
+  memory_context?: string;
+  attachment_context?: string;
+  images?: VisionImage[];
+}
 
 export async function callAnthropic(
   input: string,
   task_type: string,
   model: string = "claude-3-5-sonnet-20241022",
   api_key: string,
-  memory_context?: string
+  options: CallOptions = {},
 ): Promise<LLMCallResult> {
   const start = Date.now();
   const provider = "anthropic";
 
   try {
-    const system_prompt = MASTER_PROMPT_KERNEL + (memory_context ? `\n\n${memory_context}` : "") +
+    const system_prompt =
+      MASTER_PROMPT_KERNEL +
+      (options.memory_context ? `\n\n${options.memory_context}` : "") +
       "\n\nIMPORTANT: Return ONLY valid JSON matching the BOS output schema. Do not include any other text.";
+
+    const user_text =
+      (options.attachment_context ? `${options.attachment_context}\n\n` : "") +
+      `Task type: ${task_type}\n\nInput: ${input}`;
+
+    let user_message: { role: string; content: unknown };
+    if (options.images && options.images.length > 0) {
+      const content: Array<Record<string, unknown>> = [];
+      // Anthropic recommends images BEFORE text for best attention.
+      for (const img of options.images) {
+        content.push({
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: img.mime,
+            data: img.base64,
+          },
+        });
+      }
+      content.push({ type: "text", text: user_text });
+      user_message = { role: "user", content };
+    } else {
+      user_message = { role: "user", content: user_text };
+    }
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -27,17 +59,18 @@ export async function callAnthropic(
         model,
         max_tokens: 4096,
         system: system_prompt,
-        messages: [
-          { role: "user", content: `Task type: ${task_type}\n\nInput: ${input}` },
-        ],
+        messages: [user_message],
       }),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(60000),
     });
 
     if (response.status === 401) return errResult(provider, model, start, "auth_failure", "Anthropic auth failure");
     if (response.status === 429) return errResult(provider, model, start, "rate_limit", "Anthropic rate limit");
     if (response.status === 529) return errResult(provider, model, start, "provider_outage", "Anthropic overloaded");
-    if (!response.ok) return errResult(provider, model, start, "malformed_response", `Anthropic error: ${response.status}`);
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      return errResult(provider, model, start, "malformed_response", `Anthropic error: ${response.status} ${body.slice(0, 200)}`);
+    }
 
     const data = await response.json() as {
       content: Array<{ type: string; text: string }>;

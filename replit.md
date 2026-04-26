@@ -101,6 +101,20 @@ pnpm --filter @workspace/db run push        # Push DB schema changes (dev only)
 - `fallback_events` — Provider fallback events
 - `audit_logs` — Full pipeline audit trail
 - `memory_items` — Layered memory store
+- `attachments` — Uploaded files (text/document/image/audio/video) with sha256-deduped local-disk storage at `${UPLOADS_DIR:-./.data/uploads}`, extracted text + per-file extraction status (`pending`/`done`/`skipped`/`failed`), optional thumbnail and video frame artifacts. Attachments are linked to a `task_id` after task creation by `attachment_ids[]` in the `POST /api/tasks` body.
+
+## Attachments / multimodal pipeline
+
+ChatGPT-style upload flow with real text extraction and real vision wiring:
+
+- **Upload route** (`POST /api/uploads`, multipart `file`): authenticated, expensive-rate-limited, 50MB cap (`MAX_UPLOAD_BYTES` env). Returns the attachment row with `extraction_status` so the client can show a status pip (`ready`/`skipped`/`failed`).
+- **Storage**: sha256-deduped at `${UPLOADS_DIR}/<sha>.<ext>`, thumbnails at `thumbs/<id>.webp`, video frames at `frames/<id>/frame_NN.jpg`. Path-traversal guard on read. Per-attachment artifacts (thumbnail + frame dir) are removed on `DELETE /uploads/:id`; the underlying sha-keyed file is ref-counted by `storage_key` so dedup-shared rows don't lose their bytes.
+- **Extractors**: utf-8 for text/code/csv/json/yaml/md, `pdf-parse` for PDF, `mammoth` for docx, `sharp` for image metadata + thumbnails. Honest `skipped` status when a kind isn't text-extractable.
+- **Audio/video**: `ffmpeg` (via `fluent-ffmpeg` + `child_process`) extracts up to 6 frames + strips audio for Whisper transcription. Whisper uses the configured `OPENAI_API_KEY` (env or DB-stored); when no key is present transcription returns `skipped` (no fakes). Frame JPEGs are persisted under `frames/<attachment_id>/` and reloaded at task time via `extraction_meta.frame_storage_keys`. Video status is honest: `done` only if frames OR transcript were obtained; `skipped` if a no-audio video had no frames; `failed` if transcript failed and no frames exist.
+- **Vision routing**: `executionEngine.callProvider` only sends `images` when `model_info.capability_tags` contains `multimodal` — text-only models on a vision-capable provider (e.g. gpt-3.5 on OpenAI) are protected from getting image payloads.
+- **Vision adapters**: `callOpenAI` uses `image_url` with data-URI; `callAnthropic` uses `source: { type: "base64", media_type, data }` with images placed before text per the API spec; `callGemini` uses `inline_data` parts. Ollama and Generic OpenAI-compatible adapters degrade to text-only attachment context.
+- **Raw download** (`GET /uploads/:id/raw`): always served with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff` to neutralize any active content (HTML/SVG/JS) from being rendered against the app origin.
+- **Frontend**: drag/drop overlay, paste handler, paperclip "+" picker, auto-grow textarea, ⌘/Ctrl+Enter to send, per-file progress bars via XHR `upload.progress`, abortable in-flight uploads. Submit button is disabled while uploads are in-flight; attachment chips clear on successful submit.
 
 ## Important Notes
 
@@ -136,3 +150,10 @@ Defense-in-depth, industry best practices. Out of scope: nation-state actors wit
 - `SESSION_SECRET` — cookie signing key (otherwise sessions invalidate on restart)
 - `KEYRING_KEY` — provider-API-key encryption key (otherwise stored keys cannot be decrypted after restart)
 - `ALLOWED_ORIGINS` — comma-separated extra origins (only if not same-origin)
+- `OPENAI_API_KEY` — required for Whisper audio/video transcription (otherwise honestly `skipped`)
+- `UPLOADS_DIR` — override storage root (defaults to `./.data/uploads`)
+- `MAX_UPLOAD_BYTES` — override 50MB upload cap
+
+## Recent changes
+
+- **2026-04-26 — Multimodal attachments end-to-end (BOIL_THE_OCEAN)**: full ChatGPT-style upload system. New `attachments` table + sha256-deduped local-disk storage; `/api/uploads` POST/GET/RAW/THUMBNAIL/DELETE; real extractors (pdf/docx/text/code/csv/json + sharp image metadata); ffmpeg video frame extraction + Whisper transcription with honest `skipped` when no key. All five provider adapters refactored to a single `CallOptions { memory_context, attachment_context, images? }` shape; OpenAI/Anthropic/Gemini wired to real per-API vision content; vision is gated by per-model `capability_tags.multimodal` so text-only models never receive image payloads. Pipeline links `attachment_ids` to the created task and threads extracted text + frame images through `TaskContext`. New frontend: `lib/uploads.ts` (XHR with progress), `AttachmentChip`, `Composer` (drag/drop, paste, +picker, auto-grow textarea, ⌘/Ctrl+Enter), wired into `TaskConsole`. Raw-file download forces `Content-Disposition: attachment` + `nosniff` to neutralize active-content XSS. `DELETE /uploads/:id` cleans up thumbnails + video frame dir and ref-counts the shared file by `storage_key`. Fixed a pre-existing `useCreateTask.mutate` callsite missing the orval `{ data: ... }` body wrapper.

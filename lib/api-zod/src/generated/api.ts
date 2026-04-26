@@ -57,6 +57,12 @@ export const CreateTaskBody = zod.object({
     .describe(
       "Number of specialized agents per model in Boil The Ocean mode (default 5)",
     ),
+  attachment_ids: zod
+    .array(zod.string())
+    .optional()
+    .describe(
+      "IDs of files previously uploaded via POST \/uploads to attach to this task",
+    ),
 });
 
 export const CreateTaskResponse = zod.object({
@@ -826,6 +832,62 @@ export const GetTriStateByTaskResponse = zod
   .describe(
     "Qubit-inspired probabilistic tri-state decision. The vector is advisory until collapsed; only the final_state controls execution.",
   );
+
+/**
+ * @summary Upload a file (multipart/form-data, field name "file")
+ */
+export const UploadFileBody = zod.object({
+  file: zod.instanceof(File),
+});
+
+/**
+ * @summary Get attachment metadata
+ */
+export const GetAttachmentParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetAttachmentResponse = zod.object({
+  id: zod.string(),
+  task_id: zod.string().nullish(),
+  original_name: zod.string(),
+  mime: zod.string(),
+  kind: zod.enum([
+    "image",
+    "document",
+    "spreadsheet",
+    "code",
+    "text",
+    "audio",
+    "video",
+    "other",
+  ]),
+  size_bytes: zod.number(),
+  width: zod.number().nullish(),
+  height: zod.number().nullish(),
+  duration_ms: zod.number().nullish(),
+  extraction_status: zod.enum(["pending", "done", "skipped", "failed"]),
+  extraction_error: zod.string().nullish(),
+  extraction_chars: zod
+    .number()
+    .describe(
+      "Number of characters of extracted text the server is holding for this attachment",
+    ),
+  has_thumbnail: zod.boolean(),
+  created_at: zod.coerce.date(),
+});
+
+/**
+ * @summary Delete an attachment
+ */
+export const DeleteAttachmentParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const DeleteAttachmentResponse = zod.object({
+  ok: zod.boolean(),
+  deleted: zod.string(),
+});
 
 /**
  * @summary List recent tri-state decisions

@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./attachment";
+export * from "./attachmentExtractionStatus";
+export * from "./attachmentKind";
 export * from "./auditLog";
 export * from "./auditLogMetadata";
 export * from "./bosOutput";
@@ -16,6 +19,7 @@ export * from "./createModelBody";
 export * from "./createProviderBody";
 export * from "./createTaskBody";
 export * from "./createTaskBodyMode";
+export * from "./deleteAttachment200";
 export * from "./deleteProvider200";
 export * from "./errorResponse";
 export * from "./executionRun";
@@ -65,4 +69,5 @@ export * from "./updateMemoryBodyLayer";
 export * from "./updateModelBody";
 export * from "./updateProviderBody";
 export * from "./updateProviderBodyStatus";
+export * from "./uploadFileBody";
 export * from "./validationResult";
