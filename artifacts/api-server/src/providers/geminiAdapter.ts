@@ -6,6 +6,7 @@ export interface CallOptions {
   memory_context?: string;
   attachment_context?: string;
   images?: VisionImage[];
+  persona_prompt?: string;
 }
 
 export async function callGemini(
@@ -22,6 +23,7 @@ export async function callGemini(
   try {
     const system_prompt =
       MASTER_PROMPT_KERNEL +
+      (options.persona_prompt ? `\n\n${options.persona_prompt}` : "") +
       (options.memory_context ? `\n\n${options.memory_context}` : "") +
       "\n\nIMPORTANT: Return ONLY valid JSON matching the BOS output schema.";
 

@@ -128,6 +128,7 @@ export interface PipelineInput {
   max_models?: number;
   agents_per_model?: number;
   attachment_ids?: string[];
+  persona?: "legal" | "engineering" | "cyber";
 }
 
 export interface PipelineResult {
@@ -156,6 +157,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     attachments: attachment_ids.length,
     attachment_images: attachment_bundle.images.length,
     attachment_context_chars: attachment_bundle.context_block.length,
+    persona: pipelineInput.persona ?? null,
   });
 
   if (attachment_bundle.notes.length > 0) {
@@ -337,6 +339,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     parallel_models: pipelineInput.parallel_models || 3,
     attachment_context: attachment_bundle.context_block || undefined,
     attachment_images: attachment_bundle.images.length > 0 ? attachment_bundle.images : undefined,
+    persona: pipelineInput.persona,
   };
 
   let result: BosOutput;

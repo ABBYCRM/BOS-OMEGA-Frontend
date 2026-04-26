@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CreateTaskBodyMode } from "./createTaskBodyMode";
+import type { CreateTaskBodyPersona } from "./createTaskBodyPersona";
 
 export interface CreateTaskBody {
   /** User input text */
@@ -22,4 +23,6 @@ export interface CreateTaskBody {
   agents_per_model?: number;
   /** IDs of files previously uploaded via POST /uploads to attach to this task */
   attachment_ids?: string[];
+  /** Optional domain persona overlay applied to every model call. Composes with the Master Prompt Kernel — does not replace it. Personas reshape the answer content while preserving BOS schema and governance. */
+  persona?: CreateTaskBodyPersona;
 }

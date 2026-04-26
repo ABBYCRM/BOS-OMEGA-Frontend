@@ -98,6 +98,8 @@ export interface ModelScore {
   capability_tags: string[];
 }
 
+export type Persona = "legal" | "engineering" | "cyber";
+
 export interface TaskContext {
   task_id: string;
   input: string;
@@ -107,6 +109,8 @@ export interface TaskContext {
   parallel_models: number;
   attachment_context?: string;
   attachment_images?: VisionImage[];
+  /** Optional domain-persona overlay applied to every model call in this task. */
+  persona?: Persona | string;
 }
 
 export interface VisionImage {

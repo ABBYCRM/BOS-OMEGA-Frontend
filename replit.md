@@ -32,12 +32,27 @@ The frontend is built with React 19, Vite 7, TailwindCSS v4, React Query, and Wo
 - Model Registry
 - Task Logs
 - Fallback Events
-- Memory Manager
+- Memory Manager (server-side memory)
+- Local Memory (browser-stored memory layer with IndexedDB primary + localStorage fallback)
 - Audit Log
-- Settings
+- Settings (provider config + theme toggle)
 
-### UI/UX Design
-The UI follows a "Claude-grade enterprise" theme with a warm cream background, deep slate primary elements, and a clay coral accent for agentic calls-to-action. Typography uses Source Serif 4 for headlines, Inter for body text, and JetBrains Mono for IDs/code. It supports a light mode by default with an optional warm-slate dark variant.
+### Domain Personas
+Three one-tap quick-launch personas compose with the Master Prompt Kernel without replacing it:
+- **Legal Counsel** — structured legal memo with jurisdictions, authority, analysis, risk, mitigations
+- **Engineer / Coder** — architecture, implementation, tests, edge cases, deployment & ops
+- **Cyber Analyst** — threat assessment with severity, attack surface, IoCs, remediation
+The selected persona is appended after the Master Prompt Kernel in every adapter (openai, anthropic, gemini, ollama, generic), threaded through every execution mode (single, parallel, consensus, series_pass, boil_the_ocean), audited at TASK_RECEIVED, persisted to localStorage `bos.persona.v1`, and exposed in `CreateTaskBody.persona` in the OpenAPI spec.
+
+### Local Memory Layer
+Browser-stored memory with the same shape as server memory items (id/title/content/layer/timestamps), layered below server canon. Items are stored in IndexedDB (`bos-omega-local-memory`/`items`) with localStorage fallback (`bos.localMemory.items.v1`). Top-ranked items by layer + recency are auto-injected as a "LOCAL USER MEMORY" block prepended to the task input on every submission, capped at a 500-token-equivalent budget. Full CRUD UI plus JSON export/import and "Clear all" lives at `/local-memory`.
+
+### UI/UX Design — Theme System
+The UI ships with two themes managed via `:root` class on `<html>`:
+- **`theme-retro95`** (default for new visitors) — Windows 95 inspired skin: gray (#c0c0c0) palette, square corners, raised/sunken bevel borders, MS Sans Serif typography, classic 16-bit scrollbars, and re-skinned sidebar/topbar/badges
+- **`theme-modern`** — original "Claude-grade enterprise" theme with warm cream background, deep slate primary, clay coral accent, Source Serif 4 + Inter + JetBrains Mono
+
+Theme is persisted to localStorage (`bos.theme.v1`), initialized in `main.tsx` via `initTheme()` before render, and toggled from Settings → Appearance. The active theme is exposed as `data-theme` on `<html>`.
 
 ### Technical Implementations
 - **API Codegen**: Orval generates Zod schemas and React Query hooks from an OpenAPI 3.1 specification.

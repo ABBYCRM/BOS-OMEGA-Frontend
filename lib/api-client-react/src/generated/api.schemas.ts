@@ -29,6 +29,18 @@ export const CreateTaskBodyMode = {
   auto: "auto",
 } as const;
 
+/**
+ * Optional domain persona overlay applied to every model call. Composes with the Master Prompt Kernel — does not replace it. Personas reshape the answer content while preserving BOS schema and governance.
+ */
+export type CreateTaskBodyPersona =
+  (typeof CreateTaskBodyPersona)[keyof typeof CreateTaskBodyPersona];
+
+export const CreateTaskBodyPersona = {
+  legal: "legal",
+  engineering: "engineering",
+  cyber: "cyber",
+} as const;
+
 export interface CreateTaskBody {
   /** User input text */
   input: string;
@@ -44,6 +56,8 @@ export interface CreateTaskBody {
   agents_per_model?: number;
   /** IDs of files previously uploaded via POST /uploads to attach to this task */
   attachment_ids?: string[];
+  /** Optional domain persona overlay applied to every model call. Composes with the Master Prompt Kernel — does not replace it. Personas reshape the answer content while preserving BOS schema and governance. */
+  persona?: CreateTaskBodyPersona;
 }
 
 export type TaskTriState = (typeof TaskTriState)[keyof typeof TaskTriState];

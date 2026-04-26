@@ -10,7 +10,7 @@ import { validateOutput, extractJsonCandidate } from "./validationEngine.js";
 import { repairOutput } from "./repairEngine.js";
 import { auditLog } from "./auditEngine.js";
 import { callProviderDirect } from "./providerBridge.js";
-import { MOCK_MODE_NOTICE } from "../providers/prompts.js";
+import { MOCK_MODE_NOTICE, buildPersonaSystemSuffix } from "../providers/prompts.js";
 
 export type SeriesRole = "DRAFTER" | "CRITIC" | "EXPANDER" | "ADVERSARY" | "SYNTHESIZER" | "OMEGA_VALIDATOR";
 
@@ -157,6 +157,7 @@ export async function runSeriesPass(
     const call_result = await callProviderDirect(prompt, "series_pass", model_info, {
       attachment_context: ctx.attachment_context,
       attachment_images: ctx.attachment_images,
+      persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
     });
     const latency_ms = Date.now() - start_time;
 

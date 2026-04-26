@@ -20,6 +20,7 @@ export interface CallProviderOptions {
   attachment_context?: string;
   attachment_images?: VisionImage[];
   memory_context?: string;
+  persona_prompt?: string;
 }
 
 /**
@@ -66,6 +67,7 @@ export async function callProviderDirect(
     memory_context: options.memory_context,
     attachment_context: options.attachment_context,
     images: supports_vision ? options.attachment_images : undefined,
+    persona_prompt: options.persona_prompt,
   };
 
   if (provider_name === "openai") {

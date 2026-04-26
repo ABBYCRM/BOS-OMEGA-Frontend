@@ -5,12 +5,73 @@ import { Composer } from "@/components/Composer";
 import { MessageList, type ChatMessage, type AssistantMessage } from "@/components/MessageList";
 import type { UploadedAttachment } from "@/lib/uploads";
 import { formatMs } from "@/lib/utils";
+import { buildLocalMemoryInjection } from "@/lib/localMemory";
 import {
   Send, Loader2, Layers, GitMerge, Vote, Zap, Flame, AlertTriangle,
-  CheckCircle2, ChevronRight, MessageSquarePlus,
+  CheckCircle2, ChevronRight, MessageSquarePlus, Scale, Code2, ShieldAlert, X,
 } from "lucide-react";
 
 type Mode = "auto" | "single" | "parallel" | "consensus" | "series_pass" | "boil_the_ocean";
+type Persona = "legal" | "engineering" | "cyber";
+
+const PERSONA_LS_KEY = "bos.persona.v1";
+
+interface PersonaOption {
+  value: Persona;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  desc: string;
+  color: string;
+  activeColor: string;
+}
+
+const PERSONA_OPTIONS: PersonaOption[] = [
+  {
+    value: "legal",
+    label: "Legal Counsel",
+    icon: Scale,
+    desc: "Structured legal memo: jurisdictions, authority, analysis, risk, mitigations.",
+    color: "border-amber-200 bg-amber-50/40 hover:bg-amber-50",
+    activeColor: "bg-amber-100 border-amber-400 ring-2 ring-amber-300/40",
+  },
+  {
+    value: "engineering",
+    label: "Engineer / Coder",
+    icon: Code2,
+    desc: "Architecture, implementation, tests, edge cases, deployment & ops.",
+    color: "border-blue-200 bg-blue-50/40 hover:bg-blue-50",
+    activeColor: "bg-blue-100 border-blue-400 ring-2 ring-blue-300/40",
+  },
+  {
+    value: "cyber",
+    label: "Cyber Analyst",
+    icon: ShieldAlert,
+    desc: "Threat assessment with severity, attack surface, IoCs, remediation.",
+    color: "border-red-200 bg-red-50/40 hover:bg-red-50",
+    activeColor: "bg-red-100 border-red-400 ring-2 ring-red-300/40",
+  },
+];
+
+function readStoredPersona(): Persona | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(PERSONA_LS_KEY);
+    if (raw === "legal" || raw === "engineering" || raw === "cyber") return raw;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function writeStoredPersona(p: Persona | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (p === null) window.localStorage.removeItem(PERSONA_LS_KEY);
+    else window.localStorage.setItem(PERSONA_LS_KEY, p);
+  } catch {
+    // ignore
+  }
+}
 
 type ModeOption = {
   value: Mode;
@@ -44,6 +105,7 @@ const newMsgId = () => `m-${Date.now()}-${++MSG_SEQ}`;
 export function TaskConsole() {
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<Mode>("auto");
+  const [persona, setPersonaState] = useState<Persona | null>(() => readStoredPersona());
   const [parallelCount, setParallelCount] = useState(3);
   const [maxModels, setMaxModels] = useState(3);
   const [agentsPerModel, setAgentsPerModel] = useState(5);
@@ -52,6 +114,11 @@ export function TaskConsole() {
 
   const createTask = useCreateTask();
   const { data: stats } = useGetTaskStats();
+
+  function setPersona(p: Persona | null) {
+    setPersonaState(p);
+    writeStoredPersona(p);
+  }
 
   function submitTask(text: string, attachment_ids: string[], attachments: UploadedAttachment[]) {
     if (!text.trim() && attachment_ids.length === 0) return;
@@ -78,76 +145,87 @@ export function TaskConsole() {
     setInput("");
     setResetSignal((n) => n + 1);
 
-    createTask.mutate(
-      {
-        data: {
-          input: send_text,
-          mode,
-          parallel_models: parallelCount,
-          max_models: maxModels,
-          agents_per_model: agentsPerModel,
-          attachment_ids,
+    // Inject local memory (browser-stored, layered below server canon) into the
+    // task input so it reaches every model regardless of execution mode. We do
+    // this client-side so the server's canon remains authoritative. Top-ranked
+    // items by layer + recency, capped to a 500-token-equivalent budget.
+    void buildLocalMemoryInjection(send_text, 500).then((injection) => {
+      const final_input = injection
+        ? `${injection}\n\n=== USER REQUEST ===\n${send_text}`
+        : send_text;
+
+      createTask.mutate(
+        {
+          data: {
+            input: final_input,
+            mode,
+            parallel_models: parallelCount,
+            max_models: maxModels,
+            agents_per_model: agentsPerModel,
+            attachment_ids,
+            ...(persona ? { persona } : {}),
+          },
         },
-      },
-      {
-        onSuccess: (task: {
-          id: string;
-          task_type: string;
-          tri_state: string;
-          selected_provider?: string;
-          selected_model?: string;
-          final_status: string;
-          final_output?: string;
-          run_id?: string;
-          execution_mode?: string;
-        }) => {
-          let bos_output: BosOutput | undefined;
-          let parse_error: string | undefined;
-          if (task.final_output) {
-            try {
-              bos_output = JSON.parse(task.final_output);
-            } catch (e) {
-              parse_error = e instanceof Error ? e.message : "Unknown JSON parse error";
+        {
+          onSuccess: (task: {
+            id: string;
+            task_type: string;
+            tri_state: string;
+            selected_provider?: string;
+            selected_model?: string;
+            final_status: string;
+            final_output?: string;
+            run_id?: string;
+            execution_mode?: string;
+          }) => {
+            let bos_output: BosOutput | undefined;
+            let parse_error: string | undefined;
+            if (task.final_output) {
+              try {
+                bos_output = JSON.parse(task.final_output);
+              } catch (e) {
+                parse_error = e instanceof Error ? e.message : "Unknown JSON parse error";
+              }
             }
-          }
-          setMessages((prev) =>
-            prev.map((m): ChatMessage =>
-              m.id === assistant_id
-                ? ({
-                    ...(m as AssistantMessage),
-                    status: parse_error ? "error" : "done",
-                    error: parse_error
-                      ? `Received malformed BOS output JSON: ${parse_error}. See raw payload below.`
-                      : undefined,
-                    task: {
-                      task_id: task.id,
-                      task_type: task.task_type,
-                      tri_state: task.tri_state,
-                      selected_provider: task.selected_provider,
-                      selected_model: task.selected_model,
-                      final_status: task.final_status,
-                      final_output: task.final_output,
-                      run_id: task.run_id,
-                      execution_mode: task.execution_mode,
-                      bos_output,
-                    },
-                  })
-                : m,
-            ),
-          );
+            setMessages((prev) =>
+              prev.map((m): ChatMessage =>
+                m.id === assistant_id
+                  ? ({
+                      ...(m as AssistantMessage),
+                      status: parse_error ? "error" : "done",
+                      error: parse_error
+                        ? `Received malformed BOS output JSON: ${parse_error}. See raw payload below.`
+                        : undefined,
+                      task: {
+                        task_id: task.id,
+                        task_type: task.task_type,
+                        tri_state: task.tri_state,
+                        selected_provider: task.selected_provider,
+                        selected_model: task.selected_model,
+                        final_status: task.final_status,
+                        final_output: task.final_output,
+                        run_id: task.run_id,
+                        execution_mode: task.execution_mode,
+                        bos_output,
+                      },
+                    })
+                  : m,
+              ),
+            );
+          },
+          onError: (err: unknown) => {
+            const message = err instanceof Error ? err.message : "Pipeline request failed";
+            setMessages((prev) =>
+              prev.map((m): ChatMessage =>
+                m.id === assistant_id
+                  ? ({ ...(m as AssistantMessage), status: "error", error: message })
+                  : m,
+              ),
+            );
+          },
         },
-        onError: (err: unknown) => {
-          const message = err instanceof Error ? err.message : "Pipeline request failed";
-          setMessages((prev) =>
-            prev.map((m): ChatMessage =>
-              m.id === assistant_id
-                ? ({ ...(m as AssistantMessage), status: "error", error: message })
-                : m,
-            ),
-          );
-        },
-      },
-    );
+      );
+    });
   }
 
   const selected_mode_info = MODE_OPTIONS.find((m) => m.value === mode)!;
@@ -210,6 +288,55 @@ export function TaskConsole() {
               {COST_LABEL[selected_mode_info.cost]!.label}
             </span>
           )}
+        </div>
+
+        {/* Persona quick-launch */}
+        <div className="mb-5">
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-[12.5px] font-medium text-foreground">Domain persona</label>
+            {persona && (
+              <button
+                type="button"
+                onClick={() => setPersona(null)}
+                className="inline-flex items-center gap-1 text-[11.5px] text-muted-foreground hover:text-foreground"
+                data-testid="button-clear-persona"
+              >
+                <X className="w-3 h-3" />
+                Clear
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-3 gap-2.5">
+            {PERSONA_OPTIONS.map((p) => {
+              const Icon = p.icon;
+              const active = persona === p.value;
+              return (
+                <button
+                  key={p.value}
+                  type="button"
+                  onClick={() => setPersona(active ? null : p.value)}
+                  className={`flex flex-col items-start gap-1.5 p-3 rounded-lg border text-left transition-all ${
+                    active ? p.activeColor : `bg-background ${p.color}`
+                  }`}
+                  data-testid={`button-persona-${p.value}`}
+                >
+                  <div className="flex items-center gap-2 w-full">
+                    <Icon className={`w-4 h-4 shrink-0 ${active ? "text-foreground" : "text-muted-foreground"}`} />
+                    <span className="text-[13px] font-medium text-foreground">{p.label}</span>
+                    {active && (
+                      <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-foreground/10 text-foreground font-medium uppercase tracking-wide">
+                        Active
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[11.5px] leading-snug text-muted-foreground">{p.desc}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-2">
+            Personas compose with the Master Prompt Kernel and apply across every execution mode while preserving BOS structured output.
+          </p>
         </div>
 
         {/* Mode selector */}

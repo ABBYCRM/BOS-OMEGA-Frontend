@@ -21,7 +21,7 @@ import { callGemini } from "../providers/geminiAdapter.js";
 import { callOllama } from "../providers/ollamaAdapter.js";
 import { callGenericOpenAI } from "../providers/genericAdapter.js";
 import { logger } from "../lib/logger.js";
-import { MOCK_MODE_NOTICE } from "../providers/prompts.js";
+import { MOCK_MODE_NOTICE, buildPersonaSystemSuffix } from "../providers/prompts.js";
 
 const MAX_RETRIES = 3;
 const RETRY_BACKOFF_MS = [1000, 2000, 4000];
@@ -50,6 +50,7 @@ function buildOptions(ctx: TaskContext, memory_context: string, supports_vision:
     memory_context,
     attachment_context: ctx.attachment_context,
     images: supports_vision ? ctx.attachment_images : undefined,
+    persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
   };
 }
 

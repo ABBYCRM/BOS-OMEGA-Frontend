@@ -19,6 +19,7 @@ export * from "./createModelBody";
 export * from "./createProviderBody";
 export * from "./createTaskBody";
 export * from "./createTaskBodyMode";
+export * from "./createTaskBodyPersona";
 export * from "./deleteAttachment200";
 export * from "./deleteMemory404";
 export * from "./deleteProvider200";

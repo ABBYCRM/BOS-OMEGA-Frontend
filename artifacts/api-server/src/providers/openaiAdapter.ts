@@ -6,6 +6,7 @@ export interface CallOptions {
   memory_context?: string;
   attachment_context?: string;
   images?: VisionImage[];
+  persona_prompt?: string;
 }
 
 export async function callOpenAI(
@@ -90,6 +91,7 @@ function buildMessages(
 ): Array<Record<string, unknown>> {
   const system =
     MASTER_PROMPT_KERNEL +
+    (options.persona_prompt ? `\n\n${options.persona_prompt}` : "") +
     (options.memory_context ? `\n\n${options.memory_context}` : "");
 
   const user_text =

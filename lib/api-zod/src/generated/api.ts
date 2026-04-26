@@ -63,6 +63,12 @@ export const CreateTaskBody = zod.object({
     .describe(
       "IDs of files previously uploaded via POST \/uploads to attach to this task",
     ),
+  persona: zod
+    .enum(["legal", "engineering", "cyber"])
+    .optional()
+    .describe(
+      "Optional domain persona overlay applied to every model call. Composes with the Master Prompt Kernel — does not replace it. Personas reshape the answer content while preserving BOS schema and governance.",
+    ),
 });
 
 export const CreateTaskResponse = zod.object({

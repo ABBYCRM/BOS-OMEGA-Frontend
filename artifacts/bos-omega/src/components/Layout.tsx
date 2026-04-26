@@ -9,6 +9,7 @@ import {
   List,
   GitBranch,
   Brain,
+  HardDrive,
   ScrollText,
   Settings,
   ShieldCheck,
@@ -49,6 +50,7 @@ const navSections = [
       { href: "/providers", label: "Providers", icon: Server },
       { href: "/models", label: "Model Registry", icon: Cpu },
       { href: "/memory", label: "Memory", icon: Brain },
+      { href: "/local-memory", label: "Local Memory", icon: HardDrive },
     ],
   },
   {

@@ -5,6 +5,7 @@ import { logger } from "../lib/logger.js";
 export interface CallOptions {
   memory_context?: string;
   attachment_context?: string;
+  persona_prompt?: string;
 }
 
 export async function callGenericOpenAI(
@@ -21,6 +22,7 @@ export async function callGenericOpenAI(
   try {
     const system_prompt =
       MASTER_PROMPT_KERNEL +
+      (options.persona_prompt ? `\n\n${options.persona_prompt}` : "") +
       (options.memory_context ? `\n\n${options.memory_context}` : "");
 
     const user_text =

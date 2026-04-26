@@ -36,6 +36,7 @@ router.post("/", expensiveLimiter, async (req, res) => {
       max_models: parsed.data.max_models || undefined,
       agents_per_model: parsed.data.agents_per_model || undefined,
       attachment_ids: parsed.data.attachment_ids || undefined,
+      persona: (parsed.data.persona as "legal" | "engineering" | "cyber" | undefined) || undefined,
     });
 
     const task_rows = await db.select().from(tasksTable).where(eq(tasksTable.id, result.task_id)).limit(1);

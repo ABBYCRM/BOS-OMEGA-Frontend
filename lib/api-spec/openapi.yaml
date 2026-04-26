@@ -784,6 +784,10 @@ components:
           description: IDs of files previously uploaded via POST /uploads to attach to this task
           items:
             type: string
+        persona:
+          type: string
+          enum: [legal, engineering, cyber]
+          description: "Optional domain persona overlay applied to every model call. Composes with the Master Prompt Kernel — does not replace it. Personas reshape the answer content while preserving BOS schema and governance."
       required: [input]
 
     Task:

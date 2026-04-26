@@ -9,8 +9,63 @@ import { useState } from "react";
 import {
   Plus, Key, Trash2, CheckCircle2, XCircle, Loader2,
   Eye, EyeOff, AlertCircle, Sparkles, Zap, ShieldCheck, Lock, Database,
+  Palette, Monitor,
 } from "lucide-react";
 import { ProviderStatusBadge } from "@/components/StatusBadge";
+import { useTheme, type ThemeId } from "@/lib/theme";
+
+function ThemeToggle() {
+  const [theme, setTheme] = useTheme();
+  const options: { id: ThemeId; label: string; desc: string; icon: typeof Palette }[] = [
+    { id: "retro95", label: "Windows 95 Retro", desc: "Default. Pixelated bevels, MS Sans Serif, system gray.", icon: Palette },
+    { id: "modern",  label: "Modern",            desc: "Warm-cream enterprise skin with rounded cards.",       icon: Monitor },
+  ];
+  return (
+    <section className="bg-card border border-card-border rounded-xl p-6 shadow-card space-y-4">
+      <div className="flex items-baseline justify-between">
+        <div>
+          <h2 className="text-[15px] font-serif font-semibold text-foreground tracking-tight">Appearance</h2>
+          <p className="text-[12.5px] text-muted-foreground mt-0.5">
+            Switch between the Windows 95 retro skin and the modern theme. Applied instantly on every page.
+          </p>
+        </div>
+        <span className="text-[11.5px] text-muted-foreground">
+          Active: <span className="font-medium text-foreground">{theme === "retro95" ? "Windows 95 Retro" : "Modern"}</span>
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {options.map((o) => {
+          const Icon = o.icon;
+          const active = theme === o.id;
+          return (
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => setTheme(o.id)}
+              data-testid={`button-theme-${o.id}`}
+              className={`flex flex-col items-start gap-1.5 p-4 rounded-lg border text-left transition-all ${
+                active
+                  ? "bg-secondary border-foreground/20 ring-2 ring-primary/10"
+                  : "bg-background border-border hover:bg-secondary/60"
+              }`}
+            >
+              <div className="flex items-center gap-2 w-full">
+                <Icon className={`w-4 h-4 ${active ? "text-foreground" : "text-muted-foreground"}`} />
+                <span className="text-[13px] font-medium text-foreground">{o.label}</span>
+                {active && (
+                  <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-foreground/10 text-foreground font-medium uppercase tracking-wide">
+                    Active
+                  </span>
+                )}
+              </div>
+              <span className="text-[11.5px] leading-snug text-muted-foreground">{o.desc}</span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 
 const PROVIDER_BRAND: Record<string, { letter: string; bg: string; fg: string }> = {
   openai:    { letter: "O", bg: "bg-emerald-100",  fg: "text-emerald-800" },
@@ -297,11 +352,14 @@ export function Settings() {
     <div className="space-y-8">
       {/* Page header */}
       <header className="space-y-1">
-        <h1 className="text-2xl font-serif font-semibold text-foreground tracking-tight">Provider settings</h1>
+        <h1 className="text-2xl font-serif font-semibold text-foreground tracking-tight">Settings</h1>
         <p className="text-[13.5px] text-muted-foreground max-w-2xl">
-          Connect language model providers, manage API keys, and let BOS-Omega automatically test credentials and discover available models.
+          Configure appearance, connect language model providers, manage API keys, and let BOS-Omega automatically test credentials and discover available models.
         </p>
       </header>
+
+      {/* Appearance / theme */}
+      <ThemeToggle />
 
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-4">

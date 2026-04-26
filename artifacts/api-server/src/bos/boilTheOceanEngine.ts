@@ -10,6 +10,7 @@ import type { BosOutput, ModelScore, TaskContext } from "./types.js";
 import { validateOutput, extractJsonCandidate } from "./validationEngine.js";
 import { auditLog } from "./auditEngine.js";
 import { callProviderDirect } from "./providerBridge.js";
+import { buildPersonaSystemSuffix } from "../providers/prompts.js";
 
 export type AgentRole = "ARCHITECT" | "CRITIC" | "RESEARCHER" | "BUILDER" | "VALIDATOR";
 
@@ -214,6 +215,7 @@ export async function runBoilTheOcean(
         callProviderDirect(prompt, ctx.task_type, job.model, {
           attachment_context: ctx.attachment_context,
           attachment_images: ctx.attachment_images,
+          persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
         }),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("agent_timeout")), AGENT_TIMEOUT_MS)),
       ]);
@@ -368,6 +370,7 @@ export async function runBoilTheOcean(
   const synthesis_result = await callProviderDirect(synthesis_prompt, ctx.task_type, synthesis_model, {
     attachment_context: ctx.attachment_context,
     attachment_images: ctx.attachment_images,
+    persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
   });
 
   let synthesis_answer = "Synthesis could not be generated.";
@@ -397,6 +400,7 @@ export async function runBoilTheOcean(
   const adversarial_result = await callProviderDirect(adversarial_prompt, ctx.task_type, adversarial_model, {
     attachment_context: ctx.attachment_context,
     attachment_images: ctx.attachment_images,
+    persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
   });
 
   let final_answer = synthesis_answer;

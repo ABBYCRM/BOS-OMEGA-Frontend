@@ -10,6 +10,7 @@ import { TaskLogs } from "@/pages/TaskLogs";
 import { TaskDetail } from "@/pages/TaskDetail";
 import { FallbackEvents } from "@/pages/FallbackEvents";
 import { MemoryManager } from "@/pages/MemoryManager";
+import { LocalMemoryPage } from "@/pages/LocalMemory";
 import { AuditLog } from "@/pages/AuditLog";
 import { Settings } from "@/pages/Settings";
 import { Login } from "@/pages/Login";
@@ -63,6 +64,7 @@ function AuthedRouter() {
         <Route path="/tasks" component={TaskLogs} />
         <Route path="/fallbacks" component={FallbackEvents} />
         <Route path="/memory" component={MemoryManager} />
+        <Route path="/local-memory" component={LocalMemoryPage} />
         <Route path="/audit" component={AuditLog} />
         <Route path="/settings" component={Settings} />
         <Route component={NotFound} />

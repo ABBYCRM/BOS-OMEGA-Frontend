@@ -255,3 +255,211 @@
     border: 1px solid hsl(152 30% 80%);
   }
 }
+
+/* ============================================================
+   BOS-OMEGA · WINDOWS 95 RETRO SKIN (default theme)
+   Activated via `<html class="theme-retro95">`. Re-skins surfaces,
+   typography, borders, shadows, and adds bevel utilities used by
+   key pages (sidebar, top bar, mode buttons, persona buttons).
+   Every existing page renders correctly under both themes — the
+   skin is implemented via CSS variable overrides + utility hooks.
+   ============================================================ */
+
+:root.theme-retro95 {
+  /* Classic Windows 95 palette */
+  --background: 195 13% 75%;          /* #c0c0c0 desktop face */
+  --foreground: 0 0% 0%;              /* pure black */
+  --card: 195 13% 75%;                /* same face — cards are bevelled, not coloured */
+  --card-foreground: 0 0% 0%;
+  --card-border: 0 0% 50%;
+  --border: 0 0% 50%;                 /* mid-grey */
+  --input: 0 0% 100%;                 /* white text-fields */
+
+  --sidebar: 195 13% 75%;
+  --sidebar-foreground: 0 0% 0%;
+  --sidebar-border: 0 0% 50%;
+  --sidebar-primary: 240 100% 27%;    /* classic title-bar blue #000080 */
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 195 13% 70%;
+  --sidebar-accent-foreground: 0 0% 0%;
+  --sidebar-accent-border: 0 0% 50%;
+  --sidebar-ring: 240 100% 27%;
+
+  --popover: 195 13% 75%;
+  --popover-foreground: 0 0% 0%;
+  --popover-border: 0 0% 50%;
+
+  --primary: 240 100% 27%;            /* title-bar blue */
+  --primary-foreground: 0 0% 100%;
+
+  --accent: 240 100% 27%;             /* selection blue */
+  --accent-foreground: 0 0% 100%;
+
+  --secondary: 195 13% 75%;
+  --secondary-foreground: 0 0% 0%;
+  --muted: 195 13% 80%;
+  --muted-foreground: 0 0% 25%;
+
+  --destructive: 0 80% 45%;
+  --destructive-foreground: 0 0% 100%;
+
+  --ring: 240 100% 27%;
+
+  --chart-1: 240 100% 27%;
+  --chart-2: 0 80% 45%;
+  --chart-3: 120 60% 30%;
+  --chart-4: 50 100% 45%;
+  --chart-5: 0 0% 30%;
+
+  /* Typography — System font stack circa 1995 */
+  --app-font-sans: "MS Sans Serif", "Tahoma", "Geneva", "Verdana", sans-serif;
+  --app-font-serif: "MS Sans Serif", "Tahoma", "Geneva", "Verdana", sans-serif;
+  --app-font-mono: "Courier New", "Courier", monospace;
+
+  --radius: 0;
+}
+
+/* Body + base typography — square corners, no antialiased smoothing */
+:root.theme-retro95 body {
+  font-family: var(--app-font-sans);
+  font-feature-settings: normal;
+  -webkit-font-smoothing: subpixel-antialiased;
+  -moz-osx-font-smoothing: auto;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 1px, rgba(0,0,0,0.02) 1px 2px),
+    hsl(var(--background));
+}
+
+/* Force-square all rounded corners that Tailwind hard-codes via classes */
+:root.theme-retro95 .rounded,
+:root.theme-retro95 .rounded-sm,
+:root.theme-retro95 .rounded-md,
+:root.theme-retro95 .rounded-lg,
+:root.theme-retro95 .rounded-xl,
+:root.theme-retro95 .rounded-2xl,
+:root.theme-retro95 .rounded-full {
+  border-radius: 0 !important;
+}
+
+/* Replace soft shadows with chiselled bevels */
+:root.theme-retro95 .shadow-card,
+:root.theme-retro95 .shadow-card-hover,
+:root.theme-retro95 .shadow-elevated {
+  box-shadow:
+    inset -1px -1px 0 0 #000,
+    inset  1px  1px 0 0 #fff,
+    inset -2px -2px 0 0 #808080,
+    inset  2px  2px 0 0 #dfdfdf !important;
+}
+
+/* Cards / panels gain the "raised" bevel */
+:root.theme-retro95 .bg-card,
+:root.theme-retro95 .bg-background,
+:root.theme-retro95 .bg-popover,
+:root.theme-retro95 .bg-secondary {
+  background: #c0c0c0 !important;
+}
+
+/* Sidebar — keep grey face but add bevel down its right edge */
+:root.theme-retro95 aside.bg-sidebar {
+  background: #c0c0c0 !important;
+  border-right: 2px solid #808080 !important;
+  box-shadow: inset -1px 0 0 0 #000;
+}
+
+/* Top bar acts like a Windows 95 menu strip */
+:root.theme-retro95 main > div.h-16 {
+  background: #c0c0c0 !important;
+  border-bottom: 2px solid #808080 !important;
+  box-shadow: inset 0 -1px 0 0 #000;
+}
+
+/* Header titles use square block style */
+:root.theme-retro95 h1,
+:root.theme-retro95 h2,
+:root.theme-retro95 h3 {
+  font-family: var(--app-font-sans) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+}
+
+/* Buttons — generic raised bevel, depressed when active/clicked */
+:root.theme-retro95 button {
+  border-radius: 0 !important;
+}
+
+/* Inputs / textareas — sunken bevel */
+:root.theme-retro95 input,
+:root.theme-retro95 textarea,
+:root.theme-retro95 select {
+  background: #fff !important;
+  color: #000 !important;
+  border: 2px solid !important;
+  border-color: #808080 #fff #fff #808080 !important;
+  border-radius: 0 !important;
+  box-shadow: inset 1px 1px 0 0 #000, inset -1px -1px 0 0 #dfdfdf !important;
+  font-family: var(--app-font-sans) !important;
+}
+
+/* Sidebar nav items: depressed look when active */
+:root.theme-retro95 nav .bg-card {
+  background: #dfdfdf !important;
+  box-shadow:
+    inset  1px  1px 0 0 #808080,
+    inset -1px -1px 0 0 #fff !important;
+}
+
+/* The brand badge becomes a Win95 title-bar swatch */
+:root.theme-retro95 .bg-primary {
+  background: #000080 !important;
+  color: #fff !important;
+}
+
+/* "All systems operational" pill becomes a chiselled status box */
+:root.theme-retro95 .badge-secure {
+  background: #c0c0c0 !important;
+  color: #000 !important;
+  border: 1px solid #000 !important;
+  box-shadow: inset 1px 1px 0 0 #fff, inset -1px -1px 0 0 #808080 !important;
+  border-radius: 0 !important;
+}
+
+/* Re-skin scrollbars so they match the era */
+:root.theme-retro95 ::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+:root.theme-retro95 ::-webkit-scrollbar-track {
+  background: #dfdfdf;
+}
+:root.theme-retro95 ::-webkit-scrollbar-thumb {
+  background: #c0c0c0;
+  border: 2px solid;
+  border-color: #fff #000 #000 #fff;
+  border-radius: 0;
+}
+
+/* Reusable bevel utilities for new components */
+.bevel-raised {
+  border: 2px solid;
+  border-color: #fff #000 #000 #fff;
+  box-shadow: inset -1px -1px 0 0 #808080, inset 1px 1px 0 0 #dfdfdf;
+}
+.bevel-sunken {
+  border: 2px solid;
+  border-color: #808080 #fff #fff #808080;
+  box-shadow: inset 1px 1px 0 0 #000, inset -1px -1px 0 0 #dfdfdf;
+}
+.win95-titlebar {
+  background: linear-gradient(90deg, #000080 0%, #1084d0 100%);
+  color: #fff;
+  font-weight: 700;
+  padding: 2px 6px;
+  font-family: "MS Sans Serif", "Tahoma", sans-serif;
+  font-size: 12px;
+}
+
+/* Modern theme is just the original :root tokens — explicit class is a no-op
+   override for clarity (and to allow toggling without page reload). */
+:root.theme-modern { }
+
