@@ -56,7 +56,7 @@ router.post("/unlock-task", async (req, res) => {
     res.status(404).json({ error: "Task not found", code: "NOT_FOUND" });
     return;
   }
-  if (task.tri_state !== "HOLD" && task.final_status !== "held") {
+  if (task.tri_state !== "HOLD" && task.final_status !== "HELD") {
     res.status(409).json({
       error: "Task is not on HOLD",
       code: "NOT_HELD",
@@ -67,7 +67,7 @@ router.post("/unlock-task", async (req, res) => {
 
   await db
     .update(tasksTable)
-    .set({ tri_state: "GO", final_status: "completed" })
+    .set({ tri_state: "GO", final_status: "COMPLETED" })
     .where(eq(tasksTable.id, task.id));
 
   await auditLog(task.id, "OVERRIDE_TASK_UNLOCKED", `HOLD released by super_admin override`, {
@@ -107,12 +107,15 @@ router.post("/force-tri-state", async (req, res) => {
   // existing tri_state_decisions row — those represent the pipeline's actual
   // computed decisions. Instead, the override is recorded only in the audit
   // log so the trail stays honest.
+  // Match the canonical uppercase casing the pipeline writes
+  // ("HELD" / "ABORTED" / "COMPLETED" / "RUNNING") so the frontend
+  // status badges and filters stay consistent after an override.
   const finalStatus =
     parsed.data.decision === "GO"
-      ? "completed"
+      ? "COMPLETED"
       : parsed.data.decision === "ABORT"
-        ? "aborted"
-        : "held";
+        ? "ABORTED"
+        : "HELD";
 
   await db
     .update(tasksTable)

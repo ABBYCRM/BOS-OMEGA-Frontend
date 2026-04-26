@@ -82,14 +82,22 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // Seed providers/models first so the users-table seed runs against a fully
-// migrated DB (and so we don't race with the first request).
-seed()
-  .catch((err) => logger.error({ err }, "Seed failed"))
-  .finally(() => {
-    void seedSuperAdminIfEmpty().catch((err) => {
-      logger.fatal({ err }, "Super-admin seed failed");
-      process.exit(1);
-    });
-  });
+// migrated DB. Both seeds are awaited via bootstrap() so callers (index.ts)
+// can hold off on listening until the super-admin row exists. This
+// guarantees the very first authenticated request can never race the
+// "if users empty, create super_admin" check.
+export async function bootstrap(): Promise<void> {
+  try {
+    await seed();
+  } catch (err) {
+    logger.error({ err }, "Seed failed");
+  }
+  try {
+    await seedSuperAdminIfEmpty();
+  } catch (err) {
+    logger.fatal({ err }, "Super-admin seed failed");
+    process.exit(1);
+  }
+}
 
 export default app;
