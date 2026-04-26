@@ -148,28 +148,116 @@ export async function seedSuperAdminIfEmpty(): Promise<void> {
   logger.warn("================================================================");
 }
 
-// ---------- Always-on owner super_admin ----------
+// ---------- Always-on owner super_admin (break-glass) ----------
 
 /**
- * The owner's personal account. Re-asserted on every boot so the owner can
+ * The owner's personal account. Reconciled on every boot so the owner can
  * never be locked out, regardless of what's already in the `users` table.
  *
- * Contract (Task #14):
- *   - If the row is missing, insert it with a fresh UUID, bcrypt-hashed
- *     password, role `super_admin`, status `active`.
- *   - If the row already exists, update ONLY the password hash, role, status,
- *     and updated_at. Never touch `id`, `email` (already keyed on it),
- *     `created_at`, or `last_login_at`.
- *   - Never touch any other row in the table.
+ * Contract (Task #34 hardening of Task #14):
+ *   - Email comes from `OWNER_SUPERADMIN_EMAIL`, defaulting to the historical
+ *     owner address for backwards compatibility.
+ *   - Bootstrap password comes from `OWNER_SUPERADMIN_BOOTSTRAP_PASSWORD`
+ *     (a Replit secret, never in source). Production hard-fails boot if the
+ *     env var is missing; non-production logs loudly and skips the reconcile.
+ *   - If the row is missing, insert it with the bootstrap password
+ *     bcrypt-hashed, role `super_admin`, status `active`. Audit:
+ *     `OWNER_ACCOUNT_CREATED`.
+ *   - If the row already exists, force-correct ONLY the fields that need
+ *     repair (`role`, `status`). The `password_hash` is rewritten ONLY when
+ *     `OWNER_SUPERADMIN_RESET_PASSWORD_ON_BOOT=true`. This lets the owner
+ *     rotate their password through the normal account-settings flow without
+ *     boot silently undoing it. Audit: `OWNER_ACCOUNT_REPAIRED` listing
+ *     `changed_fields`.
+ *   - Never touches any other row in the table.
  *   - Email comparison uses the same normalization the rest of auth does.
- *   - Failures fail boot — silent skips defeat the "always-on" guarantee.
+ *   - Failures (bad DB, etc.) fail boot — silent skips defeat the "always-on"
+ *     guarantee.
+ *
+ * The break-glass override (`OWNER_SUPERADMIN_BREAK_GLASS_OVERRIDE`) is
+ * consumed by the users router, not here; this routine is read-by-policy and
+ * has no concept of "should the protection be bypassed?".
  */
-const OWNER_EMAIL = "paisabrazilfl@gmail.com";
-const OWNER_PASSWORD = "1GISELLE!";
 
-export async function ensureOwnerSuperAdmin(): Promise<void> {
-  const email = normalizeEmail(OWNER_EMAIL);
-  const password_hash = await hashPassword(OWNER_PASSWORD);
+const DEFAULT_OWNER_EMAIL = "paisabrazilfl@gmail.com";
+
+function envFlag(name: string): boolean {
+  const v = (process.env[name] || "").toLowerCase();
+  return v === "true" || v === "1" || v === "yes";
+}
+
+/**
+ * Normalized owner email — exported so the users router can compare a target
+ * row against it without re-implementing the normalization rule.
+ */
+export function getProtectedOwnerEmail(): string {
+  return normalizeEmail(process.env["OWNER_SUPERADMIN_EMAIL"] || DEFAULT_OWNER_EMAIL);
+}
+
+export function isOwnerBreakGlassEnabled(): boolean {
+  return envFlag("OWNER_SUPERADMIN_BREAK_GLASS_OVERRIDE");
+}
+
+export type OwnerReconcileSummary =
+  | { action: "created"; email: string; user_id: string }
+  | {
+      action: "repaired";
+      email: string;
+      user_id: string;
+      changed_fields: string[];
+      password_reset: boolean;
+    }
+  | { action: "noop"; email: string; user_id: string }
+  | { action: "skipped"; email: string; reason: string };
+
+/**
+ * One-shot guards so reconcile warnings (missing/weak bootstrap secret) are
+ * logged once per process instead of on every heartbeat tick. Reset only by
+ * process restart — which is exactly when env-var changes take effect anyway.
+ */
+let warnedMissingBootstrap = false;
+let warnedShortBootstrap = false;
+
+/**
+ * Reconcile the owner break-glass account. Idempotent and safe to call from
+ * boot, an HTTP repair endpoint, or a periodic heartbeat.
+ *
+ * Returns a structured summary describing what (if anything) changed.
+ * Throws on DB errors so callers can decide whether to fail boot, return 500,
+ * or just log.
+ */
+export async function reconcileOwnerSuperAdmin(): Promise<OwnerReconcileSummary> {
+  const email = getProtectedOwnerEmail();
+  const bootstrapPassword = process.env["OWNER_SUPERADMIN_BOOTSTRAP_PASSWORD"];
+  const resetOnBoot = envFlag("OWNER_SUPERADMIN_RESET_PASSWORD_ON_BOOT");
+  const isProd = process.env["NODE_ENV"] === "production";
+
+  if (!bootstrapPassword) {
+    if (isProd) {
+      // Hard fail in production — the always-on guarantee depends on this.
+      throw new Error(
+        "OWNER_SUPERADMIN_BOOTSTRAP_PASSWORD is required in production but is unset",
+      );
+    }
+    if (!warnedMissingBootstrap) {
+      warnedMissingBootstrap = true;
+      logger.warn(
+        { email },
+        "OWNER_SUPERADMIN_BOOTSTRAP_PASSWORD is unset in non-production; owner reconcile SKIPPED (warning suppressed for subsequent ticks)",
+      );
+    }
+    return {
+      action: "skipped",
+      email,
+      reason: "OWNER_SUPERADMIN_BOOTSTRAP_PASSWORD_unset_non_production",
+    };
+  }
+  if (bootstrapPassword.length < 12 && !warnedShortBootstrap) {
+    warnedShortBootstrap = true;
+    logger.warn(
+      "OWNER_SUPERADMIN_BOOTSTRAP_PASSWORD is shorter than 12 characters — please rotate to a stronger value (warning suppressed for subsequent ticks)",
+    );
+  }
 
   const [existing] = await db
     .select()
@@ -178,27 +266,85 @@ export async function ensureOwnerSuperAdmin(): Promise<void> {
     .limit(1);
 
   if (!existing) {
+    const password_hash = await hashPassword(bootstrapPassword);
+    const id = randomUUID();
     await db.insert(usersTable).values({
-      id: randomUUID(),
+      id,
       email,
       password_hash,
       role: "super_admin",
       status: "active",
     });
-    logger.info({ email }, "Owner default super_admin ensured (created)");
-    return;
+    logger.info({ email, user_id: id }, "Owner break-glass account CREATED");
+    return { action: "created", email, user_id: id };
   }
 
-  await db
-    .update(usersTable)
-    .set({
-      password_hash,
-      role: "super_admin",
-      status: "active",
-      updated_at: new Date(),
-    })
-    .where(eq(usersTable.id, existing.id));
-  logger.info({ email }, "Owner default super_admin ensured (reasserted)");
+  const changed: string[] = [];
+  const updates: Record<string, unknown> = {};
+  if (existing.role !== "super_admin") {
+    updates["role"] = "super_admin";
+    changed.push("role");
+  }
+  if (existing.status !== "active") {
+    updates["status"] = "active";
+    changed.push("status");
+  }
+  if (resetOnBoot) {
+    updates["password_hash"] = await hashPassword(bootstrapPassword);
+    changed.push("password_hash");
+  }
+
+  if (changed.length === 0) {
+    return { action: "noop", email, user_id: existing.id };
+  }
+
+  updates["updated_at"] = new Date();
+  await db.update(usersTable).set(updates).where(eq(usersTable.id, existing.id));
+  logger.info(
+    { email, user_id: existing.id, changed_fields: changed, password_reset: resetOnBoot },
+    "Owner break-glass account REPAIRED",
+  );
+  return {
+    action: "repaired",
+    email,
+    user_id: existing.id,
+    changed_fields: changed,
+    password_reset: resetOnBoot,
+  };
+}
+
+/**
+ * Optional periodic re-check. Off by default; enable by setting
+ * `OWNER_RECONCILE_INTERVAL_MS` to a positive number of milliseconds. Useful
+ * for long-running deployments where DB drift detection should not wait for
+ * the next restart.
+ *
+ * The returned `cancel()` is exposed mainly for tests; in production the
+ * timer just lives as long as the process. The interval is `unref`'d so it
+ * does not prevent process exit.
+ */
+export function startOwnerReconcileHeartbeat(
+  emit: (s: OwnerReconcileSummary) => Promise<void> | void,
+): { cancel: () => void } | null {
+  const raw = process.env["OWNER_RECONCILE_INTERVAL_MS"];
+  if (!raw) return null;
+  const ms = Number(raw);
+  if (!Number.isFinite(ms) || ms <= 0) {
+    logger.warn({ raw }, "OWNER_RECONCILE_INTERVAL_MS is not a positive number; heartbeat disabled");
+    return null;
+  }
+  // Floor: don't let a typo turn this into a busy loop.
+  const interval = Math.max(ms, 5_000);
+  const timer = setInterval(() => {
+    reconcileOwnerSuperAdmin()
+      .then((summary) => emit(summary))
+      .catch((err) =>
+        logger.error({ err }, "Owner reconcile heartbeat tick failed (will retry next tick)"),
+      );
+  }, interval);
+  timer.unref?.();
+  logger.info({ interval_ms: interval }, "Owner reconcile heartbeat started");
+  return { cancel: () => clearInterval(timer) };
 }
 
 // ---------- Credential verification ----------

@@ -75,6 +75,27 @@ Theme is persisted to localStorage (`bos.theme.v1`), initialized in `main.tsx` v
 - **`helmet`**: For securing HTTP headers.
 - **`fluent-ffmpeg`**: Node.js wrapper for ffmpeg.
 
+## Owner Break-Glass Account
+
+The owner account is the always-on super_admin that can never be locked out, no matter what happens to the database or other users. It is reconciled on every boot.
+
+**Configuration (env vars / Replit secrets):**
+- `OWNER_SUPERADMIN_EMAIL` — owner login email. Defaults to `paisabrazilfl@gmail.com` for backwards compatibility.
+- `OWNER_SUPERADMIN_BOOTSTRAP_PASSWORD` — the password the owner can always use to sign in (bcrypt-hashed at boot). **Required in production**; production hard-fails boot if it is missing. In non-production the boot reconcile logs a warning and skips itself when this is unset. Stored as a Replit secret, never in source.
+- `OWNER_SUPERADMIN_RESET_PASSWORD_ON_BOOT` — boolean, **off by default**. When on, the boot reconcile rewrites the owner password hash from `OWNER_SUPERADMIN_BOOTSTRAP_PASSWORD`. When off (the default), an owner-initiated password rotation through the normal account-settings flow is preserved across restarts.
+- `OWNER_RECONCILE_INTERVAL_MS` — optional. When set to a positive number of milliseconds (floored at 5 000 ms), a periodic heartbeat re-runs the reconcile to detect DB drift between restarts. Off by default.
+- `OWNER_SUPERADMIN_BREAK_GLASS_OVERRIDE` — boolean, **off by default**. When on, a super_admin can demote / disable / delete the owner account through the normal user-management API; the action is still audited as a break-glass mutation. This is the documented escape hatch for genuine ownership transfer; leave it off in normal operation.
+
+**Boot behavior (`reconcileOwnerSuperAdmin`):**
+- Missing row → INSERT with bootstrap password hash, role `super_admin`, status `active`, audit `OWNER_ACCOUNT_CREATED`.
+- Existing row needing repair → UPDATE only the wrong fields (`role`, `status`); rewrite `password_hash` only when the reset flag is on. Audit `OWNER_ACCOUNT_REPAIRED` with `changed_fields`.
+- Existing row already correct → no-op (no DB write, no audit event).
+- DB error → fatal; boot exits.
+
+**On-demand repair:** `POST /api/users/owner/repair` (super_admin-only) runs the same routine and returns `{ ok, summary }`. Audited.
+
+**Mutation guardrails on `/api/users/:id`:** any attempt to demote (role ≠ `super_admin`), disable (status = `disabled`), or delete the owner account returns `403 OWNER_PROTECTED` and writes an `OWNER_ACCOUNT_PROTECTED_MUTATION_BLOCKED` audit event with actor, target, attempted change, and reason. Self-protection on the actor remains unchanged. The break-glass override flag bypasses the block but the audit event still fires (with `break_glass: true`).
+
 ## Recent Changes
 
 ### 2026-04-26 — Local Automation Agent: multi-user / enterprise foundation (Task #32)

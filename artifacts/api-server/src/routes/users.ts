@@ -7,6 +7,9 @@ import {
   hashPassword,
   generatePassword,
   requireRole,
+  reconcileOwnerSuperAdmin,
+  getProtectedOwnerEmail,
+  isOwnerBreakGlassEnabled,
   type AuthenticatedUser,
 } from "../lib/security/auth.js";
 import { auditLog } from "../bos/auditEngine.js";
@@ -60,6 +63,64 @@ const UpdateUserSchema = z
 const ResetPasswordSchema = z.object({
   reason: ReasonSchema,
 });
+
+/**
+ * Owner-account protection (Task #34).
+ *
+ * The owner break-glass account is the always-on super_admin that can never
+ * be locked out. Even another super_admin must not be able to demote it,
+ * disable it, or (if a delete route is ever added) remove it through the
+ * normal user-management API.
+ *
+ * `evaluateOwnerProtection` returns:
+ *   - `null` when the change is fine (target is not the owner, or no
+ *     destructive change is being attempted).
+ *   - A rejection record describing what was attempted and why it was
+ *     blocked, when the change should be denied. Callers use this both for
+ *     the 403 response body and for the audit-log payload.
+ *
+ * The break-glass override (`OWNER_SUPERADMIN_BREAK_GLASS_OVERRIDE=true`)
+ * lets a super_admin bypass the protection — this is the documented escape
+ * hatch for genuine ownership transfer. Even when it bypasses, the action
+ * is audited as a break-glass mutation.
+ */
+type OwnerProtectionRejection = {
+  reason: "owner_role_demote" | "owner_disable" | "owner_delete";
+  attempted_change: Record<string, unknown>;
+  message: string;
+};
+
+function evaluateOwnerProtection(args: {
+  targetEmail: string;
+  newRole?: UserRole;
+  newStatus?: "active" | "disabled";
+  intendDelete?: boolean;
+}): OwnerProtectionRejection | null {
+  if (args.targetEmail.trim().toLowerCase() !== getProtectedOwnerEmail()) return null;
+
+  if (args.intendDelete) {
+    return {
+      reason: "owner_delete",
+      attempted_change: { delete: true },
+      message: "Owner account is protected and cannot be deleted",
+    };
+  }
+  if (args.newRole !== undefined && args.newRole !== "super_admin") {
+    return {
+      reason: "owner_role_demote",
+      attempted_change: { role: args.newRole },
+      message: "Owner account is protected and cannot be demoted below super_admin",
+    };
+  }
+  if (args.newStatus === "disabled") {
+    return {
+      reason: "owner_disable",
+      attempted_change: { status: "disabled" },
+      message: "Owner account is protected and cannot be disabled",
+    };
+  }
+  return null;
+}
 
 function publicUser(u: typeof usersTable.$inferSelect) {
   return {
@@ -171,6 +232,57 @@ router.patch("/:id", async (req, res) => {
     }
   }
 
+  // Owner-account protection (Task #34): even another super_admin must not
+  // be able to demote, disable, or delete the owner break-glass account
+  // through the normal user-management API. The break-glass override env
+  // flag bypasses this — when it does, the action is still audited as a
+  // break-glass mutation rather than a normal one.
+  const ownerRejection = evaluateOwnerProtection({
+    targetEmail: target.email,
+    newRole: parsed.data.role,
+    newStatus: parsed.data.status,
+  });
+  if (ownerRejection) {
+    if (!isOwnerBreakGlassEnabled()) {
+      await auditLog(
+        undefined,
+        "OWNER_ACCOUNT_PROTECTED_MUTATION_BLOCKED",
+        `Blocked ${ownerRejection.reason} on owner ${target.email}`,
+        {
+          actor_user_id: actor.id,
+          target_user_id: target.id,
+          target_email: target.email,
+          attempted_change: ownerRejection.attempted_change,
+          reason_code: ownerRejection.reason,
+          reason_text: parsed.data.reason,
+          break_glass: false,
+        },
+      );
+      res.status(403).json({
+        error: ownerRejection.message,
+        code: "OWNER_PROTECTED",
+        reason: ownerRejection.reason,
+      });
+      return;
+    }
+    // Break-glass override is on; allow but audit as such. The normal
+    // USER_ROLE_CHANGED / USER_DISABLED events still fire below.
+    await auditLog(
+      undefined,
+      "OWNER_ACCOUNT_PROTECTED_MUTATION_BLOCKED",
+      `BREAK-GLASS bypass: ${ownerRejection.reason} on owner ${target.email}`,
+      {
+        actor_user_id: actor.id,
+        target_user_id: target.id,
+        target_email: target.email,
+        attempted_change: ownerRejection.attempted_change,
+        reason_code: ownerRejection.reason,
+        reason_text: parsed.data.reason,
+        break_glass: true,
+      },
+    );
+  }
+
   const updates: Record<string, unknown> = { updated_at: new Date() };
   if (parsed.data.role !== undefined) updates["role"] = parsed.data.role;
   if (parsed.data.status !== undefined) updates["status"] = parsed.data.status;
@@ -202,6 +314,59 @@ router.patch("/:id", async (req, res) => {
   }
 
   res.json({ user: publicUser(updated) });
+});
+
+/**
+ * On-demand owner break-glass reconciliation.
+ *
+ * Mounted at `POST /api/users/owner/repair`. Runs the same routine as the
+ * boot reconcile and returns the structured summary. Audited.
+ *
+ * Mounted BEFORE the parameterized `/:id/reset-password` and `/:id` routes
+ * so Express resolves "owner" as the literal segment, not as an `:id`.
+ */
+router.post("/owner/repair", async (req, res) => {
+  const actor = req.user as AuthenticatedUser;
+  let summary;
+  try {
+    summary = await reconcileOwnerSuperAdmin();
+  } catch (err) {
+    res.status(500).json({
+      error: "Owner reconcile failed",
+      code: "OWNER_RECONCILE_FAILED",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+
+  if (summary.action === "created") {
+    await auditLog(
+      undefined,
+      "OWNER_ACCOUNT_CREATED",
+      `Owner break-glass account created via repair endpoint (${summary.email})`,
+      {
+        actor_user_id: actor.id,
+        target_user_id: summary.user_id,
+        target_email: summary.email,
+        source: "repair_endpoint",
+      },
+    );
+  } else if (summary.action === "repaired") {
+    await auditLog(
+      undefined,
+      "OWNER_ACCOUNT_REPAIRED",
+      `Owner break-glass account repaired via repair endpoint (${summary.email}): ${summary.changed_fields.join(", ")}`,
+      {
+        actor_user_id: actor.id,
+        target_user_id: summary.user_id,
+        target_email: summary.email,
+        changed_fields: summary.changed_fields,
+        password_reset: summary.password_reset,
+        source: "repair_endpoint",
+      },
+    );
+  }
+  res.json({ ok: true, summary });
 });
 
 router.post("/:id/reset-password", async (req, res) => {

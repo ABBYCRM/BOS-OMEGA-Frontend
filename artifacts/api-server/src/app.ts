@@ -5,7 +5,12 @@ import pinoHttp from "pino-http";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
 import { seed } from "./db/seed.js";
-import { seedSuperAdminIfEmpty, ensureOwnerSuperAdmin } from "./lib/security/auth.js";
+import {
+  seedSuperAdminIfEmpty,
+  reconcileOwnerSuperAdmin,
+  startOwnerReconcileHeartbeat,
+} from "./lib/security/auth.js";
+import { auditLog } from "./bos/auditEngine.js";
 import { errorHandler, notFoundHandler } from "./lib/security/errors.js";
 
 const app: Express = express();
@@ -98,16 +103,73 @@ export async function bootstrap(): Promise<void> {
     logger.fatal({ err }, "Super-admin seed failed");
     process.exit(1);
   }
-  // Owner default super_admin: re-asserted on every boot so the owner can
+  // Owner break-glass account: reconciled on every boot so the owner can
   // never be locked out, regardless of what's in the users table. Failures
   // here fail boot for the same reason as the seed above — silent skip
-  // defeats the always-on guarantee.
+  // defeats the always-on guarantee. The reconcile only rewrites the
+  // password when OWNER_SUPERADMIN_RESET_PASSWORD_ON_BOOT is on, so an
+  // owner-initiated rotation is preserved across restarts.
   try {
-    await ensureOwnerSuperAdmin();
+    const summary = await reconcileOwnerSuperAdmin();
+    if (summary.action === "created") {
+      await auditLog(
+        undefined,
+        "OWNER_ACCOUNT_CREATED",
+        `Owner break-glass account created (${summary.email})`,
+        {
+          target_user_id: summary.user_id,
+          target_email: summary.email,
+          source: "boot_reconcile",
+        },
+      );
+    } else if (summary.action === "repaired") {
+      await auditLog(
+        undefined,
+        "OWNER_ACCOUNT_REPAIRED",
+        `Owner break-glass account repaired (${summary.email}): ${summary.changed_fields.join(", ")}`,
+        {
+          target_user_id: summary.user_id,
+          target_email: summary.email,
+          changed_fields: summary.changed_fields,
+          password_reset: summary.password_reset,
+          source: "boot_reconcile",
+        },
+      );
+    }
   } catch (err) {
-    logger.fatal({ err }, "Owner super_admin upsert failed");
+    logger.fatal({ err }, "Owner break-glass reconcile failed");
     process.exit(1);
   }
+
+  // Optional periodic re-check; off by default. Enabled by setting
+  // OWNER_RECONCILE_INTERVAL_MS to a positive number of milliseconds.
+  startOwnerReconcileHeartbeat(async (summary) => {
+    if (summary.action === "created") {
+      await auditLog(
+        undefined,
+        "OWNER_ACCOUNT_CREATED",
+        `Owner break-glass account created (${summary.email})`,
+        {
+          target_user_id: summary.user_id,
+          target_email: summary.email,
+          source: "heartbeat_reconcile",
+        },
+      );
+    } else if (summary.action === "repaired") {
+      await auditLog(
+        undefined,
+        "OWNER_ACCOUNT_REPAIRED",
+        `Owner break-glass account repaired (${summary.email}): ${summary.changed_fields.join(", ")}`,
+        {
+          target_user_id: summary.user_id,
+          target_email: summary.email,
+          changed_fields: summary.changed_fields,
+          password_reset: summary.password_reset,
+          source: "heartbeat_reconcile",
+        },
+      );
+    }
+  });
 }
 
 export default app;
