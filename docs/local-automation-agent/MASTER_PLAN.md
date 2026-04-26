@@ -4,7 +4,7 @@
 **Owner of this document:** see Section G
 **Source spec:** `attached_assets/Pasted-text-TRI-STATE-GO-MODE-EXECUTION-ONLY-TARGET-BOS-OMEGA-_1777210493011.txt`
 **Architectural decisions of record:** `attached_assets/Pasted-ARCHITECTURAL-DECISIONS-These-are-now-resolved-Proceed-_1777212351123.txt`
-**Auto-install consent rules:** `attached_assets/Pasted-AUTO-INSTALL-CONSENT-DOC-*.txt`
+**Auto-install consent rules:** `attached_assets/Pasted-Yes-automatic-installation-can-be-acceptable-as-a-stand_1777209197428.txt`
 
 This is the single document that holds the entire Local Automation Agent (LAA) program together. It maps every individual project task to the spec items, the architectural decisions, and the ship-gate checklist it owns; it freezes the execution sequence; and it confirms that the cancelled PowerShell-bridge tasks (#4 and #15) leave no orphaned dependencies behind.
 
@@ -353,7 +353,9 @@ There are zero references to #15 anywhere in the LAA plan set. The only referenc
 
 ### G.1 — Owner of this document
 
-The owner of `docs/local-automation-agent/MASTER_PLAN.md` is **whoever holds the BOS-OMEGA super-admin role at the time of an update** (currently `paisabrazilfl@gmail.com`, owner row id `3af93547-1356-460b-aaea-1f1dcdce91df`). Updates are merged through the normal task-agent flow; no out-of-band edits.
+The owner of `docs/local-automation-agent/MASTER_PLAN.md` is the role of **BOS-OMEGA super admin (owner)** — the always-on owner row defined by Task #14 / Task #34 (owner break-glass super admin). Whichever account currently holds that role owns the document; no individual identifiers (email, user id) are recorded here so that the master plan stays correct across owner rotations or break-glass resets. The current holder of the role can always be looked up at runtime against the `bos_users` table by the always-on owner predicate.
+
+Updates are merged through the normal task-agent flow; no out-of-band edits.
 
 ### G.2 — When to update
 
