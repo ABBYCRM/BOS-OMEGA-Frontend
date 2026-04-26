@@ -47,7 +47,7 @@ export async function seed() {
 
   const models = [
     { id: "mdl_gpt4o", provider_id: "prov_openai", model_name: "gpt-4o", tags: ["reasoning", "coding", "long_context", "structured_output", "multimodal"], context: 128000, cost_in: 0.0025, cost_out: 0.01, rel: 0.97, lat: 0.85 },
-    { id: "mdl_gpt4o_mini", provider_id: "prov_openai", model_name: "gpt-4o-mini", tags: ["reasoning", "coding", "fast", "cheap", "structured_output"], context: 128000, cost_in: 0.00015, cost_out: 0.0006, rel: 0.95, lat: 0.95 },
+    { id: "mdl_gpt4o_mini", provider_id: "prov_openai", model_name: "gpt-4o-mini", tags: ["reasoning", "coding", "fast", "cheap", "structured_output", "multimodal"], context: 128000, cost_in: 0.00015, cost_out: 0.0006, rel: 0.95, lat: 0.95 },
     { id: "mdl_gpt35", provider_id: "prov_openai", model_name: "gpt-3.5-turbo", tags: ["fast", "cheap", "structured_output"], context: 16385, cost_in: 0.0005, cost_out: 0.0015, rel: 0.92, lat: 0.98 },
     { id: "mdl_claude35s", provider_id: "prov_anthropic", model_name: "claude-3-5-sonnet-20241022", tags: ["reasoning", "coding", "long_context", "safety", "legal"], context: 200000, cost_in: 0.003, cost_out: 0.015, rel: 0.96, lat: 0.82 },
     { id: "mdl_claude35h", provider_id: "prov_anthropic", model_name: "claude-3-5-haiku-20241022", tags: ["fast", "cheap", "coding", "structured_output"], context: 200000, cost_in: 0.001, cost_out: 0.005, rel: 0.94, lat: 0.93 },

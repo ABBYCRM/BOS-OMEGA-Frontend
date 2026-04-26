@@ -14,6 +14,7 @@ export async function callAnthropic(
   model: string = "claude-3-5-sonnet-20241022",
   api_key: string,
   options: CallOptions = {},
+  base_url: string = "https://api.anthropic.com",
 ): Promise<LLMCallResult> {
   const start = Date.now();
   const provider = "anthropic";
@@ -48,7 +49,7 @@ export async function callAnthropic(
       user_message = { role: "user", content: user_text };
     }
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch(`${base_url.replace(/\/$/, "")}/v1/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

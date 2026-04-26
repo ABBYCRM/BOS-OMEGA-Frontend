@@ -24,12 +24,12 @@ export async function transcribeAudio(
   filename: string,
   mime: string,
 ): Promise<TranscriptionResult> {
-  const key = await getOpenAiKey();
+  const { key, base_url } = await getOpenAiKey();
   if (!key) {
     return {
       status: "skipped",
       reason:
-        "Audio transcription requires an OpenAI API key (configure in Settings or set OPENAI_API_KEY).",
+        "Audio transcription requires an OpenAI API key (configure in Settings, set OPENAI_API_KEY, or provision the Replit OpenAI integration).",
     };
   }
 
@@ -40,7 +40,8 @@ export async function transcribeAudio(
     form.append("model", "whisper-1");
     form.append("response_format", "text");
 
-    const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    const root = (base_url ?? "https://api.openai.com/v1").replace(/\/$/, "");
+    const res = await fetch(`${root}/audio/transcriptions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${key}` },
       body: form,
@@ -66,13 +67,19 @@ export async function transcribeAudio(
   }
 }
 
-async function getOpenAiKey(): Promise<string> {
-  // Prefer the DB-managed OpenAI provider key, fall back to env.
+async function getOpenAiKey(): Promise<{ key: string; base_url?: string }> {
+  // Prefer the DB-managed OpenAI provider key, then env, then the Replit
+  // OpenAI proxy. resolveProviderKey already encodes that order.
   const rows = await db.select().from(llmProvidersTable);
   const openai = rows.find((r) => (r.name || "").toLowerCase() === "openai");
   if (openai) {
-    const { key } = await resolveProviderKey(openai.id, openai.name);
-    if (key) return key;
+    const { key, base_url } = await resolveProviderKey(openai.id, openai.name);
+    if (key) return { key, base_url };
   }
-  return process.env["OPENAI_API_KEY"] ?? "";
+  const envKey = process.env["OPENAI_API_KEY"];
+  if (envKey) return { key: envKey };
+  const proxyKey = process.env["AI_INTEGRATIONS_OPENAI_API_KEY"];
+  const proxyBase = process.env["AI_INTEGRATIONS_OPENAI_BASE_URL"];
+  if (proxyKey && proxyBase) return { key: proxyKey, base_url: proxyBase };
+  return { key: "" };
 }

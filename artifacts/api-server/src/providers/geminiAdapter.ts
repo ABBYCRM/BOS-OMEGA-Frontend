@@ -14,6 +14,7 @@ export async function callGemini(
   model: string = "gemini-1.5-flash",
   api_key: string,
   options: CallOptions = {},
+  base_url: string = "https://generativelanguage.googleapis.com",
 ): Promise<LLMCallResult> {
   const start = Date.now();
   const provider = "gemini";
@@ -24,7 +25,8 @@ export async function callGemini(
       (options.memory_context ? `\n\n${options.memory_context}` : "") +
       "\n\nIMPORTANT: Return ONLY valid JSON matching the BOS output schema.";
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${api_key}`;
+    const trimmed = base_url.replace(/\/$/, "");
+    const url = `${trimmed}/v1beta/models/${model}:generateContent`;
 
     const user_text =
       (options.attachment_context ? `${options.attachment_context}\n\n` : "") +
@@ -44,7 +46,10 @@ export async function callGemini(
 
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key,
+      },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: system_prompt }] },
         contents: [{ role: "user", parts }],

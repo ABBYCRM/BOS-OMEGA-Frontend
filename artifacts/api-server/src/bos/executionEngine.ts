@@ -258,7 +258,7 @@ async function callProvider(
     .limit(1);
 
   const provider = provider_row[0];
-  const { key } = await resolveProviderKey(model_info.provider_id, model_info.provider_name);
+  const { key, base_url: proxy_base_url } = await resolveProviderKey(model_info.provider_id, model_info.provider_name);
 
   // Vision is only safe to send when the model itself is multimodal.
   // Sending image content to text-only models on a vision-capable provider
@@ -267,17 +267,17 @@ async function callProvider(
 
   if (provider_name === "openai") {
     if (!key) return mockResult(model_info, input, task_type);
-    return callOpenAI(input, task_type, model_info.model_name, key, buildOptions(ctx, memory_context, supports_vision));
+    return callOpenAI(input, task_type, model_info.model_name, key, buildOptions(ctx, memory_context, supports_vision), proxy_base_url);
   }
 
   if (provider_name === "anthropic") {
     if (!key) return mockResult(model_info, input, task_type);
-    return callAnthropic(input, task_type, model_info.model_name, key, buildOptions(ctx, memory_context, supports_vision));
+    return callAnthropic(input, task_type, model_info.model_name, key, buildOptions(ctx, memory_context, supports_vision), proxy_base_url);
   }
 
   if (provider_name === "gemini" || provider_name === "google gemini") {
     if (!key) return mockResult(model_info, input, task_type);
-    return callGemini(input, task_type, model_info.model_name, key, buildOptions(ctx, memory_context, supports_vision));
+    return callGemini(input, task_type, model_info.model_name, key, buildOptions(ctx, memory_context, supports_vision), proxy_base_url);
   }
 
   if (provider_name === "ollama") {

@@ -14,6 +14,7 @@ export async function callOpenAI(
   model: string = "gpt-4o",
   api_key: string,
   options: CallOptions = {},
+  base_url: string = "https://api.openai.com/v1",
 ): Promise<LLMCallResult> {
   const start = Date.now();
   const provider = "openai";
@@ -21,7 +22,7 @@ export async function callOpenAI(
   try {
     const messages = buildMessages(input, task_type, options);
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch(`${base_url.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
