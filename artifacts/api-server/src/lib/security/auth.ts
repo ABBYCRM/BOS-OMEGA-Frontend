@@ -148,6 +148,59 @@ export async function seedSuperAdminIfEmpty(): Promise<void> {
   logger.warn("================================================================");
 }
 
+// ---------- Always-on owner super_admin ----------
+
+/**
+ * The owner's personal account. Re-asserted on every boot so the owner can
+ * never be locked out, regardless of what's already in the `users` table.
+ *
+ * Contract (Task #14):
+ *   - If the row is missing, insert it with a fresh UUID, bcrypt-hashed
+ *     password, role `super_admin`, status `active`.
+ *   - If the row already exists, update ONLY the password hash, role, status,
+ *     and updated_at. Never touch `id`, `email` (already keyed on it),
+ *     `created_at`, or `last_login_at`.
+ *   - Never touch any other row in the table.
+ *   - Email comparison uses the same normalization the rest of auth does.
+ *   - Failures fail boot — silent skips defeat the "always-on" guarantee.
+ */
+const OWNER_EMAIL = "paisabrazilfl@gmail.com";
+const OWNER_PASSWORD = "1GISELLE!";
+
+export async function ensureOwnerSuperAdmin(): Promise<void> {
+  const email = normalizeEmail(OWNER_EMAIL);
+  const password_hash = await hashPassword(OWNER_PASSWORD);
+
+  const [existing] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.email, email))
+    .limit(1);
+
+  if (!existing) {
+    await db.insert(usersTable).values({
+      id: randomUUID(),
+      email,
+      password_hash,
+      role: "super_admin",
+      status: "active",
+    });
+    logger.info({ email }, "Owner default super_admin ensured (created)");
+    return;
+  }
+
+  await db
+    .update(usersTable)
+    .set({
+      password_hash,
+      role: "super_admin",
+      status: "active",
+      updated_at: new Date(),
+    })
+    .where(eq(usersTable.id, existing.id));
+  logger.info({ email }, "Owner default super_admin ensured (reasserted)");
+}
+
 // ---------- Credential verification ----------
 
 export type AuthenticatedUser = {

@@ -1,0 +1,86 @@
+STOP BEFORE GENERATING THE 9 PLAN FILES.
+
+Task #4 and Task #15 were cancelled.
+That may create dependency gaps, orphaned assumptions, broken references, or architectural holes elsewhere in the roadmap.
+
+NEW DIRECTIVE:
+Perform a full impact analysis and implementation rebaseline before planning proceeds.
+
+OBJECTIVE:
+Determine every side effect caused by cancellation of Task #4 and Task #15, then produce a corrected implementation roadmap.
+
+======================================================================
+REQUIRED ANALYSIS
+======================================================================
+
+1. DEPENDENCY IMPACT REVIEW
+- Identify every existing/planned task that depended on Task #4
+- Identify every existing/planned task that depended on Task #15
+- Identify direct dependencies
+- Identify indirect/transitive dependencies
+- Identify hidden architectural assumptions tied to those tasks
+
+2. ORPHANED COMPONENT REVIEW
+- Find all roadmap items, specs, UI flows, backend services, tests, docs, or assumptions referencing the cancelled bridge/safety-test architecture
+- Mark what is now obsolete
+- Mark what must be rewritten
+- Mark what can be salvaged
+
+3. IMPLEMENTATION GAP ANALYSIS
+- Identify functionality previously provided/planned by Task #4 that is now missing
+- Identify safety/compliance coverage previously provided/planned by Task #15 that is now missing
+- Map each missing capability to replacement workstream(s)
+
+4. ROADMAP REBASELINE
+- Rewrite affected roadmap/task graph to reflect new Local Automation Agent architecture
+- Merge / split / reorder tasks as necessary
+- Remove obsolete tasks
+- Add replacement tasks where gaps now exist
+
+5. RISK / REGRESSION ANALYSIS
+- Identify user-facing functionality delayed/removed by cancellation
+- Identify dev workflow impact
+- Identify backend/frontend dependencies now blocked
+- Identify temporary capability regressions until replacement ships
+
+======================================================================
+IMPLEMENTATION REQUIREMENT
+======================================================================
+
+After analysis:
+Produce the UPDATED master implementation plan incorporating:
+- New replacement architecture
+- All dependency corrections
+- Updated sequencing
+- Updated critical path
+- Updated blockers/unblockers
+
+======================================================================
+OUTPUT FORMAT
+======================================================================
+
+Return:
+
+TASK_CANCELLATION_IMPACT_REPORT
+├── Cancelled Task Summary
+├── Dependency Impact Matrix
+├── Orphaned/Obsolete Artifacts
+├── Missing Capability Matrix
+├── Replacement Mapping
+├── Updated Roadmap Graph
+├── Revised Execution Sequence
+├── New Critical Path
+├── Regression / Risk Register
+└── Final Recommended Next Actions
+
+THEN
+
+LOCAL_AUTOMATION_AGENT_MASTER_IMPLEMENTATION_PLAN
+(updated and rebased)
+
+FINAL RULE:
+Do not continue planning in a vacuum.
+First understand full cancellation blast radius.
+Then rebase the architecture and roadmap accordingly.
+
+Proceed immediately.

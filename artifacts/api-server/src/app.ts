@@ -5,7 +5,7 @@ import pinoHttp from "pino-http";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
 import { seed } from "./db/seed.js";
-import { seedSuperAdminIfEmpty } from "./lib/security/auth.js";
+import { seedSuperAdminIfEmpty, ensureOwnerSuperAdmin } from "./lib/security/auth.js";
 import { errorHandler, notFoundHandler } from "./lib/security/errors.js";
 
 const app: Express = express();
@@ -96,6 +96,16 @@ export async function bootstrap(): Promise<void> {
     await seedSuperAdminIfEmpty();
   } catch (err) {
     logger.fatal({ err }, "Super-admin seed failed");
+    process.exit(1);
+  }
+  // Owner default super_admin: re-asserted on every boot so the owner can
+  // never be locked out, regardless of what's in the users table. Failures
+  // here fail boot for the same reason as the seed above — silent skip
+  // defeats the always-on guarantee.
+  try {
+    await ensureOwnerSuperAdmin();
+  } catch (err) {
+    logger.fatal({ err }, "Owner super_admin upsert failed");
     process.exit(1);
   }
 }
