@@ -542,7 +542,10 @@ export async function runBoilTheOcean(
         reason: final_assessment.reason,
         successful_agents: successful_outputs.length,
         total_agents: agent_jobs.length,
-        synthesis_success: synthesis_result.success,
+        // Follow-up #41: use the same usability flag (success && !!raw_response)
+        // that gated the final state, so empty-body successes are reported as
+        // synthesis_success:false here too — matches what the helper saw.
+        synthesis_success: synthesis_usable,
       },
     );
   } else {
@@ -568,7 +571,10 @@ export async function runBoilTheOcean(
   let returned_failure_modes = Array.isArray(synthesis_parsed.failure_modes) ? synthesis_parsed.failure_modes : [];
   let returned_recommended = `Validated best-effort synthesis from ${successful_outputs.length} specialized agents across ${bto_models.length} LLM providers`;
   if (final_assessment.final_state === "HOLD") {
-    returned_answer = `${MOCK_MODE_NOTICE}\n\nBoil The Ocean degraded — ${final_assessment.reason}. ${successful_outputs.length}/${agent_jobs.length} agents succeeded; synthesis ${synthesis_result.success ? "succeeded but no agents returned a usable response" : "failed"}. The text below (if any) is unvalidated and should not be treated as a confident answer.\n\n${final_answer}`;
+    // Follow-up #41: synthesis_usable (success && !!raw_response) is the
+    // single source of truth — use it here too so an empty-body success
+    // doesn't read as "succeeded" in the user-facing degraded message.
+    returned_answer = `${MOCK_MODE_NOTICE}\n\nBoil The Ocean degraded — ${final_assessment.reason}. ${successful_outputs.length}/${agent_jobs.length} agents succeeded; synthesis ${synthesis_usable ? "succeeded but no agents returned a usable response" : "failed"}. The text below (if any) is unvalidated and should not be treated as a confident answer.\n\n${final_answer}`;
     returned_failure_modes = [
       `BTO degraded: ${final_assessment.reason}`,
       ...returned_failure_modes,
