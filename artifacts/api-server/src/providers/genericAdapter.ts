@@ -5,6 +5,8 @@ import { logger } from "../lib/logger.js";
 export interface CallOptions {
   memory_context?: string;
   attachment_context?: string;
+  /** R-1: per-call role overlay (ARCHITECT/CRITIC/etc.) appended between persona and memory. */
+  role_overlay?: string;
   persona_prompt?: string;
 }
 
@@ -23,6 +25,7 @@ export async function callGenericOpenAI(
     const system_prompt =
       MASTER_PROMPT_KERNEL +
       (options.persona_prompt ? `\n\n${options.persona_prompt}` : "") +
+      (options.role_overlay ? `\n\n${options.role_overlay}` : "") +
       (options.memory_context ? `\n\n${options.memory_context}` : "");
 
     const user_text =

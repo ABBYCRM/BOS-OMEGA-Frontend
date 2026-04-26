@@ -1,12 +1,32 @@
 import { db } from "@workspace/db";
 import { llmProvidersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { createHash } from "crypto";
 import { decryptSecret } from "./secrets.js";
 
 export interface ResolvedKey {
   key: string;
   source: "db" | "env" | "legacy" | "proxy" | "none";
   base_url?: string;
+  /**
+   * R-5: non-reversible 4+4-character SHA-256 fingerprint of the resolved key
+   * (e.g. "ab12…ef90"). Empty string when no key is present. Stable across
+   * calls so the audit chain can show "is this the same key as last week?"
+   * without ever exposing the key itself or any prefix of it.
+   */
+  key_fingerprint: string;
+}
+
+/**
+ * R-5: short, non-reversible fingerprint of an API key. NEVER returns or
+ * exposes the key or any prefix of the key. The 4+4 hex slices come from
+ * a SHA-256 digest, so 64 bits of entropy are visible while the original
+ * value remains computationally infeasible to recover from the fingerprint.
+ */
+export function fingerprintKey(key: string): string {
+  if (!key) return "";
+  const h = createHash("sha256").update(key).digest("hex");
+  return `${h.slice(0, 4)}…${h.slice(-4)}`;
 }
 
 /**
@@ -30,21 +50,21 @@ export async function resolveProviderKey(
     const [row] = await db.select().from(llmProvidersTable).where(eq(llmProvidersTable.id, provider_id)).limit(1);
     if (row?.api_key_encrypted) {
       const key = decryptSecret(row.api_key_encrypted);
-      if (key) return { key, source: "db" };
+      if (key) return { key, source: "db", key_fingerprint: fingerprintKey(key) };
     }
     if (row?.api_key_env) {
       const key = process.env[row.api_key_env];
-      if (key) return { key, source: "env" };
+      if (key) return { key, source: "env", key_fingerprint: fingerprintKey(key) };
     }
   }
   const legacy = canonicalEnvFor(provider_name);
   if (legacy) {
     const key = process.env[legacy];
-    if (key) return { key, source: "legacy" };
+    if (key) return { key, source: "legacy", key_fingerprint: fingerprintKey(key) };
   }
   const proxy = proxyFor(provider_name);
   if (proxy) return proxy;
-  return { key: "", source: "none" };
+  return { key: "", source: "none", key_fingerprint: "" };
 }
 
 export function canonicalEnvFor(provider_name: string): string | null {
@@ -66,17 +86,17 @@ export function proxyFor(provider_name: string): ResolvedKey | null {
   if (n === "openai") {
     const key = process.env["AI_INTEGRATIONS_OPENAI_API_KEY"];
     const base_url = process.env["AI_INTEGRATIONS_OPENAI_BASE_URL"];
-    if (key && base_url) return { key, source: "proxy", base_url };
+    if (key && base_url) return { key, source: "proxy", base_url, key_fingerprint: fingerprintKey(key) };
   }
   if (n === "anthropic") {
     const key = process.env["AI_INTEGRATIONS_ANTHROPIC_API_KEY"];
     const base_url = process.env["AI_INTEGRATIONS_ANTHROPIC_BASE_URL"];
-    if (key && base_url) return { key, source: "proxy", base_url };
+    if (key && base_url) return { key, source: "proxy", base_url, key_fingerprint: fingerprintKey(key) };
   }
   if (n === "gemini" || n === "google gemini") {
     const key = process.env["AI_INTEGRATIONS_GEMINI_API_KEY"];
     const base_url = process.env["AI_INTEGRATIONS_GEMINI_BASE_URL"];
-    if (key && base_url) return { key, source: "proxy", base_url };
+    if (key && base_url) return { key, source: "proxy", base_url, key_fingerprint: fingerprintKey(key) };
   }
   return null;
 }

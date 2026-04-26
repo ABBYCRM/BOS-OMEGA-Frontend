@@ -22,6 +22,7 @@ import { callOllama } from "../providers/ollamaAdapter.js";
 import { callGenericOpenAI } from "../providers/genericAdapter.js";
 import { logger } from "../lib/logger.js";
 import { MOCK_MODE_NOTICE, buildPersonaSystemSuffix } from "../providers/prompts.js";
+import { assignRoles, buildRoleOverlay, type ParallelRole } from "./parallelRoles.js";
 
 const MAX_RETRIES = 3;
 const RETRY_BACKOFF_MS = [1000, 2000, 4000];
@@ -45,12 +46,20 @@ export async function executePipeline(
   return executeSingle(ctx, selected_models, memory_context);
 }
 
-function buildOptions(ctx: TaskContext, memory_context: string, supports_vision: boolean) {
+function buildOptions(
+  ctx: TaskContext,
+  memory_context: string,
+  supports_vision: boolean,
+  extras?: { role_overlay?: string },
+) {
   return {
     memory_context,
     attachment_context: ctx.attachment_context,
     images: supports_vision ? ctx.attachment_images : undefined,
     persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
+    // R-1: per-call role overlay used by parallel/consensus modes to
+    // differentiate the perspective each model takes on the task.
+    role_overlay: extras?.role_overlay,
   };
 }
 
@@ -128,10 +137,22 @@ async function executeParallel(
   models: ModelScore[],
   memory_context: string
 ): Promise<{ result: BosOutput; attempts_saved: string[] }> {
-  await auditLog(ctx.task_id, "PARALLEL_EXECUTION_STARTED", `Running ${models.length} models in parallel`);
+  // R-1: assign each model a different role (ARCHITECT/CRITIC/RESEARCHER/...)
+  // so the parallel batch produces genuinely differentiated answers instead
+  // of N near-identical takes. Role is stable for a given model order.
+  const roles: ParallelRole[] = assignRoles(models.length);
+  const role_summary = models
+    .map((m, i) => `${roles[i]}=${m.provider_name}/${m.model_name}`)
+    .join(", ");
+  await auditLog(
+    ctx.task_id,
+    "PARALLEL_EXECUTION_STARTED",
+    `Running ${models.length} models in parallel with role-differentiated prompts: ${role_summary}`,
+    { roles: models.map((m, i) => ({ provider: m.provider_name, model: m.model_name, role: roles[i] })) },
+  );
 
   const parallel_group = randomUUID();
-  const calls = models.map((m) => callProvider(ctx, m, memory_context));
+  const calls = models.map((m, i) => callProvider(ctx, m, memory_context, { role_overlay: buildRoleOverlay(roles[i]!) }));
   const results = await Promise.allSettled(calls);
 
   const attempts_saved: string[] = [];
@@ -140,7 +161,8 @@ async function executeParallel(
   for (let i = 0; i < results.length; i++) {
     const res = results[i];
     const model_info = models[i];
-    if (!model_info) continue;
+    const role = roles[i];
+    if (!model_info || !role) continue;
 
     const result: LLMCallResult = res.status === "fulfilled"
       ? res.value
@@ -156,7 +178,10 @@ async function executeParallel(
 
       parallel_responses.push({
         provider: model_info.provider_name,
-        model: model_info.model_name,
+        // R-1: suffix model with role so the UI/audit/logs immediately show
+        // which model produced which role's output. Existing consumers that
+        // only display model strings get the role attribution for free.
+        model: `${model_info.model_name} (${role})`,
         state: parsed.state,
         answer: parsed.answer,
         confidence_score: validation.confidence_score,
@@ -164,8 +189,15 @@ async function executeParallel(
         selected: false,
       });
 
-      if (result.success) await recordSuccess(model_info.provider_id, result.latency_ms);
+      await auditLog(ctx.task_id, "PARALLEL_RESPONSE_RECEIVED",
+        `${role} via ${model_info.provider_name}/${model_info.model_name} → state=${parsed.state}, confidence=${validation.confidence_score.toFixed(2)}`,
+        { role, provider: model_info.provider_name, model: model_info.model_name, state: parsed.state, confidence: validation.confidence_score });
+
+      await recordSuccess(model_info.provider_id, result.latency_ms);
     } else {
+      await auditLog(ctx.task_id, "PARALLEL_RESPONSE_FAILED",
+        `${role} via ${model_info.provider_name}/${model_info.model_name} → ${result.error_type || "unknown_exception"}`,
+        { role, provider: model_info.provider_name, model: model_info.model_name, error_type: result.error_type });
       await recordFailure(model_info.provider_id, result.error_type || "unknown_exception");
     }
   }
@@ -254,6 +286,7 @@ async function callProvider(
   ctx: TaskContext,
   model_info: ModelScore,
   memory_context: string,
+  extras?: { role_overlay?: string },
 ): Promise<LLMCallResult> {
   const provider_name = model_info.provider_name.toLowerCase();
   const input = ctx.input;
@@ -265,55 +298,133 @@ async function callProvider(
     .limit(1);
 
   const provider = provider_row[0];
-  const { key, base_url: proxy_base_url } = await resolveProviderKey(model_info.provider_id, model_info.provider_name);
 
   // Vision is only safe to send when the model itself is multimodal.
   // Sending image content to text-only models on a vision-capable provider
   // (e.g. gpt-3.5 on OpenAI) will produce 400s or silently misbehave.
   const supports_vision = (model_info.capability_tags ?? []).includes("multimodal");
 
+  // R-5.5: Ollama bypasses resolveProviderKey entirely — emit a synthetic
+  // KEY_RESOLVED so the audit chain still records the routing decision
+  // for every model call regardless of provider type.
+  if (provider_name === "ollama") {
+    const base_url = provider?.base_url || process.env["OLLAMA_BASE_URL"] || "http://localhost:11434";
+    await auditLog(ctx.task_id, "KEY_RESOLVED",
+      `Ollama: no key required, base_url=${base_url}`,
+      {
+        provider_id: model_info.provider_id,
+        provider_name: model_info.provider_name,
+        model: model_info.model_name,
+        source: "env",
+        base_url,
+        is_proxy: false,
+        key_fingerprint: null,
+        has_key: false,
+      },
+    );
+    return callOllama(input, task_type, model_info.model_name, base_url, buildOptions(ctx, memory_context, false, extras));
+  }
+
+  const resolved = await resolveProviderKey(model_info.provider_id, model_info.provider_name);
+  const { key, source, key_fingerprint } = resolved;
+  const proxy_base_url = resolved.base_url ?? undefined;
+
+  // R-5.3: every call records its routing decision before dispatch.
+  await auditLog(ctx.task_id, "KEY_RESOLVED",
+    `Resolved ${model_info.provider_name} key from source=${source}`,
+    {
+      provider_id: model_info.provider_id,
+      provider_name: model_info.provider_name,
+      model: model_info.model_name,
+      source,
+      base_url: proxy_base_url ?? null,
+      is_proxy: source === "proxy",
+      key_fingerprint: key_fingerprint || null,
+      has_key: !!key,
+    },
+  );
+
+  if (source === "proxy") {
+    await auditLog(ctx.task_id, "PROXY_CALL",
+      `Routing ${model_info.provider_name} via Replit AI Integrations proxy`,
+      {
+        provider_name: model_info.provider_name,
+        model: model_info.model_name,
+        base_url: proxy_base_url,
+      },
+    );
+  }
+
   if (provider_name === "openai") {
-    if (!key) return mockResult(model_info, input, task_type);
-    return callOpenAI(input, task_type, model_info.model_name, key, buildOptions(ctx, memory_context, supports_vision), proxy_base_url);
+    if (!key) {
+      await auditLog(ctx.task_id, "MOCK_MODE_USED",
+        `No key for ${model_info.provider_name} — returning failed mock`,
+        { provider_id: model_info.provider_id, model: model_info.model_name });
+      return mockResult(model_info, input, task_type);
+    }
+    return callOpenAI(input, task_type, model_info.model_name, key, buildOptions(ctx, memory_context, supports_vision, extras), proxy_base_url);
   }
 
   if (provider_name === "anthropic") {
-    if (!key) return mockResult(model_info, input, task_type);
-    return callAnthropic(input, task_type, model_info.model_name, key, buildOptions(ctx, memory_context, supports_vision), proxy_base_url);
+    if (!key) {
+      await auditLog(ctx.task_id, "MOCK_MODE_USED",
+        `No key for ${model_info.provider_name} — returning failed mock`,
+        { provider_id: model_info.provider_id, model: model_info.model_name });
+      return mockResult(model_info, input, task_type);
+    }
+    return callAnthropic(input, task_type, model_info.model_name, key, buildOptions(ctx, memory_context, supports_vision, extras), proxy_base_url);
   }
 
   if (provider_name === "gemini" || provider_name === "google gemini") {
-    if (!key) return mockResult(model_info, input, task_type);
-    return callGemini(input, task_type, model_info.model_name, key, buildOptions(ctx, memory_context, supports_vision), proxy_base_url);
-  }
-
-  if (provider_name === "ollama") {
-    const base_url = provider?.base_url || process.env["OLLAMA_BASE_URL"] || "http://localhost:11434";
-    return callOllama(input, task_type, model_info.model_name, base_url, buildOptions(ctx, memory_context, false));
+    if (!key) {
+      await auditLog(ctx.task_id, "MOCK_MODE_USED",
+        `No key for ${model_info.provider_name} — returning failed mock`,
+        { provider_id: model_info.provider_id, model: model_info.model_name });
+      return mockResult(model_info, input, task_type);
+    }
+    return callGemini(input, task_type, model_info.model_name, key, buildOptions(ctx, memory_context, supports_vision, extras), proxy_base_url);
   }
 
   const base_url = provider?.base_url || "";
-  if (!key || !base_url) return mockResult(model_info, input, task_type);
-  return callGenericOpenAI(input, task_type, model_info.model_name, base_url, key, buildOptions(ctx, memory_context, false));
+  if (!key || !base_url) {
+    await auditLog(ctx.task_id, "MOCK_MODE_USED",
+      `No key/base_url for ${model_info.provider_name} (generic) — returning failed mock`,
+      { provider_id: model_info.provider_id, model: model_info.model_name });
+    return mockResult(model_info, input, task_type);
+  }
+  return callGenericOpenAI(input, task_type, model_info.model_name, base_url, key, buildOptions(ctx, memory_context, false, extras));
 }
 
+/**
+ * R-5.4: mock-mode is now an honest failure. Previously this returned
+ * `success: true` with fabricated latency and token counts, which made
+ * mocked responses indistinguishable from real successful calls in the
+ * audit chain and downstream provider_health stats. The raw_response
+ * envelope is preserved so the UI can still render an explanation, but
+ * the call is reported as a failure (`success: false`,
+ * `error_type: "unknown_exception"`) so the existing fallback path,
+ * circuit breaker, and parallel-merge logic all treat it as a real
+ * failure rather than a successful answer.
+ */
 function mockResult(model_info: ModelScore, input: string, task_type: string): LLMCallResult {
   const mock: BosOutput = {
-    state: "GO",
+    state: "HOLD",
     task_type,
-    answer: `${MOCK_MODE_NOTICE}\n\nThis is a mock response from ${model_info.provider_name}/${model_info.model_name}.\n\nYour input was: "${input.slice(0, 200)}${input.length > 200 ? "..." : ""}"\n\nTo receive real responses, configure API keys via environment variables (OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY).`,
+    answer: `${MOCK_MODE_NOTICE}\n\nNo API key was resolvable for ${model_info.provider_name}/${model_info.model_name}, so no real model call was made. This is a placeholder, not a real answer.\n\nYour input was: "${input.slice(0, 200)}${input.length > 200 ? "..." : ""}"\n\nTo receive real responses, configure API keys via environment variables (OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY) or via the Settings tab.`,
     assumptions: ["Mock mode active — no real API key configured"],
-    uncertainties: ["This response is simulated"],
-    missing_inputs: [],
-    failure_modes: ["Real API call not made"],
+    uncertainties: ["This response is simulated; the underlying provider was never contacted"],
+    missing_inputs: [`API key for ${model_info.provider_name}`],
+    failure_modes: ["Real API call not made — no key resolvable"],
     recommended_next_action: "Configure provider API keys to enable live responses",
   };
   return {
-    success: true,
+    success: false,
+    error_type: "unknown_exception",
+    error_message: `No API key configured for ${model_info.provider_name}; mock response returned`,
     raw_response: JSON.stringify(mock),
-    latency_ms: Math.floor(Math.random() * 200) + 50,
-    token_input: Math.floor(input.length / 4),
-    token_output: 150,
+    latency_ms: 0,
+    token_input: 0,
+    token_output: 0,
     cost_estimate: 0,
     provider: model_info.provider_name,
     model: model_info.model_name,

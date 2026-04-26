@@ -158,6 +158,7 @@ export async function runSeriesPass(
       attachment_context: ctx.attachment_context,
       attachment_images: ctx.attachment_images,
       persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
+      task_id: ctx.task_id,
     });
     const latency_ms = Date.now() - start_time;
 

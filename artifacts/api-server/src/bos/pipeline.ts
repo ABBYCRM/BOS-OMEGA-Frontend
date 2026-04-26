@@ -366,6 +366,34 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     ctx.mode = "single" as ExecutionMode;
   }
 
+  // R-1: parallel/consensus with effective N<2 also degrades. There are two
+  // ways to land in single-model parallel:
+  //   1. eligible model pool < 2 (registry too thin / circuit breakers open)
+  //   2. user explicitly set parallel_models=1 even with a healthy pool
+  // Either way, dispatching the same single model with one role overlay is
+  // not "parallel" — it is single-shot wearing parallel clothing. We
+  // downgrade and audit so the effective mode in the task is honest.
+  if (resolved_mode === "parallel" || resolved_mode === "consensus") {
+    const requested_parallel = pipelineInput.parallel_models || 3;
+    const effective_count = Math.min(models.length, requested_parallel);
+    if (effective_count < 2) {
+      await auditLog(
+        task_id,
+        "MODE_DOWNGRADED",
+        `${resolved_mode} requires >=2 models but effective_count=${effective_count} (eligible=${models.length}, requested=${requested_parallel}); degraded to single`,
+        {
+          from: resolved_mode,
+          to: "single",
+          eligible_models: models.length,
+          requested_parallel,
+          effective_count,
+        },
+      );
+      resolved_mode = "single";
+      ctx.mode = "single" as ExecutionMode;
+    }
+  }
+
   if (resolved_mode === "series_pass") {
     const sp_result = await runSeriesPass(ctx, models);
     result = sp_result.result;

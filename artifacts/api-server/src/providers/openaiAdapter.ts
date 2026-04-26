@@ -7,6 +7,12 @@ export interface CallOptions {
   attachment_context?: string;
   images?: VisionImage[];
   persona_prompt?: string;
+  /**
+   * R-1: per-call role overlay (e.g. ARCHITECT/CRITIC/RESEARCHER) appended
+   * to the system prompt between persona and memory so each parallel model
+   * receives a different perspective on the same task.
+   */
+  role_overlay?: string;
 }
 
 export async function callOpenAI(
@@ -92,6 +98,7 @@ function buildMessages(
   const system =
     MASTER_PROMPT_KERNEL +
     (options.persona_prompt ? `\n\n${options.persona_prompt}` : "") +
+    (options.role_overlay ? `\n\n${options.role_overlay}` : "") +
     (options.memory_context ? `\n\n${options.memory_context}` : "");
 
   const user_text =

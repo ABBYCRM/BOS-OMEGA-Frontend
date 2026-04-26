@@ -62,7 +62,19 @@ type AuditEventType =
   | "OWNER_ACCOUNT_PROTECTED_MUTATION_BLOCKED"
   | "OVERRIDE_TASK_UNLOCKED"
   | "OVERRIDE_TRI_STATE_FORCED"
-  | "OVERRIDE_RUN_RESET";
+  | "OVERRIDE_RUN_RESET"
+  // R-5: provider key resolution & call routing visibility.
+  // Emitted on every provider call so the audit chain shows whether the
+  // call went direct (db/env/legacy), via the Replit AI Integrations proxy,
+  // or fell through to mock mode.
+  | "KEY_RESOLVED"
+  | "PROXY_CALL"
+  | "MOCK_MODE_USED"
+  // R-1: per-response audit events for parallel/consensus mode so the
+  // audit chain shows which model produced which role's output and
+  // which roles failed.
+  | "PARALLEL_RESPONSE_RECEIVED"
+  | "PARALLEL_RESPONSE_FAILED";
 
 const AUDIT_QUEUE_DIR = process.env["AUDIT_QUEUE_DIR"] || path.resolve(process.cwd(), ".local", "audit-queue");
 const AUDIT_QUEUE_FILE = path.join(AUDIT_QUEUE_DIR, "pending.jsonl");

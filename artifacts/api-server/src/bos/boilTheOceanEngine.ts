@@ -216,6 +216,7 @@ export async function runBoilTheOcean(
           attachment_context: ctx.attachment_context,
           attachment_images: ctx.attachment_images,
           persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
+          task_id: ctx.task_id,
         }),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("agent_timeout")), AGENT_TIMEOUT_MS)),
       ]);
@@ -371,6 +372,7 @@ export async function runBoilTheOcean(
     attachment_context: ctx.attachment_context,
     attachment_images: ctx.attachment_images,
     persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
+    task_id: ctx.task_id,
   });
 
   let synthesis_answer = "Synthesis could not be generated.";
@@ -401,6 +403,7 @@ export async function runBoilTheOcean(
     attachment_context: ctx.attachment_context,
     attachment_images: ctx.attachment_images,
     persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
+    task_id: ctx.task_id,
   });
 
   let final_answer = synthesis_answer;

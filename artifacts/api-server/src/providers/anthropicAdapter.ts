@@ -5,6 +5,8 @@ import { logger } from "../lib/logger.js";
 export interface CallOptions {
   memory_context?: string;
   attachment_context?: string;
+  /** R-1: per-call role overlay (ARCHITECT/CRITIC/etc.) appended to system prompt between persona and memory. */
+  role_overlay?: string;
   images?: VisionImage[];
   persona_prompt?: string;
 }
@@ -24,6 +26,7 @@ export async function callAnthropic(
     const system_prompt =
       MASTER_PROMPT_KERNEL +
       (options.persona_prompt ? `\n\n${options.persona_prompt}` : "") +
+      (options.role_overlay ? `\n\n${options.role_overlay}` : "") +
       (options.memory_context ? `\n\n${options.memory_context}` : "") +
       "\n\nIMPORTANT: Return ONLY valid JSON matching the BOS output schema. Do not include any other text.";
 

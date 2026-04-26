@@ -9,6 +9,7 @@ import { callOllama } from "../providers/ollamaAdapter.js";
 import { callGenericOpenAI } from "../providers/genericAdapter.js";
 import { MOCK_MODE_NOTICE } from "../providers/prompts.js";
 import { resolveProviderKey } from "../lib/keyResolver.js";
+import { auditLog } from "./auditEngine.js";
 import type { BosOutput } from "./types.js";
 
 /**
@@ -21,6 +22,20 @@ export interface CallProviderOptions {
   attachment_images?: VisionImage[];
   memory_context?: string;
   persona_prompt?: string;
+  /**
+   * R-5: optional task id used to attach KEY_RESOLVED / PROXY_CALL /
+   * MOCK_MODE_USED audit events to a specific task. Callers in BTO and
+   * series_pass already have ctx.task_id available; passing it here makes
+   * the resolver/proxy decisions show up in the per-task audit pane.
+   */
+  task_id?: string;
+  /**
+   * R-1: optional per-call role overlay appended to the system prompt,
+   * after persona and before memory. Used by parallel/consensus modes to
+   * make each model approach the task from a different perspective
+   * (ARCHITECT / CRITIC / RESEARCHER / BUILDER / VALIDATOR).
+   */
+  role_overlay?: string;
 }
 
 /**
@@ -50,15 +65,6 @@ export async function callProviderDirect(
     .limit(1);
 
   const provider = provider_rows[0];
-  const resolved = await resolveProviderKey(
-    model_info.provider_id,
-    model_info.provider_name,
-  );
-  const { key } = resolved;
-  // Coerce a possibly-omitted base_url to undefined so the adapter's
-  // default-parameter (vendor URL) kicks in. JS only applies default params
-  // when the argument is literally `undefined` — passing `null` would crash.
-  const proxy_base_url = resolved.base_url ?? undefined;
 
   // Vision-gate: only forward base64 image data to models that advertise
   // multimodal support, mirroring the policy in executionEngine.buildOptions.
@@ -68,33 +74,119 @@ export async function callProviderDirect(
     attachment_context: options.attachment_context,
     images: supports_vision ? options.attachment_images : undefined,
     persona_prompt: options.persona_prompt,
+    role_overlay: options.role_overlay,
   };
 
+  // Ollama bypasses resolveProviderKey entirely (no key required), so emit
+  // a synthetic KEY_RESOLVED with source="env" so the audit chain still has
+  // a uniform per-call routing record. R-5.5.
+  if (provider_name === "ollama") {
+    const base_url = provider?.base_url || process.env["OLLAMA_BASE_URL"] || "http://localhost:11434";
+    await auditLog(options.task_id, "KEY_RESOLVED",
+      `Ollama: no key required, base_url=${base_url}`,
+      {
+        provider_id: model_info.provider_id,
+        provider_name: model_info.provider_name,
+        model: model_info.model_name,
+        source: "env",
+        base_url,
+        is_proxy: false,
+        key_fingerprint: null,
+        has_key: false,
+      },
+    );
+    return callOllama(prompt, task_type, model_info.model_name, base_url, adapter_options);
+  }
+
+  const resolved = await resolveProviderKey(
+    model_info.provider_id,
+    model_info.provider_name,
+  );
+  const { key, source, key_fingerprint } = resolved;
+  // Coerce a possibly-omitted base_url to undefined so the adapter's
+  // default-parameter (vendor URL) kicks in. JS only applies default params
+  // when the argument is literally `undefined` — passing `null` would crash.
+  const proxy_base_url = resolved.base_url ?? undefined;
+
+  // R-5.3: every call records its routing decision before dispatch.
+  await auditLog(options.task_id, "KEY_RESOLVED",
+    `Resolved ${model_info.provider_name} key from source=${source}`,
+    {
+      provider_id: model_info.provider_id,
+      provider_name: model_info.provider_name,
+      model: model_info.model_name,
+      source,
+      base_url: proxy_base_url ?? null,
+      is_proxy: source === "proxy",
+      key_fingerprint: key_fingerprint || null,
+      has_key: !!key,
+    },
+  );
+
+  if (source === "proxy") {
+    await auditLog(options.task_id, "PROXY_CALL",
+      `Routing ${model_info.provider_name} via Replit AI Integrations proxy`,
+      {
+        provider_name: model_info.provider_name,
+        model: model_info.model_name,
+        base_url: proxy_base_url,
+      },
+    );
+  }
+
   if (provider_name === "openai") {
-    if (!key) return mockResult(model_info, prompt, task_type);
+    if (!key) {
+      await auditLog(options.task_id, "MOCK_MODE_USED",
+        `No key for ${model_info.provider_name} — returning failed mock`,
+        { provider_id: model_info.provider_id, model: model_info.model_name });
+      return mockResult(model_info, prompt, task_type);
+    }
     return callOpenAI(prompt, task_type, model_info.model_name, key, adapter_options, proxy_base_url);
   }
 
   if (provider_name === "anthropic") {
-    if (!key) return mockResult(model_info, prompt, task_type);
+    if (!key) {
+      await auditLog(options.task_id, "MOCK_MODE_USED",
+        `No key for ${model_info.provider_name} — returning failed mock`,
+        { provider_id: model_info.provider_id, model: model_info.model_name });
+      return mockResult(model_info, prompt, task_type);
+    }
     return callAnthropic(prompt, task_type, model_info.model_name, key, adapter_options, proxy_base_url);
   }
 
   if (provider_name === "gemini" || provider_name === "google gemini") {
-    if (!key) return mockResult(model_info, prompt, task_type);
+    if (!key) {
+      await auditLog(options.task_id, "MOCK_MODE_USED",
+        `No key for ${model_info.provider_name} — returning failed mock`,
+        { provider_id: model_info.provider_id, model: model_info.model_name });
+      return mockResult(model_info, prompt, task_type);
+    }
     return callGemini(prompt, task_type, model_info.model_name, key, adapter_options, proxy_base_url);
   }
 
-  if (provider_name === "ollama") {
-    const base_url = provider?.base_url || process.env["OLLAMA_BASE_URL"] || "http://localhost:11434";
-    return callOllama(prompt, task_type, model_info.model_name, base_url, adapter_options);
-  }
-
   const base_url = provider?.base_url || "";
-  if (!key || !base_url) return mockResult(model_info, prompt, task_type);
+  if (!key || !base_url) {
+    await auditLog(options.task_id, "MOCK_MODE_USED",
+      `No key/base_url for ${model_info.provider_name} (generic) — returning failed mock`,
+      { provider_id: model_info.provider_id, model: model_info.model_name });
+    return mockResult(model_info, prompt, task_type);
+  }
   return callGenericOpenAI(prompt, task_type, model_info.model_name, base_url, key, adapter_options);
 }
 
+/**
+ * R-5.4: mock-mode is now an honest failure. Previously this returned
+ * `success: true` with fabricated latency and token counts, which made
+ * mocked responses indistinguishable from real successful calls in the
+ * audit chain and downstream provider_health stats. The raw_response
+ * envelope is preserved so the UI can still render an explanation, but
+ * the call is reported as a failure (`success: false`,
+ * `error_type: "unknown_exception"`) so:
+ *   - executePipeline takes the existing fallback path
+ *   - the no-key provider's circuit breaker correctly accrues failure
+ *   - parallel mode treats mocked calls as failed parallel calls
+ *   - the final response degrades to HOLD with a clear failure mode
+ */
 function mockResult(model_info: ModelScore, prompt: string, task_type: string): LLMCallResult {
   const preview = prompt.slice(0, 300);
   const role_match = prompt.match(/ROLE: (\w+)/);
@@ -102,14 +194,14 @@ function mockResult(model_info: ModelScore, prompt: string, task_type: string): 
   const role = role_match?.[1] || agent_match?.[1] || "PROCESSOR";
 
   const mock: BosOutput = {
-    state: "GO",
+    state: "HOLD",
     task_type,
-    answer: `${MOCK_MODE_NOTICE}\n\n[${role} via ${model_info.provider_name}/${model_info.model_name}]\n\nThis agent processed the task in mock mode (no API key configured).\n\nTask preview: "${preview.slice(0, 200)}..."\n\nPaste an API key in Settings to enable live agent responses.`,
+    answer: `${MOCK_MODE_NOTICE}\n\n[${role} via ${model_info.provider_name}/${model_info.model_name}]\n\nNo API key was resolvable for this provider, so no real model call was made. This is a placeholder, not a real answer.\n\nTask preview: "${preview.slice(0, 200)}..."\n\nPaste an API key in Settings to enable live responses.`,
     assumptions: ["Mock mode active — no real API key configured", `Role: ${role}`],
-    uncertainties: ["This response is simulated"],
-    missing_inputs: [],
-    failure_modes: ["Real API call not made"],
-    recommended_next_action: "Paste a provider API key in the Settings tab to enable live agent responses",
+    uncertainties: ["This response is simulated; the underlying provider was never contacted"],
+    missing_inputs: [`API key for ${model_info.provider_name}`],
+    failure_modes: ["Real API call not made — no key resolvable"],
+    recommended_next_action: "Configure the provider key in Settings or set the appropriate environment variable.",
   };
 
   const extra: Record<string, unknown> = {
@@ -121,11 +213,13 @@ function mockResult(model_info: ModelScore, prompt: string, task_type: string): 
   };
 
   return {
-    success: true,
+    success: false,
+    error_type: "unknown_exception",
+    error_message: `No API key configured for ${model_info.provider_name}; mock response returned`,
     raw_response: JSON.stringify({ ...mock, ...extra }),
-    latency_ms: Math.floor(Math.random() * 300) + 80,
-    token_input: Math.floor(prompt.length / 4),
-    token_output: 200,
+    latency_ms: 0,
+    token_input: 0,
+    token_output: 0,
     cost_estimate: 0,
     provider: model_info.provider_name,
     model: model_info.model_name,
