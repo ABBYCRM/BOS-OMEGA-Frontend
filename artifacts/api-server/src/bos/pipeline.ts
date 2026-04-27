@@ -448,8 +448,13 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
 
       // Continuity scratchpad — same authority tier as image_generation
       // so a follow-up "what was the image you edited?" picks up this
-      // row's storage_path anchor in memory_context.
-      if (tri_state !== "ABORT") {
+      // row's storage_path anchor in memory_context. The image bridge
+      // never returns ABORT (it falls back to a HOLD with a denial
+      // explanation on every failure path), so the only branch worth
+      // gating on is whether attachments actually exist (i.e. the task
+      // succeeded). Quota-blocked tasks have no attachments and there's
+      // no useful continuity row to write for them.
+      if (outcome.success && outcome.attachments.length > 0) {
         try {
           const path_lines = outcome.attachments
             .map((a) => `${a.storage_path} (${a.provider}${a.mock ? "/mock" : ""})`)
@@ -571,8 +576,11 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     // the same conversation can recall this image via memory_context. The
     // summary deliberately includes the storage_path so a follow-up like
     // "make the sneaker blue" has the prior attachment id available to the
-    // model. Writer failures are non-fatal.
-    if (tri_state !== "ABORT") {
+    // model. Writer failures are non-fatal. The image bridge never
+    // returns ABORT (any failure path becomes a HOLD with a denial
+    // explanation), so we gate on whether the run actually succeeded —
+    // quota-blocked / no-provider tasks have nothing to anchor.
+    if (outcome.success && outcome.attachments.length > 0) {
       try {
         // Lead with the storage_path so the auto-summary's bounded answer
         // preview (stripped of sentence terminators, truncated to ~240 chars)

@@ -8,6 +8,13 @@
       "when": 1777215727480,
       "tag": "0000_local_agent_enterprise",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777321789254,
+      "tag": "0001_free_vapor",
+      "breakpoints": true
     }
   ]
 }
