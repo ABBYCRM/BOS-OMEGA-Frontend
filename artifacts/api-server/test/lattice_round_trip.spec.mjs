@@ -90,7 +90,7 @@
  * Exits 0 on round-trip pass, 1 on any failure.
  */
 import assert from "node:assert/strict";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -188,6 +188,115 @@ await test("super_admin can log in", async () => {
     email: ADMIN_EMAIL, password: ADMIN_PASSWORD,
   });
   assert.equal(r.status, 200, `admin login failed: ${r.status} ${JSON.stringify(r.data)}`);
+});
+
+/*
+ * Preflight: confirm at least one LLM provider can resolve a key in
+ * this environment BEFORE we submit any tasks. Without this check, a
+ * fresh-clone dev environment that has no provider key wired and no
+ * AI Integration provisioned would still get past steps 1-3, then
+ * silently produce HOLD tasks (no model output → 0
+ * SCRATCHPAD_AUTO_WRITTEN events), and finally fail at the audit-count
+ * assertions with a confusing message that doesn't surface the real
+ * cause. The keyResolver in artifacts/api-server/src/lib/keyResolver.ts
+ * resolves provider keys in this priority:
+ *   1. DB-stored encrypted key (Settings UI / PUT /api/providers/:id/api-key)
+ *   2. provider.api_key_env env var
+ *   3. legacy canonical env var (OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY)
+ *   4. Replit AI Integrations proxy (AI_INTEGRATIONS_*_API_KEY + _BASE_URL)
+ *
+ * This preflight checks all four paths at the spec level using only
+ * the data the API exposes (has_api_key on the provider list) plus
+ * env-var presence (we check existence, never read or print values).
+ * It does NOT mutate any provider config — operators' carefully-set
+ * provider rows remain untouched. If none of the four paths resolves
+ * for any enabled provider, we fail fast with a one-shot remediation
+ * message listing every option.
+ */
+await test("Preflight: at least one LLM provider key is resolvable in this environment", async () => {
+  const list = await request(adminJar, "GET", "/api/providers");
+  assert.equal(list.status, 200, `provider list fetch failed: ${list.status}`);
+  const providers = Array.isArray(list.data) ? list.data : [];
+  assert.ok(providers.length > 0, "no providers seeded in this DB — run db:push and reseed");
+
+  const ENV_VENDOR_LEGACY = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "google gemini": "GEMINI_API_KEY",
+  };
+  const ENV_VENDOR_PROXY = {
+    "openai": ["AI_INTEGRATIONS_OPENAI_API_KEY", "AI_INTEGRATIONS_OPENAI_BASE_URL"],
+    "anthropic": ["AI_INTEGRATIONS_ANTHROPIC_API_KEY", "AI_INTEGRATIONS_ANTHROPIC_BASE_URL"],
+    "gemini": ["AI_INTEGRATIONS_GEMINI_API_KEY", "AI_INTEGRATIONS_GEMINI_BASE_URL"],
+    "google gemini": ["AI_INTEGRATIONS_GEMINI_API_KEY", "AI_INTEGRATIONS_GEMINI_BASE_URL"],
+  };
+
+  // For each enabled provider, walk the resolver-equivalent priority
+  // chain and stop at the first hit. Track the resolution source per
+  // provider so the success log explains which path won.
+  const resolved = [];
+  for (const p of providers) {
+    if (!p.enabled) continue;
+    const name = String(p.name ?? "").toLowerCase();
+    if (p.has_api_key) { resolved.push({ name: p.name, via: "db" }); continue; }
+    if (p.api_key_env && process.env[p.api_key_env]) {
+      resolved.push({ name: p.name, via: `env:${p.api_key_env}` }); continue;
+    }
+    const legacy = ENV_VENDOR_LEGACY[name];
+    if (legacy && process.env[legacy]) {
+      resolved.push({ name: p.name, via: `legacy_env:${legacy}` }); continue;
+    }
+    const proxy = ENV_VENDOR_PROXY[name];
+    if (proxy && process.env[proxy[0]] && process.env[proxy[1]]) {
+      resolved.push({ name: p.name, via: `ai_integrations_proxy` }); continue;
+    }
+    // Ollama is special: no key required (local server). If the
+    // provider is Ollama and the operator has it running locally,
+    // it counts. We don't probe the local port from the spec — the
+    // assumption is "operator wired this on purpose."
+    if (name === "ollama") { resolved.push({ name: p.name, via: "ollama_local" }); continue; }
+  }
+
+  if (resolved.length === 0) {
+    // One actionable error message that lists every remediation path.
+    // Keep the legacy / proxy env-var names verbatim so an operator
+    // can grep their .env or environment for them directly.
+    throw new Error(
+      [
+        "No enabled LLM provider has a resolvable API key in this environment.",
+        "The lattice round-trip self-test needs a real model call to produce",
+        "SCRATCHPAD_AUTO_WRITTEN audit events; without a key, the post-export",
+        "tasks finish in HOLD and the round-trip cannot be proved.",
+        "",
+        "Pick ONE of the following remediations and re-run:",
+        "",
+        "  A. Paste an API key into a provider via Settings (or call",
+        "     PUT /api/providers/:id/api-key). Recommended.",
+        "",
+        "  B. Set a vendor env var that any seeded provider will pick up:",
+        "       OPENAI_API_KEY      → prov_openai",
+        "       ANTHROPIC_API_KEY   → prov_anthropic",
+        "       GEMINI_API_KEY      → prov_gemini",
+        "",
+        "  C. Provision the matching Replit AI Integration so the proxy",
+        "     fallback in keyResolver.proxyFor() resolves. The integration",
+        "     sets BOTH of:",
+        "       AI_INTEGRATIONS_OPENAI_API_KEY     + AI_INTEGRATIONS_OPENAI_BASE_URL",
+        "       AI_INTEGRATIONS_ANTHROPIC_API_KEY  + AI_INTEGRATIONS_ANTHROPIC_BASE_URL",
+        "       AI_INTEGRATIONS_GEMINI_API_KEY     + AI_INTEGRATIONS_GEMINI_BASE_URL",
+        "",
+        `  D. Run an Ollama instance locally (port 11434) — prov_ollama will pick it up.`,
+        "",
+        `Currently enabled providers: ${providers.filter(p => p.enabled).map(p => p.name).join(", ") || "(none)"}`,
+      ].join("\n"),
+    );
+  }
+
+  // Surface which path won so a future debug session has a one-line
+  // breadcrumb. We do not print the resolved key, env var value, or
+  // any prefix of either — only the resolution source.
+  console.log(`       (resolvable providers: ${resolved.map(r => `${r.name}→${r.via}`).join(", ")})`);
 });
 
 let userAId = null;
@@ -436,11 +545,30 @@ await test("Audit chain records all lattice + scratchpad + conversation events",
 });
 
 // ---- Step 9: write the verification document ---------------------------
+//
+// Sentinel-bracketed write: the round-trip-only content (baseline +
+// steps table + audit completeness) is regenerated wholesale every
+// run, but the rest of the doc (cross-AI compatibility recordings,
+// findings, out-of-scope, how-to-rerun) is preserved verbatim if it
+// already exists. This stops the spec from clobbering manually-recorded
+// cross-AI evidence (e.g. Task #79's verbatim Claude/GPT/Gemini
+// replies) every time someone re-runs the round-trip. If the file is
+// missing or has no sentinels, a full default template is written
+// (one-time migration).
+const AUTO_BEGIN = "<!-- AUTO-LATTICE-RT BEGIN -->";
+const AUTO_END = "<!-- AUTO-LATTICE-RT END -->";
 await test("Write docs/lattice-continuity-verification.md", async () => {
   const docPath = resolve(REPO_ROOT, "docs", "lattice-continuity-verification.md");
   mkdirSync(dirname(docPath), { recursive: true });
-  const passFail = (b) => (b ? "PASS" : "FAIL");
-  const lines = [
+
+  const autoBlock = [
+    AUTO_BEGIN,
+    "<!--",
+    "  Everything between the AUTO-LATTICE-RT sentinels is regenerated by",
+    "  artifacts/api-server/test/lattice_round_trip.spec.mjs on every run.",
+    "  Edit OUTSIDE the sentinels — manual cross-AI evidence, findings,",
+    "  etc. — is preserved verbatim across runs.",
+    "-->",
     "# Lattice Continuity — End-to-End Verification",
     "",
     `_Generated by \`artifacts/api-server/test/lattice_round_trip.spec.mjs\` on ${new Date().toISOString()}._`,
@@ -466,6 +594,7 @@ await test("Write docs/lattice-continuity-verification.md", async () => {
     "",
     "| # | Step | Result |",
     "| --- | --- | --- |",
+    "| 0 | Preflight: at least one provider key is resolvable | PASS |",
     "| 1 | Provision one fresh user via `POST /api/users` (super_admin) | PASS |",
     "| 2 | Submit 3 related tasks + 1 manual pin in original session | PASS |",
     "| 3 | `GET /api/lattice/export` — blob, hash, fence, preamble | PASS |",
@@ -503,6 +632,19 @@ await test("Write docs/lattice-continuity-verification.md", async () => {
     "shape varies per execution mode and filtering them to a single run is",
     "best-effort.",
     "",
+    AUTO_END,
+  ];
+
+  // Default manual section: the static (human-curated) content that
+  // lives below the AUTO-LATTICE-RT sentinel. Used ONLY when the file
+  // doesn't already exist or doesn't already have the sentinel — once
+  // the sentinel is in place, the existing manual content (including
+  // any added cross-AI verbatim replies, findings, etc.) is preserved
+  // verbatim across runs. Note: the dynamic `${exportHash}` reference
+  // that used to live in this section has been replaced with a generic
+  // pointer to the audit table above, so this block remains static and
+  // safe to preserve verbatim.
+  const defaultManual = [
     "## Cross-AI compatibility",
     "",
     "The Lattice Receiver Protocol canon row (authority_level=9, seeded at",
@@ -553,11 +695,12 @@ await test("Write docs/lattice-continuity-verification.md", async () => {
     "AI to (a) acknowledge the hash exists, and (b) refuse to silently",
     "reconcile contradictions between the rehydrated content and its own",
     "prior context without flagging them. Programmatic verification is",
-    `automatic in BOS-OMEGA itself: this run's hash \`${exportHash}\``,
-    "was recomputed inside `POST /api/lattice/import` and the import",
-    "succeeded only because the recomputed value matched the embedded one.",
-    "Tampering is rejected with HTTP 400 / `LATTICE_HASH_MISMATCH` (covered",
-    "by `tests/lattice_e2e.mjs`).",
+    "automatic in BOS-OMEGA itself: each run's `fidelity_sha256` (recorded",
+    "in the round-trip baseline table above) is recomputed inside",
+    "`POST /api/lattice/import`, and the import succeeds only because",
+    "the recomputed value matched the embedded one. Tampering is rejected",
+    "with HTTP 400 / `LATTICE_HASH_MISMATCH` (covered by",
+    "`tests/lattice_e2e.mjs`).",
     "",
     "## Findings (logged during round-trip implementation)",
     "",
@@ -594,11 +737,46 @@ await test("Write docs/lattice-continuity-verification.md", async () => {
     "  node test/lattice_round_trip.spec.mjs",
     "```",
     "",
-    "Re-running rewrites this file with the new baseline. The previous",
-    "values live in git history.",
+    "Re-running rewrites only the AUTO-LATTICE-RT block at the top of",
+    "this file with the new baseline. Manual edits below the sentinel —",
+    "cross-AI verbatim replies, findings, etc. — are preserved verbatim.",
+    "Previous baseline values live in git history.",
     "",
   ];
-  writeFileSync(docPath, lines.join("\n"), "utf8");
+
+  // Merge step: regenerate the auto-block in place. Preserve any
+  // human-curated content already living below the AUTO_END sentinel
+  // so that manually-recorded cross-AI evidence (e.g. Task #79's
+  // verbatim Claude / GPT / Gemini replies, or new vendor rounds added
+  // since) survives every re-run of this spec. If the file doesn't
+  // exist or has no sentinel, fall back to the default manual section
+  // so a fresh-clone install still gets a complete document on the
+  // first run.
+  let manualPart;
+  if (existsSync(docPath)) {
+    const existing = readFileSync(docPath, "utf8");
+    const endIdx = existing.indexOf(AUTO_END);
+    if (endIdx >= 0) {
+      // Take everything strictly after the AUTO_END line (including the
+      // newline that follows it, if present) so we don't double up the
+      // sentinel or eat human content.
+      const afterSentinel = existing.slice(endIdx + AUTO_END.length).replace(/^\r?\n/, "");
+      manualPart = afterSentinel.trimEnd() + "\n";
+    } else {
+      // Doc exists but predates the sentinel: one-time migration —
+      // discard the legacy auto-generated portion and replant the
+      // canonical manual template. Operators editing this file before
+      // the sentinel was introduced will lose only the auto-rewritten
+      // baseline / steps / audit tables, which is fine because the
+      // current run is about to regenerate them anyway.
+      manualPart = defaultManual.join("\n") + "\n";
+    }
+  } else {
+    manualPart = defaultManual.join("\n") + "\n";
+  }
+
+  const out = autoBlock.join("\n") + "\n\n" + manualPart;
+  writeFileSync(docPath, out, "utf8");
 });
 
 console.log(`\n  ${pass} passed, ${fail} failed`);
