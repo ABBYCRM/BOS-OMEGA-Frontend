@@ -16,3 +16,5 @@ export * from "./attachments";
 export * from "./users";
 export * from "./localAgent";
 export * from "./userMemoryBudgets";
+export * from "./conversations";
+export * from "./latticeExports";

@@ -105,7 +105,36 @@ type AuditEventType =
   // records the result as display-only metadata.
   | "CANON_HASH_LOGGED"
   | "CANON_LOAD_ERROR"
-  | "TRI_STATE_RECORDED";
+  | "TRI_STATE_RECORDED"
+  // Fidelity Lattice Continuity Protocol — Task #66 (schema foundations).
+  // Only the event types are added here; the writers/handlers that emit
+  // them land in the downstream lattice tasks. They're declared now so
+  // the AuditEventType union is the single, stable contract every
+  // lattice task can import without a follow-up plumbing change.
+  //
+  //   SCRATCHPAD_AUTO_WRITTEN — the auto-summarisation writer just
+  //     persisted a new scratchpad row (memory_items.source =
+  //     "auto_summary") at the end of a task.
+  //   SCRATCHPAD_PINNED       — the user clicked the Pin button on a
+  //     conversation turn and the Pin handler persisted a scratchpad
+  //     row (memory_items.source = "manual_pin").
+  //   LATTICE_EXPORTED        — a user exported a lattice bundle. The
+  //     metadata mirrors the lattice_exports row (sha256, byte_size,
+  //     task_count) so audit consumers don't have to join.
+  //   LATTICE_IMPORTED        — a user re-imported a lattice bundle.
+  //     Includes the recomputed sha256 and a verified flag so a
+  //     mismatch is greppable in the audit chain.
+  //   CONVERSATION_CREATED    — a new row landed in `conversations`,
+  //     either via the auto-cluster writer or an explicit user action.
+  //   CONVERSATION_ASSIGNED   — `tasks.conversation_id` was set or
+  //     changed. Includes both old and new ids so re-assignments are
+  //     reversible from the audit log alone.
+  | "SCRATCHPAD_AUTO_WRITTEN"
+  | "SCRATCHPAD_PINNED"
+  | "LATTICE_EXPORTED"
+  | "LATTICE_IMPORTED"
+  | "CONVERSATION_CREATED"
+  | "CONVERSATION_ASSIGNED";
 
 const AUDIT_QUEUE_DIR = process.env["AUDIT_QUEUE_DIR"] || path.resolve(process.cwd(), ".local", "audit-queue");
 const AUDIT_QUEUE_FILE = path.join(AUDIT_QUEUE_DIR, "pending.jsonl");

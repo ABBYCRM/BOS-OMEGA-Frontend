@@ -1,6 +1,7 @@
 import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { conversationsTable } from "./conversations";
 
 export const tasksTable = pgTable("tasks", {
   id: text("id").primaryKey(),
@@ -13,6 +14,12 @@ export const tasksTable = pgTable("tasks", {
   final_status: text("final_status").notNull().default("pending"),
   final_output: text("final_output"),
   mode: text("mode").notNull().default("single"),
+  // Fidelity Lattice Continuity Protocol — Task #66.
+  // Nullable FK to `conversations.id`. Pre-existing tasks stay null and
+  // are surfaced as "Uncategorized" by the conversations sidebar. The
+  // clustering writer assigns this column on new tasks; users can also
+  // reassign via the conversations UI in a downstream lattice task.
+  conversation_id: text("conversation_id").references(() => conversationsTable.id),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 
