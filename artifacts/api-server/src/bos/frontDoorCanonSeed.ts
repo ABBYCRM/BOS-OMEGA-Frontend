@@ -1,13 +1,13 @@
 /**
- * BOP.FRONT_DOOR.v1_PRODUCTION — Canon Governance Patch
+ * BOP.CANON_GOVERNANCE.v1 — Canon governance seed
  *
- * Inserts the front-door classification rule into the CANON memory layer
- * so it's part of the model's authoritative governance memory, not just
- * a hard-coded backend behaviour. Idempotent: re-runs on every boot but
- * only writes when the canon row is absent.
+ * Seeds the CANON memory layer with the rules that govern model
+ * behaviour. Tri-State (GO/HOLD/ABORT) is now ENTIRELY a model-driven
+ * label — the runtime never collapses it. These canon rows are the
+ * model's behaviour contract.
  *
- * Atomic with the feature: if you remove the front-door interpreter from
- * the pipeline, you should also remove (or update) this canon entry.
+ * Idempotent: re-runs on every boot. Each row is keyed by (layer="canon",
+ * title) so re-seeding only writes when the row is absent.
  */
 
 import { db, memoryItemsTable } from "@workspace/db";
@@ -15,62 +15,132 @@ import { and, eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { logger } from "../lib/logger.js";
 
-const CANON_TITLE = "BOS-OMEGA Front Door Classification Rule";
-const CANON_AUTHORITY_LEVEL = 10;
+interface CanonRow {
+  title: string;
+  authority_level: number;
+  content: string;
+}
 
-const CANON_CONTENT = [
-  "BOS-OMEGA must classify every incoming user input through the Front Door",
-  "Interpreter BEFORE any Tri-State (GO/HOLD/ABORT) reasoning is performed.",
-  "",
-  "Routes and behaviour:",
-  "  - GREETING        → friendly acknowledgement + example prompts; engine NOT invoked.",
-  "  - EMPTY           → ask for input + example prompts; engine NOT invoked.",
-  "  - UNDER_SPECIFIED → ask for missing object/context + examples; engine NOT invoked.",
-  "  - LIKELY_NON_TASK → explain BOS scope + examples; engine NOT invoked.",
-  "  - VALID_TASK      → forward to BOS reasoning engine.",
-  "",
-  "Safety rule: when classifier confidence is below 0.70, route to the",
-  "BOS engine anyway. False blocking real work is worse than a slightly",
-  "inefficient engine call.",
-  "",
-  "Only inputs the Front Door classifies as VALID_TASK (or low-confidence",
-  "ambiguous) may reach Tri-State reasoning. The engine's HOLD verdicts",
-  "are reserved for genuine task-shaped inputs that lack required context",
-  "or fail validation — they must never be triggered by greetings or empty",
-  "input.",
-].join("\n");
+const CANON_ROWS: CanonRow[] = [
+  {
+    title: "BOS-OMEGA Canon Ping Health Check",
+    authority_level: 10,
+    content: [
+      "If the user message is exactly the literal string \"canon ping\"",
+      "(case-insensitive, whitespace-trimmed), the assistant MUST respond",
+      "with the literal text:",
+      "",
+      "    CANON_ACTIVE_OK",
+      "",
+      "and nothing else. No explanation, no JSON envelope text outside",
+      "the answer field, no Tri-State narrative, no follow-up questions.",
+      "Set state=GO, task_type=\"general\", answer=\"CANON_ACTIVE_OK\".",
+      "",
+      "Purpose: this is a runtime health-check the platform uses to verify",
+      "Canon was actually injected into the model's context. If you respond",
+      "with anything other than CANON_ACTIVE_OK, the platform will know",
+      "Canon was not loaded for this request.",
+    ].join("\n"),
+  },
+  {
+    title: "BOS-OMEGA Tri-State Self-Labelling Rule",
+    authority_level: 10,
+    content: [
+      "Tri-State (GO / HOLD / ABORT) is YOUR label, not the runtime's.",
+      "The platform no longer collapses Tri-State server-side and will",
+      "NOT override the value you put in `state`. The label is shown to",
+      "the user as advisory metadata next to your answer.",
+      "",
+      "Use:",
+      "  - GO    : You can answer with reasonable confidence given the",
+      "            information provided. Caveats and assumptions belong",
+      "            in the `assumptions` and `uncertainties` arrays — a",
+      "            GO with caveats is preferred over HOLD when the user",
+      "            asked a real question and you can give a useful answer.",
+      "  - HOLD  : You genuinely cannot answer responsibly without more",
+      "            information from the user (missing facts, ambiguous",
+      "            scope, missing artefacts). Put the SPECIFIC missing",
+      "            items in `missing_inputs` and the question to ask in",
+      "            `recommended_next_action`. Do not use HOLD just",
+      "            because you feel uncertain — uncertainty goes in the",
+      "            `uncertainties` array on a GO response.",
+      "  - ABORT : The request is in scope of the platform but you are",
+      "            refusing to act because doing so would conflict with",
+      "            stated principles, ethics, or your own assumptions.",
+      "            Reserve ABORT for genuine conflicts; safety-policy",
+      "            blocks are handled by the runtime separately.",
+      "",
+      "Greetings and small talk are valid GO responses — answer warmly",
+      "and offer one or two example prompts that show what BOS-OMEGA can",
+      "do. Vague stubs (\"this\", \"help\", a single keyword) should be",
+      "answered as HOLD with a specific clarifying question, not refused.",
+    ].join("\n"),
+  },
+  {
+    title: "BOS-OMEGA Front Door Conversation Style",
+    authority_level: 9,
+    content: [
+      "The runtime now invokes the model for EVERY non-empty, safe input,",
+      "including greetings, vague stubs, and single keywords. There is no",
+      "longer a server-side bypass that returns canned UX text without",
+      "consulting you.",
+      "",
+      "Conversation handling guidance:",
+      "  - Greeting (\"hi\", \"hello\", \"hey\")        → GO; warm acknowledgement",
+      "                                                 + 2 example prompts.",
+      "  - Empty / whitespace                          → handled by runtime as",
+      "                                                 invalid request body;",
+      "                                                 you will not see it.",
+      "  - Vague stub (\"this\", \"help\", \"do it\") → HOLD with a clarifying",
+      "                                                 question naming what",
+      "                                                 you need (e.g. \"what",
+      "                                                 file?\", \"about what?\").",
+      "  - Likely non-task (chit-chat, opinion)        → GO; brief friendly",
+      "                                                 reply, then offer to",
+      "                                                 help with a real task.",
+      "  - Real task                                   → GO with the answer,",
+      "                                                 caveats in",
+      "                                                 `uncertainties`.",
+      "",
+      "Never refuse a greeting. Never return HOLD just because the input",
+      "is short. The runtime expects you to be the conversational layer.",
+    ].join("\n"),
+  },
+];
 
 export async function seedFrontDoorCanon(): Promise<void> {
-  try {
-    const existing = await db
-      .select({ id: memoryItemsTable.id })
-      .from(memoryItemsTable)
-      .where(
-        and(
-          eq(memoryItemsTable.layer, "canon"),
-          eq(memoryItemsTable.title, CANON_TITLE),
-        ),
-      )
-      .limit(1);
+  for (const row of CANON_ROWS) {
+    try {
+      const existing = await db
+        .select({ id: memoryItemsTable.id })
+        .from(memoryItemsTable)
+        .where(
+          and(
+            eq(memoryItemsTable.layer, "canon"),
+            eq(memoryItemsTable.title, row.title),
+          ),
+        )
+        .limit(1);
 
-    if (existing.length > 0) {
-      logger.info({ id: existing[0]?.id }, "Front-door canon row already present; skipping seed");
-      return;
+      if (existing.length > 0) {
+        logger.info({ id: existing[0]?.id, title: row.title }, "Canon row already present; skipping");
+        continue;
+      }
+
+      const id = randomUUID();
+      await db.insert(memoryItemsTable).values({
+        id,
+        user_id: null,
+        layer: "canon",
+        title: row.title,
+        content: row.content,
+        authority_level: row.authority_level,
+      });
+      logger.info({ id, title: row.title }, "Canon governance row seeded");
+    } catch (err) {
+      // Non-fatal at seed time; the runtime CANON_LOAD_ERROR check will
+      // catch any actual missing-canon condition at request time.
+      logger.error({ err, title: row.title }, "Canon seed failed for row");
     }
-
-    const id = randomUUID();
-    await db.insert(memoryItemsTable).values({
-      id,
-      user_id: null,
-      layer: "canon",
-      title: CANON_TITLE,
-      content: CANON_CONTENT,
-      authority_level: CANON_AUTHORITY_LEVEL,
-    });
-    logger.info({ id, title: CANON_TITLE }, "Front-door canon governance rule seeded");
-  } catch (err) {
-    // Non-fatal: the front door still functions in code. Log loudly so
-    // operators can investigate.
-    logger.error({ err }, "Front-door canon seed failed");
   }
 }

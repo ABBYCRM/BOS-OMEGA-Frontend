@@ -120,10 +120,12 @@ async function executeSingle(
         const { repaired } = repairOutput(raw, validation);
         validation = validateOutput(repaired, ctx.task_type);
 
-        if (!validation.passed && validation.confidence_score < 0.3 && i + 1 < models.length) {
-          await logFallback(ctx.task_id, model_info, models[i + 1]!, "Low confidence after repair");
-          break;
-        }
+        // BOP.CANON_GOVERNANCE.v1: removed the `confidence_score < 0.3`
+        // fallback gate. Confidence is an advisory display score, not a
+        // runtime routing decision. If the model returns something the
+        // repair engine cannot fix, we still take its output — Canon
+        // governs how the model labels its own uncertainty in the
+        // response (HOLD / GO with caveats / etc.).
       }
 
       const parsed = parseOutput(validation.passed ? raw : (repairOutput(raw, validation)).repaired, ctx.input);

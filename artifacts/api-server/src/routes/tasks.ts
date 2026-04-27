@@ -81,6 +81,18 @@ router.post("/", expensiveLimiter, async (req, res) => {
     // Merge run_id and execution_mode into the response
     res.json(task ? { ...task, run_id: result.run_id, execution_mode: result.execution_mode } : { id: result.task_id, ...result });
   } catch (err) {
+    // BOP.CANON_GOVERNANCE.v1: surface CANON_LOAD_ERROR distinctly so
+    // operators / monitoring can tell "the model contract failed to load"
+    // apart from generic pipeline crashes.
+    if (err && typeof err === "object" && (err as { code?: string }).code === "CANON_LOAD_ERROR") {
+      req.log.error({ err }, "CANON_LOAD_ERROR — refusing to call model without governance overlay");
+      res.status(500).json({
+        error: "Canon governance memory failed to load",
+        code: "CANON_LOAD_ERROR",
+        message: (err as Error).message || "Canon load failed",
+      });
+      return;
+    }
     req.log.error({ err }, "Pipeline error");
     res.status(500).json({ error: "Internal pipeline error", code: "SYSTEM_ERROR" });
   }

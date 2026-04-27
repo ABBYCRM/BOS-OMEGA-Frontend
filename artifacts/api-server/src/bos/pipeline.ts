@@ -7,9 +7,9 @@ import { randomUUID, createHash } from "crypto";
 import type { BosOutput, ExecutionMode, TaskContext, TriState } from "./types.js";
 import { runInputGate } from "./inputGate.js";
 import { classifyFrontDoorInput } from "./frontDoorInterpreter.js";
-import { buildFrontDoorBosOutput, safeInputPreview } from "./frontDoorResponses.js";
+import { safeInputPreview } from "./frontDoorResponses.js";
 import { classifyTask } from "./taskClassifier.js";
-import { evaluateTriState, type TriStateResult } from "./triState.js";
+import { buildTriStateMetadata, type TriStateDisplayMetadata, type TriStateResult } from "./triState.js";
 import { selectModel } from "./modelRouter.js";
 import { executePipeline } from "./executionEngine.js";
 import { runSeriesPass } from "./seriesPassEngine.js";
@@ -34,23 +34,37 @@ function hashInput(s: string): string {
   return "sha256:" + createHash("sha256").update(s ?? "", "utf8").digest("hex").slice(0, 16);
 }
 
-// v1.1 hardening: must mirror requiredConfidenceForTaskType() in triState.ts
-// so a task that demands 0.85 confidence is also flagged as high_stakes_domain
-// in the gather/collapse signals.
-const HIGH_STAKES_DOMAINS = new Set(["legal", "medical", "financial", "code", "security"]);
+/**
+ * BOP.CANON_GOVERNANCE.v1 — Canon load failure marker.
+ *
+ * When the canon layer cannot be read (DB error, missing seed), the pipeline
+ * MUST fail loudly rather than silently fall through to a model call without
+ * its governance prompt. The route layer translates this into a 500 with
+ * `code: "CANON_LOAD_ERROR"` so callers can distinguish it from generic
+ * SYSTEM_ERROR.
+ */
+export class CanonLoadError extends Error {
+  readonly code = "CANON_LOAD_ERROR";
+  constructor(message: string, public cause_err?: unknown) {
+    super(message);
+    this.name = "CanonLoadError";
+  }
+}
 
 /**
- * v1.1 — Denial / HOLD explanation engine.
+ * Denial / HOLD explanation engine.
  * Maps a structured denial cause to a plain-English `why_decision_was_made` and a
  * `safe_alternative` the user can pursue. Every BosOutput in HOLD/ABORT carries these.
+ *
+ * BOP.CANON_GOVERNANCE.v1 trimmed the Tri-State runtime gate causes — only
+ * the safety/system-shape causes remain. Model-driven HOLD output goes
+ * through `model_self_held` instead.
  */
 type DenialCause =
   | "input_gate_abort"
-  | "input_gate_hold_missing_info"
-  | "tri_state_abort"
-  | "tri_state_hold_no_provider"
-  | "tri_state_hold_low_confidence"
-  | "tri_state_hold_default"
+  | "no_provider_available"
+  | "model_self_held"
+  | "model_self_aborted"
   | "budget_exceeded"
   | "compliance_audit_failure";
 
@@ -66,34 +80,22 @@ function denialExplanation(cause: DenialCause, reason: string): {
         safe_alternative: "Rephrase the request without illegal, harmful, or policy-violating intent, or pursue the goal through a sanctioned channel (legal counsel, licensed professional, official documentation).",
         recommended_next_action: "Review the request against safety policy and resubmit a version that does not match the prohibited intent.",
       };
-    case "input_gate_hold_missing_info":
-      return {
-        why_decision_was_made: "The input gate detected that required information for this task is missing. BOS-OMEGA holds the task rather than guessing.",
-        safe_alternative: "Resubmit the task with the missing details filled in, or break the request into smaller steps that can be answered with the information you do have.",
-        recommended_next_action: reason || "Provide the missing information and resubmit.",
-      };
-    case "tri_state_abort":
-      return {
-        why_decision_was_made: "The Tri-State engine collapsed to ABORT — the aggregated evidence (intent, risk, validation, signals) crossed the hardened ABORT threshold of 65%.",
-        safe_alternative: "Reduce the risk surface (narrower scope, lower-stakes domain, or non-action-taking phrasing) and resubmit.",
-        recommended_next_action: reason,
-      };
-    case "tri_state_hold_no_provider":
+    case "no_provider_available":
       return {
         why_decision_was_made: "No LLM provider is currently available to handle this task type. BOS-OMEGA refuses to route to a provider that lacks the required capability or whose circuit breaker is open.",
         safe_alternative: "Add or enable a provider that has the required capability tags, or wait for the open circuit breaker to recover.",
         recommended_next_action: "Configure an eligible provider/model and retry.",
       };
-    case "tri_state_hold_low_confidence":
+    case "model_self_held":
       return {
-        why_decision_was_made: "GO amplitude or computed confidence fell below the hardened thresholds (GO ≥ 0.75, validation passed, confidence ≥ 0.85 for high-stakes domains else 0.70). HOLD is the safe default.",
-        safe_alternative: "Provide more context, narrow the scope, or downgrade the task type from a high-stakes domain to a lower-stakes one if appropriate.",
-        recommended_next_action: reason,
+        why_decision_was_made: "The model labelled its own response HOLD per the BOS Canon prompt — typically because it lacked the context, tools, or certainty to answer responsibly. This is a model-level governance signal, not a runtime block.",
+        safe_alternative: "Read the model's recommended_next_action below; usually it asks for clarifying information you can provide.",
+        recommended_next_action: reason || "Provide the missing information the model asked for and resubmit.",
       };
-    case "tri_state_hold_default":
+    case "model_self_aborted":
       return {
-        why_decision_was_made: "The Tri-State engine could not justify GO under the hardened collapse rules, so it defaulted to HOLD. Doing nothing is safer than answering with low confidence.",
-        safe_alternative: "Refine the request, supply additional context, or split it into smaller well-scoped sub-tasks.",
+        why_decision_was_made: "The model labelled its own response ABORT per the BOS Canon prompt — typically because the request, while syntactically allowed, conflicts with stated assumptions, ethics, or scope.",
+        safe_alternative: "Adjust the request to fit the canon-defined scope, or escalate via a sanctioned channel.",
         recommended_next_action: reason,
       };
     case "budget_exceeded":
@@ -253,32 +255,14 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     classified_at: new Date().toISOString(),
   });
 
-  if (!fd.shouldInvokeBosEngine) {
-    const output = buildFrontDoorBosOutput(fd);
-    await saveTask(
-      task_id,
-      pipelineInput.input,
-      "front_door_guidance",
-      "HOLD",
-      requested_mode,
-      undefined,
-      undefined,
-      "HELD",
-      JSON.stringify(output),
-      pipelineInput.user_id ?? null,
-    );
-    await auditLog(task_id, "TASK_HELD", `Front door routed: ${fd.route}`, {
-      front_door_route: fd.route,
-      front_door_confidence: fd.confidence,
-    });
-    return {
-      task_id,
-      tri_state: "HOLD",
-      task_type: "front_door_guidance",
-      final_status: "HELD",
-      bos_output: output,
-    };
-  }
+  // BOP.CANON_GOVERNANCE.v1: the front door used to early-return a HOLD
+  // for greetings / empty stubs / under-specified / likely-non-task
+  // inputs and never call the model. That was a Tri-State runtime gate
+  // dressed as UX guidance. The model is now ALWAYS invoked when the
+  // safety gate passes; Canon teaches the model to greet the user
+  // conversationally, ask clarifying questions for vague stubs, and
+  // label its own output GO/HOLD/ABORT as appropriate. The classifier
+  // is preserved purely for observability (FRONT_DOOR_CLASSIFIED audit).
 
   const gate = runInputGate(pipelineInput.input);
   await auditLog(task_id, "INPUT_GATE_RESULT", `Input gate: ${gate.state}`, {
@@ -294,22 +278,11 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     return { task_id, tri_state: "ABORT", task_type: "safety_review", final_status: "ABORTED", bos_output: output };
   }
 
-  if (gate.state === "HOLD") {
-    const base: BosOutput = {
-      state: "HOLD",
-      task_type: "general",
-      answer: `BOS-OMEGA HOLD: ${gate.reason}`,
-      assumptions: [],
-      uncertainties: [],
-      missing_inputs: gate.missing_info,
-      failure_modes: [],
-      recommended_next_action: `Provide the following missing information: ${gate.missing_info.join(", ")}`,
-    };
-    const output = attachDenial(base, "input_gate_hold_missing_info", gate.reason || "Missing required info");
-    await saveTask(task_id, pipelineInput.input, "general", "HOLD", requested_mode, undefined, undefined, "HELD", JSON.stringify(output), pipelineInput.user_id ?? null);
-    await auditLog(task_id, "TASK_HELD", gate.reason || "Held by input gate");
-    return { task_id, tri_state: "HOLD", task_type: "general", final_status: "HELD", bos_output: output };
-  }
+  // BOP.CANON_GOVERNANCE.v1: the input gate's missing_info HOLD branch
+  // was removed. Vague / under-specified inputs flow through to the
+  // model. Canon governs whether the model labels its own output HOLD
+  // and asks the user for the missing context. Runtime never blocks
+  // for "model uncertainty" or "missing context" reasons.
 
   const classification = classifyTask(gate.sanitized_input, gate.intent);
   const task_type = pipelineInput.task_type_override || classification.task_type;
@@ -337,83 +310,37 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
 
   const models = await selectModel(task_type, gate.sanitized_input.length, resolved_mode as "single" | "parallel" | "consensus", fetch_count);
 
-  const tri_state_result = evaluateTriState({
-    input_safe: gate.state === "GO",
-    has_required_info: gate.missing_info.length === 0,
-    provider_available: models.length > 0,
-    has_fallback: models.length > 1,
-    risk_level: gate.risk_level,
-    missing_info: gate.missing_info,
-    intent_clarity: classification.confidence,
-    confidence_score: classification.confidence,
-    validation_passed: true,
-    high_stakes_domain: HIGH_STAKES_DOMAINS.has(task_type),
-    task_type,
-    ambiguity_detected: gate.intent === "unclear" || classification.confidence < 0.5,
-    // The input gate has already short-circuited true ABORTs above. Set
-    // hard_safety_abort=false here; the only path to ABORT from here is via
-    // the abort-amplitude rule.
-    hard_safety_abort: false,
-  });
-
-  // Persist the qubit-inspired decision (vector + signals + collapse reason)
-  const decision_id = await persistTriStateDecision(task_id, tri_state_result);
-
-  await auditLog(task_id, "TRI_STATE_EVALUATED", `Tri-state: ${tri_state_result.state}`, {
-    reason: tri_state_result.reason,
-    go: tri_state_result.vector.go.toFixed(3),
-    hold: tri_state_result.vector.hold.toFixed(3),
-    abort: tri_state_result.vector.abort.toFixed(3),
-    confidence: tri_state_result.confidence_score.toFixed(3),
-    signals: tri_state_result.evidence_signals.length,
-    decision_id,
-  });
-
-  if (tri_state_result.state === "ABORT") {
-    const base: BosOutput = {
-      state: "ABORT",
-      task_type,
-      answer: `BOS-OMEGA ABORT: ${tri_state_result.reason}`,
-      assumptions: [],
-      uncertainties: [],
-      missing_inputs: [],
-      failure_modes: [tri_state_result.reason],
-      recommended_next_action: "Check provider availability and request validity",
-    };
-    const output = attachDenial(base, "tri_state_abort", tri_state_result.reason);
-    await saveTask(task_id, pipelineInput.input, task_type, "ABORT", resolved_mode, undefined, undefined, "ABORTED", JSON.stringify(output), pipelineInput.user_id ?? null);
-    await auditLog(task_id, "TASK_ABORTED", tri_state_result.reason);
-    return { task_id, tri_state: "ABORT", task_type, final_status: "ABORTED", bos_output: output };
-  }
-
-  if (tri_state_result.state === "HOLD") {
-    // Pick the right denial cause based on what the collapse rule said.
-    const cause: DenialCause = models.length === 0
-      ? "tri_state_hold_no_provider"
-      : tri_state_result.reason.startsWith("Hardened default")
-        ? "tri_state_hold_low_confidence"
-        : "tri_state_hold_default";
+  // BOP.CANON_GOVERNANCE.v1: the only remaining runtime block at this
+  // stage is "missing required API dependency" (no eligible provider).
+  // The previous Tri-State collapse engine — which folded confidence,
+  // intent clarity, missing_info, ambiguity, and high_stakes_domain
+  // into a HOLD/ABORT/GO verdict — has been removed. Tri-State is now
+  // populated as display-only metadata from the model's OWN output
+  // after execution completes (see persistTriStateDecision below).
+  if (models.length === 0) {
+    const reason = `No eligible LLM provider available for task_type="${task_type}". Configure or enable an eligible provider.`;
     const base: BosOutput = {
       state: "HOLD",
       task_type,
-      answer: `BOS-OMEGA HOLD: ${tri_state_result.reason}`,
+      answer: `BOS-OMEGA HOLD: ${reason}`,
       assumptions: [],
       uncertainties: [],
-      missing_inputs: gate.missing_info,
-      failure_modes: [],
-      recommended_next_action: tri_state_result.reason,
+      missing_inputs: [],
+      failure_modes: ["no_provider_available"],
+      recommended_next_action: "Configure an eligible provider/model and retry.",
     };
-    const output = attachDenial(base, cause, tri_state_result.reason);
+    const output = attachDenial(base, "no_provider_available", reason);
     await saveTask(task_id, pipelineInput.input, task_type, "HOLD", resolved_mode, undefined, undefined, "HELD", JSON.stringify(output), pipelineInput.user_id ?? null);
-    await auditLog(task_id, "TASK_HELD", tri_state_result.reason);
+    await auditLog(task_id, "TASK_HELD", reason, { cause: "no_provider_available", task_type });
+    // Persist a display-only tri-state row mirroring the runtime decision
+    // so the existing /api/tri-state/by-task endpoint always has data.
+    await persistTriStateDecision(task_id, buildTriStateMetadata({ state: "HOLD", answer: reason }, 0));
     return { task_id, tri_state: "HOLD", task_type, final_status: "HELD", bos_output: output };
   }
 
-  if (models.length > 0) {
-    await auditLog(task_id, "MODEL_SELECTED", `Selected ${models.slice(0, 3).map((m) => `${m.provider_name}/${m.model_name}`).join(", ")}`, {
-      count: models.length,
-    });
-  }
+  await auditLog(task_id, "MODEL_SELECTED", `Selected ${models.slice(0, 3).map((m) => `${m.provider_name}/${m.model_name}`).join(", ")}`, {
+    count: models.length,
+  });
 
   await saveTask(
     task_id,
@@ -434,12 +361,45 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   // executionEngine.executePipeline fetched only canon+scratchpad inline,
   // which meant continuity/patches were silently dropped and series_pass
   // and boil_the_ocean ran with no memory at all.
-  const [canon_sel, continuity_sel, patches_sel, scratchpad_sel] = await Promise.all([
-    getCanonMemory(gate.sanitized_input),
-    getContinuityMemory(gate.sanitized_input),
-    getPatchesMemory(gate.sanitized_input),
-    getScratchpad(gate.sanitized_input),
-  ]);
+  // BOP.CANON_GOVERNANCE.v1: Canon is the model's behavior contract
+  // (Tri-State labelling, greeting style, uncertainty handling, etc.).
+  // If it fails to load, the model would receive only the user prompt
+  // with no governance overlay, silently breaking the contract. Fail
+  // fast with CANON_LOAD_ERROR so the route layer surfaces a 500.
+  let canon_sel: Awaited<ReturnType<typeof getCanonMemory>>;
+  let continuity_sel: Awaited<ReturnType<typeof getContinuityMemory>>;
+  let patches_sel: Awaited<ReturnType<typeof getPatchesMemory>>;
+  let scratchpad_sel: Awaited<ReturnType<typeof getScratchpad>>;
+  try {
+    [canon_sel, continuity_sel, patches_sel, scratchpad_sel] = await Promise.all([
+      getCanonMemory(gate.sanitized_input),
+      getContinuityMemory(gate.sanitized_input),
+      getPatchesMemory(gate.sanitized_input),
+      getScratchpad(gate.sanitized_input),
+    ]);
+  } catch (err) {
+    await auditLog(task_id, "CANON_LOAD_ERROR", "Canon memory load failed; refusing to call model without governance overlay", {
+      err_message: err instanceof Error ? err.message : String(err),
+    });
+    throw new CanonLoadError("Failed to load Canon memory layer", err);
+  }
+  if (canon_sel.items.length === 0) {
+    await auditLog(task_id, "CANON_LOAD_ERROR", "Canon memory layer is empty; refusing to call model without governance overlay", {
+      canon_items: 0,
+    });
+    throw new CanonLoadError("Canon memory layer is empty");
+  }
+  // Hash + version of the canon block we're about to inject so every
+  // task carries a stable fingerprint of which Canon governed it. The
+  // hash is computed over the rendered canon strings (in the same order
+  // injected) so any text edit in any canon row changes the fingerprint.
+  const canon_concat = canon_sel.items.join("\n---\n");
+  const canon_hash = hashInput(canon_concat);
+  await auditLog(task_id, "CANON_HASH_LOGGED", `Canon fingerprint sha256:${canon_hash.slice(7, 23)}…`, {
+    canon_hash,
+    canon_version: canon_sel.items.length,
+    canon_chars: canon_concat.length,
+  });
   const memory_context = buildContextFromMemory(
     canon_sel.items,
     continuity_sel.items,
@@ -653,14 +613,39 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
 
   const final_status = result.state === "ABORT" ? "ABORTED" : result.state === "HOLD" ? "HELD" : "COMPLETED";
 
-  // v1.1: ensure HOLD/ABORT outputs from the engines also carry denial fields.
+  // BOP.CANON_GOVERNANCE.v1: HOLD/ABORT outputs that came from the
+  // model itself (Canon-driven self-labelling) get an explanation
+  // attached. Note the cause has changed from `tri_state_*` to
+  // `model_self_*` — the runtime no longer collapses Tri-State; the
+  // model does.
   const result_with_denial: BosOutput = result.state === "GO"
     ? result
     : attachDenial(
         result,
-        result.state === "ABORT" ? "tri_state_abort" : "tri_state_hold_default",
+        result.state === "ABORT" ? "model_self_aborted" : "model_self_held",
         result.recommended_next_action || result.answer,
       );
+
+  // BOP.CANON_GOVERNANCE.v1: persist a display-only tri_state_decisions
+  // row populated FROM the model output. The frontend / audit reader
+  // continues to show a "decision" record per task, but the values now
+  // mirror what the model itself decided rather than what a runtime
+  // collapse engine forced. Confidence is sourced from the highest
+  // parallel-response confidence_score when available, otherwise a
+  // neutral 0.85 for GO and 0.5 for HOLD/ABORT.
+  const display_confidence = result.parallel_responses && result.parallel_responses.length > 0
+    ? Math.max(...result.parallel_responses.map((p) => p.confidence_score ?? 0))
+    : (result.state === "GO" ? 0.85 : 0.5);
+  const tri_meta = buildTriStateMetadata(result, display_confidence);
+  const tri_decision_id = await persistTriStateDecision(task_id, tri_meta);
+  await auditLog(task_id, "TRI_STATE_RECORDED", `Tri-state from model output: ${tri_meta.state}`, {
+    state: tri_meta.state,
+    confidence: tri_meta.confidence_score.toFixed(3),
+    source: "model_output",
+    canon_hash,
+    decision_id: tri_decision_id,
+    display_only: true,
+  });
 
   await db.update(tasksTable)
     .set({
@@ -669,10 +654,11 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
       selected_provider: models[0]?.provider_name,
       selected_model: models[0]?.model_name,
       mode: resolved_mode,
+      tri_state: result.state,
     })
     .where(eq(tasksTable.id, task_id));
 
-  await auditLog(task_id, "TASK_COMPLETED", `Task completed with state ${result_with_denial.state}`, { mode: resolved_mode, run_id });
+  await auditLog(task_id, "TASK_COMPLETED", `Task completed with state ${result_with_denial.state}`, { mode: resolved_mode, run_id, canon_hash });
 
   return {
     task_id,
@@ -681,7 +667,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     selected_provider: models[0]?.provider_name,
     selected_model: models[0]?.model_name,
     final_status,
-    bos_output: result,
+    bos_output: result_with_denial,
     run_id,
     execution_mode: resolved_mode,
   };

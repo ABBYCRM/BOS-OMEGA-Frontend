@@ -1,5 +1,19 @@
 import type { TriState } from "./types.js";
 
+/**
+ * Input gate — runtime safety / validity layer.
+ *
+ * BOP.CANON_GOVERNANCE.v1: this gate now ONLY blocks for actual system
+ * reasons (per the runtime execution rule):
+ *   - empty / whitespace input            → ABORT (invalid request body)
+ *   - hard safety policy violations       → ABORT (safety layer)
+ *
+ * It DOES NOT block on "missing context", "vague input", or any other
+ * model-uncertainty signal. Those are routed to the model, which is
+ * governed by Canon to label them HOLD in its OWN output if appropriate.
+ * Runtime never decides Tri-State based on input shape.
+ */
+
 const UNSAFE_PATTERNS = [
   /\b(hack|crack|exploit|bypass)\b.*\b(system|server|database|account)\b/i,
   /\b(create|generate|make|build)\b.*\b(malware|virus|ransomware|trojan|spyware)\b/i,
@@ -7,11 +21,6 @@ const UNSAFE_PATTERNS = [
   /\b(how to|steps to)\b.*\b(kill|harm|hurt|attack)\b.*\b(person|people|human)\b/i,
   /\b(steal|phish|social engineer)\b.*\b(credentials|passwords|data)\b/i,
   /child.*(sexual|pornograph|exploit)/i,
-];
-
-const MISSING_INFO_PATTERNS = [
-  /^(help|tell me|explain|what is|how do I)\s*$/i,
-  /^.{0,5}$/,
 ];
 
 interface InputGateResult {
@@ -26,6 +35,8 @@ interface InputGateResult {
 export function runInputGate(rawInput: string): InputGateResult {
   const sanitized = sanitizeInput(rawInput);
 
+  // Empty input is an INVALID REQUEST — there is nothing for the model
+  // to act on. This is one of the runtime-allowed block reasons.
   if (!sanitized || sanitized.trim().length === 0) {
     return {
       state: "ABORT",
@@ -37,6 +48,8 @@ export function runInputGate(rawInput: string): InputGateResult {
     };
   }
 
+  // Hard safety policy. This is the platform safety layer the runtime IS
+  // allowed to enforce. Everything else falls through to the model.
   for (const pattern of UNSAFE_PATTERNS) {
     if (pattern.test(sanitized)) {
       return {
@@ -50,24 +63,10 @@ export function runInputGate(rawInput: string): InputGateResult {
     }
   }
 
-  const missing: string[] = [];
-  for (const pattern of MISSING_INFO_PATTERNS) {
-    if (pattern.test(sanitized)) {
-      missing.push("sufficient_context");
-    }
-  }
-
-  if (missing.length > 0) {
-    return {
-      state: "HOLD",
-      sanitized_input: sanitized,
-      intent: "incomplete",
-      risk_level: "none",
-      missing_info: missing,
-      reason: "Insufficient information to process task",
-    };
-  }
-
+  // BOP.CANON_GOVERNANCE.v1: previously this returned HOLD for short or
+  // vague inputs ("help", "tell me", < 6 chars). That was a hardcoded
+  // Tri-State runtime gate. Removed — the model handles short/vague
+  // inputs through Canon-governed conversational behavior.
   const intent = detectIntent(sanitized);
   const risk = assessRisk(sanitized);
 

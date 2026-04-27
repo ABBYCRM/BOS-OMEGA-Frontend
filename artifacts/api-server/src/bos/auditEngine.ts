@@ -9,7 +9,6 @@ type AuditEventType =
   | "TASK_RECEIVED"
   | "INPUT_GATE_RESULT"
   | "TASK_CLASSIFIED"
-  | "TRI_STATE_EVALUATED"
   | "MODEL_SELECTED"
   | "LLM_CALL_STARTED"
   | "LLM_CALL_COMPLETED"
@@ -92,10 +91,21 @@ type AuditEventType =
   | "MEMORY_INJECTED"
   | "LLM_INPUT_PREPARED"
   // BOP.FRONT_DOOR.v1 — preflight classification fires on every task,
-  // before the BOS Tri-State engine sees the input. Tells the audit
-  // chain whether the engine was invoked or whether the front door
-  // returned guidance directly.
-  | "FRONT_DOOR_CLASSIFIED";
+  // before the BOS Tri-State engine sees the input. Now an observability
+  // signal only — the engine is invoked for every safe non-empty input.
+  | "FRONT_DOOR_CLASSIFIED"
+  // BOP.CANON_GOVERNANCE.v1 — Canon is the model's behaviour contract.
+  // CANON_HASH_LOGGED records the sha256 fingerprint of the canon block
+  // injected on this request so audits can prove which Canon governed it.
+  // CANON_LOAD_ERROR is fail-fast: emitted when the canon layer cannot
+  // be loaded or is empty, before the model is invoked. The route layer
+  // surfaces it as a 500 with code "CANON_LOAD_ERROR".
+  // TRI_STATE_RECORDED replaces TRI_STATE_EVALUATED: the runtime no
+  // longer collapses Tri-State; the model decides and the runtime only
+  // records the result as display-only metadata.
+  | "CANON_HASH_LOGGED"
+  | "CANON_LOAD_ERROR"
+  | "TRI_STATE_RECORDED";
 
 const AUDIT_QUEUE_DIR = process.env["AUDIT_QUEUE_DIR"] || path.resolve(process.cwd(), ".local", "audit-queue");
 const AUDIT_QUEUE_FILE = path.join(AUDIT_QUEUE_DIR, "pending.jsonl");
