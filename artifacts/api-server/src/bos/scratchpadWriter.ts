@@ -23,6 +23,19 @@ import { buildAutoSummary, type SummaryInputs } from "./scratchpadSummary.js";
 
 export interface AutoSummaryRequest extends SummaryInputs {
   user_id: string | null;
+  /**
+   * Optional authority_level override. Defaults to 3 (the standard
+   * auto-summary tier, BELOW user pins at 5 and canon at 10). Image
+   * generation tasks pass 4 so the "I just made this attachment at
+   * /api/uploads/<id>/raw" continuity row ranks ABOVE other auto rows
+   * (typically generic-text answers) when a follow-up like "what was
+   * the image you generated?" lights up the relevance scorer for
+   * multiple Auto rows simultaneously. Without this boost the freshly-
+   * written image row can be greedy-budget-cut by older Auto rows
+   * whose text matches the follow-up question more strongly.
+   * Stays under 5 so explicit user pins are never displaced.
+   */
+  authority_level?: number;
 }
 
 /**
@@ -57,7 +70,10 @@ export async function writeAutoSummary(req: AutoSummaryRequest): Promise<{ memor
       // authority_level=3: auto-summaries should sit BELOW manual pins
       // (which write at 5) and well below canon (10). The reranker uses
       // authority_level as a tiebreaker so this keeps human signal on top.
-      authority_level: 3,
+      // Image generation tasks may pass an override (typically 4) so the
+      // attachment continuity row outranks generic-text auto rows whose
+      // wording happens to match an "what was the image?" follow-up.
+      authority_level: req.authority_level ?? 3,
       title,
       content,
       source: "auto_summary",

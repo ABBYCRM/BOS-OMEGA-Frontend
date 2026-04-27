@@ -126,16 +126,17 @@ export async function callGeminiImage(
       const mime = snake?.mime_type ?? camel?.mimeType ?? "image/png";
       if (data_b64) {
         const [w, h] = size.split("x").map((n) => Number(n));
-        return {
+        const result: ImageGenResult = {
           success: true,
           b64: data_b64,
           mime,
-          width: Number.isFinite(w) ? w : null as unknown as number,
-          height: Number.isFinite(h) ? h : null as unknown as number,
           latency_ms: Date.now() - start,
           provider,
           model,
         };
+        if (Number.isFinite(w)) result.width = w;
+        if (Number.isFinite(h)) result.height = h;
+        return result;
       }
     }
 

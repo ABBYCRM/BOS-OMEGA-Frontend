@@ -1930,7 +1930,13 @@ components:
           type: boolean
         original_name:
           type: string
-      required: [id, mime, provider, model, mock, original_name]
+        storage_path:
+          type: string
+          description: |
+            Server-relative path the chat UI uses to fetch the bytes
+            (e.g. /api/uploads/{id}/raw). Auth-checked: only the owning
+            user / super_admin can read it.
+      required: [id, mime, provider, model, mock, original_name, storage_path]
 
     ParallelResponse:
       type: object

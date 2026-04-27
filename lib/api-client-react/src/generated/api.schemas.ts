@@ -175,6 +175,11 @@ export interface GeneratedImageRef {
   model: string;
   mock: boolean;
   original_name: string;
+  /** Server-relative path the chat UI uses to fetch the bytes
+(e.g. /api/uploads/{id}/raw). Auth-checked: only the owning
+user / super_admin can read it.
+ */
+  storage_path: string;
 }
 
 export interface BosOutput {

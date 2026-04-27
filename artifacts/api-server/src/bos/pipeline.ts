@@ -363,6 +363,50 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
       buildTriStateMetadata({ state: tri_state, answer: outcome.summary }, 0),
     );
 
+    await auditLog(task_id, "TASK_COMPLETED", `Task completed with state ${tri_state}`, {
+      mode: "single",
+      task_type: "image_generation",
+    });
+
+    // Task #67/#83 — write a continuity scratchpad row so a later task in
+    // the same conversation can recall this image via memory_context. The
+    // summary deliberately includes the storage_path so a follow-up like
+    // "make the sneaker blue" has the prior attachment id available to the
+    // model. Writer failures are non-fatal.
+    if (tri_state !== "ABORT") {
+      try {
+        // Lead with the storage_path so the auto-summary's bounded answer
+        // preview (stripped of sentence terminators, truncated to ~240 chars)
+        // always carries the prior attachment URL into a follow-up task's
+        // memory_context. Without this, a "what was the image you made?"
+        // follow-up has no anchor to the prior generation.
+        const path_lines = outcome.attachments
+          .map((a) => `${a.storage_path} (${a.provider}${a.mock ? "/mock" : ""})`)
+          .join(" ");
+        const continuity_answer = path_lines
+          ? `Generated image at ${path_lines}. ${outcome.summary}`
+          : outcome.summary;
+        await writeAutoSummary({
+          task_id,
+          task_type: "image_generation",
+          state: tri_state,
+          answer: continuity_answer,
+          input_text: pipelineInput.input,
+          assumptions: output.assumptions,
+          uncertainties: output.uncertainties,
+          user_id: pipelineInput.user_id ?? null,
+          // Boost above the standard auto-summary tier so the
+          // "I just made attachment X at /api/uploads/X/raw" row
+          // outranks generic-text auto rows when a follow-up like
+          // "what was the image you generated?" matches both. Stays
+          // under user pins (5) so explicit human signal still wins.
+          authority_level: 4,
+        });
+      } catch (err) {
+        logger.warn({ err, task_id }, "writeAutoSummary threw (non-fatal) for image task");
+      }
+    }
+
     return {
       task_id,
       tri_state,

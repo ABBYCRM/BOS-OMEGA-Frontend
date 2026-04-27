@@ -230,6 +230,11 @@ export const GetTaskResponse = zod.object({
             model: zod.string(),
             mock: zod.boolean(),
             original_name: zod.string(),
+            storage_path: zod
+              .string()
+              .describe(
+                "Server-relative path the chat UI uses to fetch the bytes\n(e.g. \/api\/uploads\/{id}\/raw). Auth-checked: only the owning\nuser \/ super_admin can read it.\n",
+              ),
           }),
         )
         .optional()

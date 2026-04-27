@@ -1,28 +1,21 @@
 /**
  * Task #83 — image-generation provider bridge.
  *
- * Orchestrates one image-generation request end to end:
- *   1. Audit-log IMAGE_REQUESTED with the provider order, mock flag,
- *      prompt sha256, and requested size so the audit chain explains
- *      WHY we are calling out to a generative model.
- *   2. Either generate deterministic mock bytes (the default — gated
- *      by `IMAGE_GENERATION_LIVE=1`) OR fan out to the live providers
- *      in priority order (OpenAI gpt-image-1 → Gemini gemini-2.5-flash-image).
- *   3. Persist the resulting bytes via the existing uploads pipeline so
- *      the chat UI can render them via `/api/uploads/<id>/raw` with the
- *      same access-control checks (owner / super_admin) as user uploads.
- *   4. Audit-log IMAGE_GENERATED on success or IMAGE_GENERATION_FAILED
- *      with per-provider error classes when every attempt fails.
+ * Audits IMAGE_REQUESTED before any provider call, generates either
+ * deterministic mock bytes (default) or live provider output ordered by
+ * `llm_providers.priority` filtered to image-capable adapters
+ * (OpenAI gpt-image-1, Gemini gemini-2.5-flash-image), persists via the
+ * uploads pipeline, and audits IMAGE_GENERATED / IMAGE_GENERATION_FAILED.
  *
- * Mock mode is the safe default so the integration is testable in CI and
- * local dev without burning credits or requiring keys. Mock bytes are a
- * deterministic 8×8 PNG derived from sha256(prompt) — different prompts
- * produce visibly different mock outputs which makes the round-trip test
- * meaningful even without live calls.
+ * Anthropic is intentionally not an image-capable adapter. When Anthropic
+ * is the highest-priority enabled provider AND no image-capable provider
+ * is enabled, the bridge returns a HOLD whose `summary` tells the user to
+ * enable OpenAI or Gemini, and audits the same outcome with reason
+ * `provider_does_not_support_images` so the UI/audit chain are consistent.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { db, llmProvidersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, asc, eq, ne } from "drizzle-orm";
 import { resolveProviderKey } from "../lib/keyResolver.js";
 import { ingestUpload } from "../lib/uploads/index.js";
 import { auditLog } from "./auditEngine.js";
@@ -61,6 +54,12 @@ export interface ImageGenerationOutcome {
   }>;
   /** True when the image came from the deterministic mock fallback. */
   mocked: boolean;
+  /** Failure cause when success === false. */
+  failure_reason?:
+    | "provider_does_not_support_images"
+    | "no_image_provider_configured"
+    | "all_providers_failed"
+    | "persistence_failed";
 }
 
 const PROMPT_HASH_PREVIEW_BYTES = 8;
@@ -73,45 +72,112 @@ function isLiveMode(): boolean {
   return process.env["IMAGE_GENERATION_LIVE"] === "1";
 }
 
-interface ProviderEntry {
-  provider_name: "openai" | "gemini";
+interface ImageProviderAdapter {
+  /** Lower-cased provider name as stored in `llm_providers.name` (case-insensitive match). */
+  match_name: string;
   model: string;
   call: (opts: { prompt: string; api_key: string; base_url: string; size: GenerationSize }) => Promise<ImageGenResult>;
 }
 
-const PROVIDER_ORDER: ProviderEntry[] = [
+/** Image-capable adapters we know how to dispatch to. */
+const IMAGE_ADAPTERS: ImageProviderAdapter[] = [
   {
-    provider_name: "openai",
+    match_name: "openai",
     model: "gpt-image-1",
     call: ({ prompt, api_key, base_url, size }) =>
       callOpenAIImage(prompt, api_key, base_url, size, "gpt-image-1"),
   },
   {
-    provider_name: "gemini",
+    match_name: "gemini",
     model: "gemini-2.5-flash-image",
     call: ({ prompt, api_key, base_url, size }) =>
       callGeminiImage(prompt, api_key, base_url, size, "gemini-2.5-flash-image"),
   },
 ];
 
-async function lookupProviderId(name: string): Promise<string | undefined> {
+const STORAGE_PATH_PREFIX = "/api/uploads";
+const storagePathFor = (id: string): string => `${STORAGE_PATH_PREFIX}/${id}/raw`;
+
+interface ResolvedProviderRow {
+  id: string;
+  name: string;
+  priority: number;
+  base_url: string | null;
+  api_key_env: string | null;
+}
+
+/**
+ * Read the enabled providers ordered by priority (lowest = highest priority,
+ * mirroring modelSelector.ts). Returns the full list so the caller can
+ * detect anthropic-only situations and surface a switch-provider hint.
+ */
+async function loadEnabledProviders(): Promise<ResolvedProviderRow[]> {
   try {
-    const [row] = await db
-      .select({ id: llmProvidersTable.id })
+    const rows = await db
+      .select({
+        id: llmProvidersTable.id,
+        name: llmProvidersTable.name,
+        priority: llmProvidersTable.priority,
+        base_url: llmProvidersTable.base_url,
+        api_key_env: llmProvidersTable.api_key_env,
+      })
       .from(llmProvidersTable)
-      .where(eq(llmProvidersTable.name, name))
-      .limit(1);
-    return row?.id;
+      // Match modelRouter.ts semantics: only OPEN_CIRCUIT is hard-excluded.
+      // HEALTHY, DEGRADED, and RECOVERY_TEST providers are all eligible —
+      // a DEGRADED provider can still serve image requests; the circuit
+      // breaker will short the call if it's actually broken. Filtering to
+      // HEALTHY-only would let a single transient blip on the highest-
+      // priority provider falsely trigger the "no provider configured"
+      // HOLD path even when a usable adapter is one row down the list.
+      .where(
+        and(
+          eq(llmProvidersTable.enabled, true),
+          ne(llmProvidersTable.status, "OPEN_CIRCUIT"),
+        ),
+      )
+      .orderBy(asc(llmProvidersTable.priority));
+    return rows;
   } catch (err) {
-    logger.warn({ err, name }, "imageProviderBridge: provider lookup failed");
-    return undefined;
+    logger.warn({ err }, "imageProviderBridge: provider load failed");
+    return [];
   }
+}
+
+interface PlannedAttempt {
+  adapter: ImageProviderAdapter;
+  provider_id: string;
+  provider_name: string;
+  priority: number;
+  base_url: string | null;
+}
+
+/**
+ * Map enabled providers to the image adapters we can dispatch to, preserving
+ * the configured priority order. Providers with no matching image adapter
+ * (e.g. Anthropic) are dropped here — the caller inspects the raw provider
+ * list separately to surface the switch-provider hint.
+ */
+function planAttempts(providers: ResolvedProviderRow[]): PlannedAttempt[] {
+  const planned: PlannedAttempt[] = [];
+  for (const p of providers) {
+    const adapter = IMAGE_ADAPTERS.find((a) => a.match_name === p.name.toLowerCase());
+    if (!adapter) continue;
+    planned.push({
+      adapter,
+      provider_id: p.id,
+      provider_name: adapter.match_name,
+      priority: p.priority,
+      base_url: p.base_url,
+    });
+  }
+  return planned;
 }
 
 /**
  * Run image generation with full audit + persistence. Always returns —
- * never throws. Failures are surfaced as `success:false` plus a list of
- * per-provider error classes so the caller can compose a HOLD response.
+ * never throws. Failures are surfaced as success:false plus a list of
+ * per-provider attempts and a typed failure_reason so the caller can
+ * compose a HOLD response.
  */
 export async function runImageGeneration(
   options: ImageGenerationOptions,
@@ -119,16 +185,51 @@ export async function runImageGeneration(
   const prompt_sha = sha256(options.prompt);
   const live = isLiveMode();
 
+  const enabled = await loadEnabledProviders();
+  const planned = planAttempts(enabled);
+
+  // Anthropic-only situation: no image-capable adapter is enabled. Surface a
+  // user-actionable HOLD instead of silently mock-fallback even in live mode.
+  // In mock mode we still proceed with the mock so dev/CI remains functional.
+  const anthropic_only =
+    live &&
+    planned.length === 0 &&
+    enabled.some((p) => p.name.toLowerCase() === "anthropic");
+
   await auditLog(options.task_id, "IMAGE_REQUESTED", "Image generation requested", {
+    prompt: options.prompt,
     prompt_sha256_prefix: prompt_sha.slice(0, PROMPT_HASH_PREVIEW_BYTES * 2),
     prompt_chars: options.prompt.length,
     matched_phrase: options.matched_phrase ?? null,
     size: options.size,
     live_mode: live,
-    provider_order: PROVIDER_ORDER.map((p) => `${p.provider_name}:${p.model}`),
+    enabled_providers: enabled.map((p) => `${p.name}:${p.priority}`),
+    planned_order: planned.map((p) => `${p.provider_name}:${p.adapter.model}`),
+    anthropic_active: enabled.some((p) => p.name.toLowerCase() === "anthropic"),
   });
 
-  const attempts: ImageGenerationOutcome["attempts"] = [];
+  if (anthropic_only) {
+    const reason =
+      "Anthropic does not expose an image-generation API. Enable OpenAI (gpt-image-1) " +
+      "or Gemini (gemini-2.5-flash-image) in Settings → Providers and retry.";
+    await auditLog(
+      options.task_id,
+      "IMAGE_GENERATION_FAILED",
+      "No image-capable provider enabled (Anthropic active)",
+      {
+        reason: "provider_does_not_support_images",
+        active_providers: enabled.map((p) => p.name.toLowerCase()),
+      },
+    );
+    return {
+      success: false,
+      attachments: [],
+      summary: reason,
+      attempts: [],
+      mocked: false,
+      failure_reason: "provider_does_not_support_images",
+    };
+  }
 
   if (!live) {
     return await persistAndAudit({
@@ -146,18 +247,31 @@ export async function runImageGeneration(
     });
   }
 
-  // Live mode: try providers in declared priority order. Any
-  // success short-circuits; only when ALL fail do we surface the
-  // collected errors via IMAGE_GENERATION_FAILED.
-  for (const entry of PROVIDER_ORDER) {
-    const provider_id = await lookupProviderId(
-      entry.provider_name === "openai" ? "OpenAI" : "Gemini",
+  if (planned.length === 0) {
+    await auditLog(
+      options.task_id,
+      "IMAGE_GENERATION_FAILED",
+      "No image-capable provider configured",
+      { reason: "no_image_provider_configured", enabled_providers: enabled.map((p) => p.name.toLowerCase()) },
     );
-    const resolved = await resolveProviderKey(provider_id, entry.provider_name);
+    return {
+      success: false,
+      attachments: [],
+      summary: "Image generation is not available — enable OpenAI or Gemini in Settings → Providers and retry.",
+      attempts: [],
+      mocked: false,
+      failure_reason: "no_image_provider_configured",
+    };
+  }
+
+  // Live mode: try planned attempts in priority order. Any success short-circuits.
+  const attempts: ImageGenerationOutcome["attempts"] = [];
+  for (const plan of planned) {
+    const resolved = await resolveProviderKey(plan.provider_id, plan.provider_name);
     if (!resolved.key) {
       attempts.push({
-        provider: entry.provider_name,
-        model: entry.model,
+        provider: plan.provider_name,
+        model: plan.adapter.model,
         success: false,
         latency_ms: 0,
         error_type: "auth_failure",
@@ -168,11 +282,12 @@ export async function runImageGeneration(
 
     const base_url =
       resolved.base_url ??
-      (entry.provider_name === "openai"
+      plan.base_url ??
+      (plan.provider_name === "openai"
         ? "https://api.openai.com/v1"
         : "https://generativelanguage.googleapis.com/v1beta");
 
-    const result = await entry.call({
+    const result = await plan.adapter.call({
       prompt: options.prompt,
       api_key: resolved.key,
       base_url,
@@ -180,8 +295,8 @@ export async function runImageGeneration(
     });
 
     attempts.push({
-      provider: entry.provider_name,
-      model: entry.model,
+      provider: plan.provider_name,
+      model: plan.adapter.model,
       success: result.success,
       latency_ms: result.latency_ms,
       error_type: result.error_type,
@@ -189,20 +304,15 @@ export async function runImageGeneration(
     });
 
     if (result.success && result.b64) {
-      // SECURITY/ROBUSTNESS (architect HIGH finding): the upstream
-      // base64 cannot be trusted blindly. Reject empty / oversized /
-      // non-image payloads BEFORE persistence so a misbehaving
-      // provider can never poison the upload store with garbage that
-      // the chat UI would then try to render. Validation failures
-      // demote the attempt from "success" to a typed failure so
-      // fallback to the next provider continues.
+      // Validate base64 BEFORE persistence: reject empty/oversized/non-image
+      // payloads so a misbehaving provider can never poison uploads.
       const validation = validateImageBytes(result.b64, result.mime ?? "image/png");
       if (validation.ok) {
         return await persistAndAudit({
           bytes: validation.bytes,
           mime: validation.mime,
-          provider: entry.provider_name,
-          model: entry.model,
+          provider: plan.provider_name,
+          model: plan.adapter.model,
           width: result.width ?? null,
           height: result.height ?? null,
           latency_ms: result.latency_ms,
@@ -212,10 +322,7 @@ export async function runImageGeneration(
           prompt_sha,
         });
       }
-      // Retro-actively flip the attempt we just pushed to record the
-      // validation failure — the provider technically returned 200 but
-      // the payload was unusable, which is operationally indistinguishable
-      // from a malformed_response and must surface in audit + attempts.
+      // Demote the just-recorded success to a malformed_response and continue.
       const last = attempts[attempts.length - 1];
       if (last) {
         last.success = false;
@@ -224,14 +331,13 @@ export async function runImageGeneration(
       }
       logger.warn(
         {
-          provider: entry.provider_name,
-          model: entry.model,
+          provider: plan.provider_name,
+          model: plan.adapter.model,
           reason: validation.reason,
           decoded_bytes: validation.decoded_bytes,
         },
         "image_bridge.validation_failed",
       );
-      // Fall through to the next provider in the order.
     }
   }
 
@@ -241,6 +347,7 @@ export async function runImageGeneration(
     "IMAGE_GENERATION_FAILED",
     "All image providers failed",
     {
+      reason: "all_providers_failed",
       prompt_sha256_prefix: prompt_sha.slice(0, PROMPT_HASH_PREVIEW_BYTES * 2),
       attempts,
       live_mode: true,
@@ -253,6 +360,7 @@ export async function runImageGeneration(
     summary: composeFailureSummary(attempts),
     attempts,
     mocked: false,
+    failure_reason: "all_providers_failed",
   };
 }
 
@@ -290,6 +398,7 @@ async function persistAndAudit(input: PersistInput): Promise<ImageGenerationOutc
       "IMAGE_GENERATION_FAILED",
       "Failed to persist generated image",
       {
+        reason: "persistence_failed",
         prompt_sha256_prefix: input.prompt_sha.slice(0, PROMPT_HASH_PREVIEW_BYTES * 2),
         provider: input.provider,
         model: input.model,
@@ -302,18 +411,24 @@ async function persistAndAudit(input: PersistInput): Promise<ImageGenerationOutc
       summary: "Image was generated but could not be saved.",
       attempts: input.attempts,
       mocked: input.mocked,
+      failure_reason: "persistence_failed",
     };
   }
+
+  const width = attachment.width ?? input.width;
+  const height = attachment.height ?? input.height;
+  const storage_path = storagePathFor(attachment.id);
 
   const ref: GeneratedImageRef = {
     id: attachment.id,
     mime: attachment.mime,
-    width: attachment.width ?? input.width,
-    height: attachment.height ?? input.height,
+    width,
+    height,
     provider: input.provider,
     model: input.model,
     mock: input.mocked,
     original_name: attachment.original_name,
+    storage_path,
   };
 
   await auditLog(
@@ -322,14 +437,17 @@ async function persistAndAudit(input: PersistInput): Promise<ImageGenerationOutc
     `Image generated via ${input.provider}:${input.model}${input.mocked ? " (mock)" : ""}`,
     {
       attachment_id: attachment.id,
+      storage_path,
       provider: input.provider,
       model: input.model,
       mocked: input.mocked,
       latency_ms: input.latency_ms,
       bytes: attachment.size_bytes,
       sha256: attachment.sha256,
-      width: ref.width,
-      height: ref.height,
+      width,
+      height,
+      mime: attachment.mime,
+      prompt: input.options.prompt,
       prompt_sha256_prefix: input.prompt_sha.slice(0, PROMPT_HASH_PREVIEW_BYTES * 2),
     },
   );
@@ -338,7 +456,7 @@ async function persistAndAudit(input: PersistInput): Promise<ImageGenerationOutc
     success: true,
     attachments: [ref],
     summary: input.mocked
-      ? `Generated a placeholder image (mock mode — set IMAGE_GENERATION_LIVE=1 to call ${PROVIDER_ORDER.map((p) => p.provider_name).join("/")}).`
+      ? `Generated a placeholder image (mock mode — set IMAGE_GENERATION_LIVE=1 to call OpenAI/Gemini).`
       : `Generated image via ${input.provider} (${input.model}).`,
     attempts: input.attempts,
     mocked: input.mocked,
@@ -355,4 +473,3 @@ function composeFailureSummary(attempts: ImageGenerationOutcome["attempts"]): st
     .join("; ");
   return `Could not generate the image. Provider attempts: ${reasons}.`;
 }
-

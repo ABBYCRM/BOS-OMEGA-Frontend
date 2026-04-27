@@ -112,6 +112,8 @@ export interface GeneratedImageRef {
   model: string;
   mock: boolean;
   original_name: string;
+  /** Server-relative path the chat UI uses to fetch the bytes (auth-checked). */
+  storage_path: string;
 }
 
 export interface ParallelResponse {

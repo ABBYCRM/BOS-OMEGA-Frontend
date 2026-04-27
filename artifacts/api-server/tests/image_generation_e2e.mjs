@@ -146,7 +146,7 @@ await test("GET /api/uploads/{id}/raw returns valid PNG bytes", async () => {
 });
 
 // ----------------------------------------------------------------- 4. Audit trail
-await test("audit chain records IMAGE_REQUESTED + IMAGE_GENERATED", async () => {
+await test("audit chain records IMAGE_REQUESTED + IMAGE_GENERATED with full metadata", async () => {
   const r = await request(jar, "GET", `/api/audit?task_id=${encodeURIComponent(firstResult.task_id)}&limit=200`);
   assert.equal(r.status, 200, `expected 200, got ${r.status}`);
   const events = Array.isArray(r.data) ? r.data : [];
@@ -154,16 +154,34 @@ await test("audit chain records IMAGE_REQUESTED + IMAGE_GENERATED", async () => 
   const generated = events.find((e) => e.event_type === "IMAGE_GENERATED");
   assert.ok(requested, "IMAGE_REQUESTED event recorded");
   assert.ok(generated, "IMAGE_GENERATED event recorded");
+  // IMAGE_REQUESTED contract: prompt + size + live_mode + planned_order + enabled_providers + anthropic_active.
+  assert.equal(requested.metadata?.prompt, "generate an image of a red sneaker", "actual prompt recorded");
   assert.equal(requested.metadata?.size, "1024x1024", "size hint recorded");
   assert.equal(requested.metadata?.live_mode, false, "mock mode recorded");
-  assert.ok(
-    Array.isArray(requested.metadata?.provider_order) && requested.metadata.provider_order.length === 2,
-    "provider order has 2 entries",
-  );
+  assert.equal(typeof requested.metadata?.anthropic_active, "boolean", "anthropic_active flag present");
+  assert.ok(Array.isArray(requested.metadata?.enabled_providers), "enabled_providers list present");
+  assert.ok(Array.isArray(requested.metadata?.planned_order), "planned_order list present");
+  // IMAGE_GENERATED contract: attachment_id + storage_path + provider + model + dims + bytes + sha256 + prompt.
   assert.equal(generated.metadata?.attachment_id, firstAttachmentId, "attachment_id matches");
+  assert.equal(
+    generated.metadata?.storage_path,
+    `/api/uploads/${firstAttachmentId}/raw`,
+    "storage_path matches uploads route",
+  );
+  assert.equal(generated.metadata?.provider, "mock", "provider recorded");
+  assert.equal(generated.metadata?.model, "mock-deterministic", "model recorded");
   assert.equal(generated.metadata?.mocked, true, "generated mocked=true");
+  assert.equal(generated.metadata?.width, 8, "width recorded (mock dims)");
+  assert.equal(generated.metadata?.height, 8, "height recorded (mock dims)");
+  assert.equal(generated.metadata?.mime, "image/png", "mime recorded");
+  assert.equal(generated.metadata?.prompt, "generate an image of a red sneaker", "prompt recorded on completion");
   assert.ok(typeof generated.metadata?.bytes === "number" && generated.metadata.bytes > 0, "bytes recorded");
   assert.ok(typeof generated.metadata?.sha256 === "string" && generated.metadata.sha256.length === 64, "sha256 recorded");
+});
+
+await test("BosOutput.generated_attachments[0] carries storage_path", async () => {
+  const ref = firstResult.bos_output.generated_attachments[0];
+  assert.equal(ref.storage_path, `/api/uploads/${firstAttachmentId}/raw`, "storage_path round-trips into bos_output");
 });
 
 // ----------------------------------------------------------------- 5. Determinism
@@ -194,6 +212,44 @@ await test("describe-style prompt is NOT routed to image bridge", async () => {
   assert.notEqual(r.task_type, "image_generation", `should not be image_generation; got ${r.task_type}`);
   const refs = r.bos_output?.generated_attachments;
   assert.ok(!refs || refs.length === 0, "no generated_attachments for describe prompt");
+});
+
+// ------------------------------------------------- 7b. Memory continuity for follow-ups
+//
+// After an image task completes the pipeline writes an auto_summary scratchpad
+// row (writeAutoSummary, image branch) so a later text task can recall the
+// prior generation via memory_context. We assert the storage_path of the
+// FIRST attachment shows up in the follow-up's MEMORY_INJECTED audit payload
+// — that's the exact channel a downstream text classifier would read from
+// when answering "what was the image you generated?".
+await test("follow-up task memory_context references the prior generated image", async () => {
+  // Give the writer a brief window — it runs after TASK_COMPLETED inside its
+  // own try/catch and uses the same DB connection the task does, so this is
+  // belt-and-suspenders rather than load-bearing.
+  await new Promise((r) => setTimeout(r, 250));
+  const followUp = await submitTask(
+    "in two sentences, what was in the image you just generated for me?",
+  );
+  // The MEMORY_INJECTED audit row is scrubbed of the un-truncated
+  // `memory_context_full` field (audit.ts strips it) so we ask the
+  // dedicated memory-context endpoint that re-hydrates it for "View
+  // full context" UIs. This is the same channel the model receives.
+  const ctxRes = await request(
+    jar,
+    "GET",
+    `/api/tasks/${encodeURIComponent(followUp.task_id)}/memory-context`,
+  );
+  assert.equal(ctxRes.status, 200, "memory-context endpoint responded 200");
+  const ctx = String(ctxRes.data?.memory_context ?? "");
+  assert.ok(ctx.length > 0, "memory_context payload is non-empty");
+  assert.ok(
+    ctx.includes("=== SCRATCHPAD ==="),
+    "memory_context contains a SCRATCHPAD section (auto-summary writer fired)",
+  );
+  assert.ok(
+    ctx.includes(`/api/uploads/${firstAttachmentId}/raw`),
+    "follow-up memory_context references the prior image storage_path",
+  );
 });
 
 // ------------------------------------------------------------- 8. Optional live test

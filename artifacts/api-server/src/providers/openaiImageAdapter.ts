@@ -108,16 +108,17 @@ export async function callOpenAIImage(
     }
 
     const [w, h] = size.split("x").map((n) => Number(n));
-    return {
+    const result: ImageGenResult = {
       success: true,
       b64,
       mime: "image/png",
-      width: Number.isFinite(w) ? w : null as unknown as number,
-      height: Number.isFinite(h) ? h : null as unknown as number,
       latency_ms: Date.now() - start,
       provider,
       model,
     };
+    if (Number.isFinite(w)) result.width = w;
+    if (Number.isFinite(h)) result.height = h;
+    return result;
   } catch (err: unknown) {
     const error = err as Error;
     logger.error({ err, provider, model }, "OpenAI image call failed");
