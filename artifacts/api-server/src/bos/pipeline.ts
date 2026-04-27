@@ -159,10 +159,12 @@ export interface PipelineInput {
   // legacy NULL-owned row to other authenticated users.
   user_id?: string | null;
   // Lattice continuity (Task #68) — conversation grouping. The route layer
-  // resolves this via assignConversation() before invoking the pipeline so
-  // the very first saveTask INSERT carries the conversation_id atomically.
-  // null when anonymous or the clusterer was bypassed.
-  conversation_id?: string | null;
+  // PLANS the assignment via planConversationAssignment() before invoking
+  // the pipeline. The actual conversation INSERT/UPDATE is performed
+  // inside `saveTask`'s transaction so we never strand empty conversation
+  // rows on a downstream pipeline failure. null when anonymous or when the
+  // clusterer failed transiently and the route chose to proceed unscoped.
+  conversation_decision?: import("./conversationClusterer.js").ConvDecision | null;
 }
 
 export interface PipelineResult {
@@ -280,7 +282,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   if (gate.state === "ABORT") {
     const base = buildAbortOutput(gate.reason || "Policy violation", task_id);
     const output = attachDenial(base, "input_gate_abort", gate.reason || "Policy violation");
-    await saveTask(task_id, pipelineInput.input, "safety_review", "ABORT", requested_mode, undefined, undefined, "ABORTED", JSON.stringify(output), pipelineInput.user_id ?? null, pipelineInput.conversation_id ?? null);
+    await saveTask(task_id, pipelineInput.input, "safety_review", "ABORT", requested_mode, undefined, undefined, "ABORTED", JSON.stringify(output), pipelineInput.user_id ?? null, pipelineInput.conversation_decision ?? null);
     await auditLog(task_id, "TASK_ABORTED", gate.reason || "Aborted by input gate");
     return { task_id, tri_state: "ABORT", task_type: "safety_review", final_status: "ABORTED", bos_output: output };
   }
@@ -337,7 +339,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
       recommended_next_action: "Configure an eligible provider/model and retry.",
     };
     const output = attachDenial(base, "no_provider_available", reason);
-    await saveTask(task_id, pipelineInput.input, task_type, "HOLD", resolved_mode, undefined, undefined, "HELD", JSON.stringify(output), pipelineInput.user_id ?? null, pipelineInput.conversation_id ?? null);
+    await saveTask(task_id, pipelineInput.input, task_type, "HOLD", resolved_mode, undefined, undefined, "HELD", JSON.stringify(output), pipelineInput.user_id ?? null, pipelineInput.conversation_decision ?? null);
     await auditLog(task_id, "TASK_HELD", reason, { cause: "no_provider_available", task_type });
     // Persist a display-only tri-state row mirroring the runtime decision
     // so the existing /api/tri-state/by-task endpoint always has data.
@@ -360,7 +362,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     "RUNNING",
     undefined,
     pipelineInput.user_id ?? null,
-    pipelineInput.conversation_id ?? null,
+    pipelineInput.conversation_decision ?? null,
   );
 
   // Task #46: build memory_context once at the orchestrator level so every
@@ -749,6 +751,22 @@ function buildAbortOutput(reason: string, task_id: string): BosOutput {
   };
 }
 
+/**
+ * Insert (or, on subsequent calls during the same pipeline run, leave
+ * to the dedicated `db.update(tasksTable)` call sites) the tasks row,
+ * and — if a `conversation_decision` is provided — atomically commit
+ * that decision in the same transaction. This is the enforcement
+ * point for the "no empty conversations" invariant: if the task
+ * INSERT fails, the conversation INSERT/UPDATE rolls back too.
+ *
+ * Note: subsequent saveTask calls in the same pipeline run (e.g. when
+ * the gate ABORTS after a GO row was already inserted) hit a primary-
+ * key conflict on `tasks.id` — but historically those flows always
+ * called saveTask exactly once per task_id, so this remains a single-
+ * INSERT path. The decision is consumed only on the first call (the
+ * caller passes null on subsequent calls); guarded by the runtime
+ * order in the orchestrator.
+ */
 async function saveTask(
   task_id: string,
   input: string,
@@ -760,19 +778,35 @@ async function saveTask(
   final_status: string | undefined,
   final_output: string | undefined,
   user_id: string | null,
-  conversation_id: string | null = null,
+  conversation_decision:
+    | import("./conversationClusterer.js").ConvDecision
+    | null = null,
 ): Promise<void> {
-  await db.insert(tasksTable).values({
-    id: task_id,
-    input_text: input,
-    task_type,
-    tri_state,
-    mode,
-    selected_provider: provider || null,
-    selected_model: model || null,
-    final_status: final_status || "pending",
-    final_output: final_output || null,
-    user_id,
-    conversation_id,
+  // Lazy import to avoid a circular type ref at the top of pipeline.ts.
+  const { commitConversationDecision } = await import("./conversationClusterer.js");
+  const conversation_id = conversation_decision?.conversation_id ?? null;
+  await db.transaction(async (tx) => {
+    if (conversation_decision && user_id) {
+      await commitConversationDecision(
+        conversation_decision,
+        user_id,
+        task_id,
+        new Date(),
+        tx,
+      );
+    }
+    await tx.insert(tasksTable).values({
+      id: task_id,
+      input_text: input,
+      task_type,
+      tri_state,
+      mode,
+      selected_provider: provider || null,
+      selected_model: model || null,
+      final_status: final_status || "pending",
+      final_output: final_output || null,
+      user_id,
+      conversation_id,
+    });
   });
 }

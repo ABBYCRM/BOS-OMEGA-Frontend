@@ -188,6 +188,18 @@ export async function auditLog(
   event_type: AuditEventType,
   message: string,
   metadata?: Record<string, unknown>,
+  /**
+   * Optional Drizzle transaction handle. When provided, the audit row
+   * is written via the transaction so it shares atomicity with the
+   * surrounding writes — losing audit visibility is acceptable, but
+   * leaving an audit row pointing at a transaction that rolled back
+   * is NOT (it produces misleading history). Inside a transaction we
+   * intentionally skip the retry loop because the first failure
+   * aborts the surrounding transaction anyway, and we still fall
+   * through to the durable on-disk queue / fatal log path so the
+   * event is never silently dropped.
+   */
+  tx?: Parameters<Parameters<typeof db.transaction>[0]>[0],
 ): Promise<void> {
   const id = randomUUID();
   const record = {
@@ -199,14 +211,23 @@ export async function auditLog(
   };
 
   let last_err: unknown;
-  for (let attempt = 1; attempt <= MAX_DB_RETRIES; attempt++) {
+  if (tx) {
     try {
-      await db.insert(auditLogsTable).values(record);
+      await tx.insert(auditLogsTable).values(record);
       return;
     } catch (err) {
       last_err = err;
-      if (attempt < MAX_DB_RETRIES) {
-        await sleep(50 * attempt);
+    }
+  } else {
+    for (let attempt = 1; attempt <= MAX_DB_RETRIES; attempt++) {
+      try {
+        await db.insert(auditLogsTable).values(record);
+        return;
+      } catch (err) {
+        last_err = err;
+        if (attempt < MAX_DB_RETRIES) {
+          await sleep(50 * attempt);
+        }
       }
     }
   }

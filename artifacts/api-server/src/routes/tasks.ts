@@ -15,7 +15,11 @@ import { CreateTaskBody, ListTasksQueryParams } from "@workspace/api-zod";
 import { logger } from "../lib/logger.js";
 import { expensiveLimiter } from "../lib/security/rateLimit.js";
 import { z } from "zod";
-import { assignConversation, ConversationNotFoundError } from "../bos/conversationClusterer.js";
+import {
+  planConversationAssignment,
+  ConversationNotFoundError,
+  type ConvDecision,
+} from "../bos/conversationClusterer.js";
 
 // Lattice continuity (Task #68) — these two fields are NOT part of the
 // orval-generated CreateTaskBody schema (we deliberately don't regen
@@ -71,15 +75,17 @@ router.post("/", expensiveLimiter, async (req, res) => {
     }
   }
 
-  // Lattice continuity (Task #68): assign a conversation BEFORE the
-  // pipeline runs so the resulting tasks row carries `conversation_id`
-  // atomically and the sidebar reflects the new task on the very first
-  // refresh after creation. Three precedence levels are handled inside
-  // assignConversation: explicit id > force_new > heuristic Jaccard.
-  // The clusterer is user-scoped: candidate threads are filtered by
-  // user_id before scoring, so cross-tenant leakage is impossible.
-  // Anonymous tasks (no req.user) skip clustering entirely — there is
-  // nothing to scope to.
+  // Lattice continuity (Task #68): plan a conversation assignment
+  // BEFORE the pipeline runs. We deliberately do NOT commit the
+  // conversation row here — `planConversationAssignment` only reads
+  // (it does ownership-check the explicit id). The actual INSERT or
+  // UPDATE happens transactionally with the task row inside
+  // pipeline.saveTask, so a downstream failure cannot strand an
+  // empty conversations row. Three precedence levels: explicit id >
+  // force_new > heuristic Jaccard. Cross-tenant leakage is
+  // impossible because candidate threads are filtered by user_id
+  // before scoring. Anonymous tasks (no req.user) skip clustering
+  // entirely — there is nothing to scope to.
   const extras = ConversationCreateExtras.safeParse(req.body ?? {});
   if (!extras.success) {
     res.status(400).json({
@@ -89,16 +95,15 @@ router.post("/", expensiveLimiter, async (req, res) => {
     });
     return;
   }
-  let conversation_id: string | null = null;
+  let conversation_decision: ConvDecision | null = null;
   if (req.user?.id) {
     try {
-      const assignment = await assignConversation({
+      conversation_decision = await planConversationAssignment({
         userId: req.user.id,
         inputText: parsed.data.input,
         explicitId: extras.data.conversation_id ?? null,
         forceNew: extras.data.force_new_conversation ?? false,
       });
-      conversation_id = assignment.conversation_id;
     } catch (err) {
       if (err instanceof ConversationNotFoundError) {
         res.status(404).json({ error: err.message, code: err.code });
@@ -125,7 +130,7 @@ router.post("/", expensiveLimiter, async (req, res) => {
       // so newly created tasks are never momentarily visible to other
       // tenants via the legacy NULL-fallback in visibility filters.
       user_id: req.user?.id ?? null,
-      conversation_id,
+      conversation_decision,
     });
 
     const task_rows = await db.select().from(tasksTable).where(eq(tasksTable.id, result.task_id)).limit(1);

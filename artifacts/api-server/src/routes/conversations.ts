@@ -10,11 +10,15 @@
  *   GET    /api/conversations/:id     → conversation row + ordered task list
  *                                       (id, input snippet, tri_state,
  *                                       task_type, final_status, created_at).
- *   POST   /api/conversations         → manual create with { title }.
- *                                       The actual auto-clustering of new
- *                                       tasks happens in the POST /api/tasks
- *                                       handler via assignConversation().
  *   PATCH  /api/conversations/:id     → rename / archive / unarchive.
+ *
+ * Notably **there is no POST /api/conversations**. Conversations are
+ * created lazily, transactionally with the first task that lands in
+ * them — see `commitConversationDecision` in conversationClusterer.ts.
+ * This enforces the architectural invariant that a conversation row
+ * never exists in the DB without an associated task. Clients that want
+ * to start a fresh thread submit a task with
+ * `force_new_conversation: true` instead.
  *
  * All endpoints are user-scoped (super_admin opt-in via ?owner=* on list,
  * unconditional on read/patch — owners and super_admin only). Cross-user
@@ -26,7 +30,6 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { conversationsTable, tasksTable } from "@workspace/db";
 import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
-import { randomUUID } from "crypto";
 import { z } from "zod";
 
 const router = Router();
@@ -120,36 +123,10 @@ router.get("/:id", async (req, res) => {
   res.json({ conversation: conv, tasks });
 });
 
-const CreateBody = z.object({
-  title: z.string().min(1).max(200),
-});
-
-router.post("/", async (req, res) => {
-  if (!req.user?.id) {
-    res.status(401).json({ error: "Authentication required", code: "UNAUTHENTICATED" });
-    return;
-  }
-  const parsed = CreateBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid body", code: "INPUT_ERROR", detail: parsed.error.issues });
-    return;
-  }
-  const id = randomUUID();
-  const now = new Date();
-  const [row] = await db
-    .insert(conversationsTable)
-    .values({
-      id,
-      user_id: req.user.id,
-      title: parsed.data.title,
-      topic_keywords: [],
-      created_at: now,
-      last_active_at: now,
-      archived: false,
-    })
-    .returning();
-  res.status(201).json(row);
-});
+// POST /api/conversations is intentionally NOT exposed — see file
+// header for the rationale ("no empty conversations" invariant).
+// Clients open a fresh thread by submitting a task with
+// `force_new_conversation: true`.
 
 const PatchBody = z
   .object({

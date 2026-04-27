@@ -16,23 +16,26 @@
  *      conversation is created.
  *
  * Architectural constraints from the task spec:
- *   - Pure function over tokens + recent thread state — no random
- *     sampling, deterministic given the same DB snapshot.
+ *   - **No empty conversations**: a conversations row never exists in
+ *     the DB without an associated task. To enforce this, planning is
+ *     split from committing:
+ *       - `planConversationAssignment()` is read-only — it ownership-
+ *         checks an explicit id, scores candidates, and returns a
+ *         `ConvDecision` (either "existing" with the id to reuse, or
+ *         "new" with a pre-generated id + title + keywords).
+ *       - `commitConversationDecision()` performs the actual writes,
+ *         and is called by `pipeline.saveTask()` *inside the same
+ *         transaction* as the task INSERT. If the task insert fails,
+ *         the conversation insert rolls back too, so we cannot strand
+ *         empty rows even across a downstream pipeline crash.
  *   - User-scoped: candidate threads are filtered by user_id BEFORE any
  *     scoring, so cross-user leakage is impossible.
- *   - Empty conversations are never created proactively; a conversation
- *     only exists once a task is assigned. The manual "+ New
- *     conversation" UI also goes through here on the first task
- *     submission inside the new thread (the dedicated POST
- *     /api/conversations endpoint exists for power users / scripts but
- *     the sidebar uses `force_new_conversation` so empty rows don't
- *     accumulate when a user clicks "New" then navigates away).
  *   - Audit emits CONVERSATION_ASSIGNED or CONVERSATION_CREATED so the
  *     audit log explains why a task ended up in a given thread.
  *
  * Embedding-based clustering is explicitly out of scope (the spec calls
  * out keyword v1 only; a future task can swap in embeddings behind the
- * same `assignConversation` interface).
+ * same `planConversationAssignment` interface).
  */
 
 import { db } from "@workspace/db";
@@ -70,9 +73,6 @@ export interface AssignParams {
   inputText: string;
   forceNew?: boolean;
   explicitId?: string | null;
-  /** task_id of the new task (for audit attribution). Optional because
-   *  unit tests construct AssignParams without a real task row. */
-  task_id?: string;
   /** Test override for the similarity threshold (default 0.18). */
   similarityThreshold?: number;
   /** Test override for "now" so unit tests can deterministically place
@@ -80,12 +80,26 @@ export interface AssignParams {
   now?: Date;
 }
 
-export interface AssignResult {
-  conversation_id: string;
-  created: boolean;
-  matched_score?: number;
-  method: "explicit" | "force_new" | "auto_match" | "auto_new";
-}
+/**
+ * The outcome of {@link planConversationAssignment}. Only describes the
+ * intended write — no DB rows have been created yet. `commitConversationDecision`
+ * is what actually persists it (atomically with the task INSERT).
+ */
+export type ConvDecision =
+  | {
+      kind: "existing";
+      conversation_id: string;
+      method: "explicit" | "auto_match";
+      matched_score?: number;
+    }
+  | {
+      kind: "new";
+      conversation_id: string;
+      title: string;
+      topic_keywords: string[];
+      method: "force_new" | "auto_new";
+      matched_score?: number;
+    };
 
 export class ConversationNotFoundError extends Error {
   readonly code = "CONVERSATION_NOT_FOUND";
@@ -95,13 +109,21 @@ export class ConversationNotFoundError extends Error {
   }
 }
 
+/** Drizzle's `db` and the transaction handle share the same query API
+ *  but their types differ (the transaction has no `$client`). Accept
+ *  either by widening to the structural intersection of "things that
+ *  expose insert/update". */
+type DbOrTx = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 /**
- * Assign a task to a conversation. Returns `{conversation_id, created,
- * method}` so callers can audit which branch fired. Throws
- * `ConversationNotFoundError` when an explicitId is given that doesn't
- * resolve to a row owned by `userId`.
+ * Plan (but do NOT commit) a conversation assignment. Returns a decision
+ * the caller can hand to {@link commitConversationDecision} inside its
+ * task-insert transaction. The only write this function performs is the
+ * ownership check on `explicitId`, which is read-only. New conversation
+ * rows are NOT created here — that happens atomically with the task in
+ * `commitConversationDecision`, so we never strand empty rows.
  */
-export async function assignConversation(p: AssignParams): Promise<AssignResult> {
+export async function planConversationAssignment(p: AssignParams): Promise<ConvDecision> {
   // 1) Explicit id wins. Ownership-check first so a malicious caller
   //    can't pin to someone else's thread by guessing an id.
   if (p.explicitId) {
@@ -111,29 +133,18 @@ export async function assignConversation(p: AssignParams): Promise<AssignResult>
       .where(and(eq(conversationsTable.id, p.explicitId), eq(conversationsTable.user_id, p.userId)))
       .limit(1);
     if (!row) throw new ConversationNotFoundError();
-    const now = p.now ?? new Date();
-    await db.update(conversationsTable)
-      .set({ last_active_at: now })
-      .where(eq(conversationsTable.id, p.explicitId));
-    // Audit log even when task_id is unknown — assignConversation runs
-    // BEFORE the task row is created in the request handler, so task_id
-    // is intentionally undefined. auditLog stores task_id||null, so the
-    // CONVERSATION_* events are still queryable for debugging and tests.
-    await auditLog(p.task_id, "CONVERSATION_ASSIGNED",
-      `Assigned to conversation ${p.explicitId} (explicit)`,
-      { conversation_id: p.explicitId, user_id: p.userId, method: "explicit" },
-    );
-    return { conversation_id: p.explicitId, created: false, method: "explicit" };
+    return { kind: "existing", conversation_id: p.explicitId, method: "explicit" };
   }
 
   // 2) Force new — the user clicked "+ New conversation".
   if (p.forceNew) {
-    const id = await createConversationRow(p.userId, p.inputText, p.now);
-    await auditLog(p.task_id, "CONVERSATION_CREATED",
-      `Created conversation ${id} (force_new)`,
-      { conversation_id: id, user_id: p.userId, method: "force_new" },
-    );
-    return { conversation_id: id, created: true, method: "force_new" };
+    return {
+      kind: "new",
+      conversation_id: randomUUID(),
+      title: deriveTitle(p.inputText),
+      topic_keywords: deriveKeywords(p.inputText),
+      method: "force_new",
+    };
   }
 
   // 3) Heuristic — score recent open threads.
@@ -153,11 +164,10 @@ export async function assignConversation(p: AssignParams): Promise<AssignResult>
     .limit(MAX_CONVS_TO_CONSIDER);
 
   // For each candidate, fetch the last N task inputs in one bounded
-  // batch. We deliberately don't JOIN — a candidate can legitimately
-  // have zero tasks if a prior task assignment failed mid-write (the
-  // INSERT of the conversations row commits before the task row in
-  // some race orderings). Such empty rows still get scored against
-  // their topic_keywords seed.
+  // batch. Now that conversation creation is transactional with task
+  // insertion, every candidate is guaranteed to have ≥1 task — but we
+  // tolerate zero-task rows defensively for robustness against legacy
+  // data and concurrent archive flips.
   const enriched = await Promise.all(candidates.map(async (c) => {
     const recents = await db
       .select({ input_text: tasksTable.input_text })
@@ -176,37 +186,85 @@ export async function assignConversation(p: AssignParams): Promise<AssignResult>
   const { conversation_id: bestId, score } = scoreCandidates(p.inputText, enriched);
 
   if (bestId && score >= threshold) {
-    const now = p.now ?? new Date();
-    await db.update(conversationsTable)
-      .set({ last_active_at: now })
-      .where(eq(conversationsTable.id, bestId));
-    await auditLog(p.task_id, "CONVERSATION_ASSIGNED",
-      `Assigned to conversation ${bestId} (auto, jaccard=${score.toFixed(3)})`,
-      { conversation_id: bestId, user_id: p.userId, method: "auto_match", score, threshold },
-    );
-    return { conversation_id: bestId, created: false, matched_score: score, method: "auto_match" };
+    return {
+      kind: "existing",
+      conversation_id: bestId,
+      method: "auto_match",
+      matched_score: score,
+    };
   }
 
-  // 4) No good match — open a new thread.
-  const id = await createConversationRow(p.userId, p.inputText, p.now);
-  await auditLog(p.task_id, "CONVERSATION_CREATED",
-    `Created conversation ${id} (no match above threshold)`,
-    { conversation_id: id, user_id: p.userId, method: "auto_new", best_score: score, threshold },
-  );
-  return { conversation_id: id, created: true, matched_score: score, method: "auto_new" };
+  // No good match — plan a brand new thread.
+  return {
+    kind: "new",
+    conversation_id: randomUUID(),
+    title: deriveTitle(p.inputText),
+    topic_keywords: deriveKeywords(p.inputText),
+    method: "auto_new",
+    matched_score: score,
+  };
 }
 
-async function createConversationRow(userId: string, firstInput: string, now?: Date): Promise<string> {
-  const id = randomUUID();
-  const ts = now ?? new Date();
-  await db.insert(conversationsTable).values({
-    id,
-    user_id: userId,
-    title: deriveTitle(firstInput),
-    topic_keywords: deriveKeywords(firstInput),
-    created_at: ts,
-    last_active_at: ts,
-    archived: false,
-  });
-  return id;
+/**
+ * Commit a planned assignment. MUST be called inside the same DB
+ * transaction as the task INSERT so that a failure to persist the task
+ * rolls back the conversation row creation too. This is the mechanism
+ * that enforces the "no empty conversations" architectural invariant.
+ *
+ * Side effects (in order):
+ *   - For `kind: "new"`: INSERT conversations row.
+ *   - For `kind: "existing"`: UPDATE conversations.last_active_at.
+ *   - Audit log emit (CONVERSATION_CREATED or CONVERSATION_ASSIGNED).
+ *     Audit emit happens inside the same transaction so that, if the
+ *     transaction rolls back, the audit row goes with it.
+ */
+export async function commitConversationDecision(
+  decision: ConvDecision,
+  userId: string,
+  task_id: string,
+  now: Date,
+  tx: DbOrTx,
+): Promise<void> {
+  if (decision.kind === "new") {
+    await tx.insert(conversationsTable).values({
+      id: decision.conversation_id,
+      user_id: userId,
+      title: decision.title,
+      topic_keywords: decision.topic_keywords,
+      created_at: now,
+      last_active_at: now,
+      archived: false,
+    });
+    await auditLog(
+      task_id,
+      "CONVERSATION_CREATED",
+      `Created conversation ${decision.conversation_id} (${decision.method})`,
+      {
+        conversation_id: decision.conversation_id,
+        user_id: userId,
+        method: decision.method,
+        ...(decision.matched_score !== undefined ? { best_score: decision.matched_score } : {}),
+      },
+      // Tx-scoped: if the surrounding task INSERT rolls back, the
+      // conversation insert AND its audit row roll back together.
+      tx as Parameters<Parameters<typeof db.transaction>[0]>[0],
+    );
+  } else {
+    await tx
+      .update(conversationsTable)
+      .set({ last_active_at: now })
+      .where(eq(conversationsTable.id, decision.conversation_id));
+    await auditLog(
+      task_id,
+      "CONVERSATION_ASSIGNED",
+      `Assigned to conversation ${decision.conversation_id} (${decision.method})`,
+      {
+        conversation_id: decision.conversation_id,
+        user_id: userId,
+        method: decision.method,
+        ...(decision.matched_score !== undefined ? { score: decision.matched_score } : {}),
+      },
+      tx as Parameters<Parameters<typeof db.transaction>[0]>[0],
+    );
+  }
 }
