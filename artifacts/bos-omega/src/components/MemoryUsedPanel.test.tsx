@@ -784,6 +784,238 @@ describe("MemoryUsedPanel", () => {
     expect(scratchpadDropped.className).not.toMatch(/text-amber-700/);
   });
 
+  // === Task #58: per-row provenance for dropped items ===
+
+  it("hides the dropped-items toggle entirely on legacy tasks with no dropped_items field", () => {
+    // Legacy: dropped count > 0 but no per-row provenance recorded.
+    // The amber notice still renders (count + budget), but the
+    // expand-list affordance must NOT show — there's nothing to expand.
+    const legacyDropped = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        canon_dropped: 2,
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[legacyDropped]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+    expect(screen.getByTestId("memory-dropped-notice")).toBeInTheDocument();
+    expect(screen.queryByTestId("memory-dropped-items-section")).toBeNull();
+    expect(screen.queryByTestId("memory-dropped-items-toggle")).toBeNull();
+  });
+
+  it("renders the dropped-items toggle (collapsed by default) when dropped_items are present", () => {
+    const droppedEntry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        canon_dropped: 2,
+        dropped_items: [
+          { id: "mem-canon-2", layer: "canon", title: "Niche policy clause" },
+          { id: "mem-canon-3", layer: "canon", title: "Edge-case rubric" },
+        ],
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[droppedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    const toggle = screen.getByTestId("memory-dropped-items-toggle");
+    expect(toggle).toBeInTheDocument();
+    expect(toggle.textContent).toMatch(/SHOW DROPPED ITEMS \(2\)/);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    // Collapsed by default — body and inner items list must not be in the DOM.
+    expect(screen.queryByTestId("memory-dropped-items-body")).toBeNull();
+    expect(screen.queryByTestId("memory-dropped-item-items")).toBeNull();
+  });
+
+  it("expands the dropped-items list with deep-links and marks deleted rows as no-longer-available", async () => {
+    // The cross-reference query — same /api/memory endpoint as ITEMS INJECTED
+    // — answers with one of the two dropped ids; the other must render as
+    // "no longer available" instead of a broken anchor.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.endsWith("/api/memory") || url.includes("/api/memory?")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify([
+                {
+                  id: "mem-canon-2",
+                  layer: "canon",
+                  title: "Niche policy clause",
+                  content: "...",
+                  authority_level: 5,
+                  created_at: "2026-01-01T00:00:00.000Z",
+                  updated_at: "2026-01-01T00:00:00.000Z",
+                },
+                // mem-scratch-deleted intentionally absent from the live list.
+              ]),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          );
+        }
+        return Promise.reject(new Error(`unexpected fetch: ${url}`));
+      }),
+    );
+
+    const droppedEntry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        canon_dropped: 1,
+        scratchpad_dropped: 1,
+        dropped_items: [
+          { id: "mem-canon-2", layer: "canon", title: "Niche policy clause" },
+          { id: "mem-scratch-deleted", layer: "scratchpad", title: "Old hint" },
+        ],
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[droppedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+    fireEvent.click(screen.getByTestId("memory-dropped-items-toggle"));
+
+    // Body now rendered.
+    expect(screen.getByTestId("memory-dropped-items-body")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("memory-dropped-items-toggle"),
+    ).toHaveAttribute("aria-expanded", "true");
+
+    // Heading inside the list uses the dropped label (not "ITEMS INJECTED").
+    // Both the toggle button and the heading carry the same "DROPPED ITEMS (n)"
+    // text, so we look it up scoped to the list body to assert on the heading.
+    const body = screen.getByTestId("memory-dropped-items-body");
+    expect(body.textContent).toMatch(/DROPPED ITEMS \(2\)/);
+
+    // Surviving id renders as a Memory Manager deep-link with the reused
+    // testIdPrefix so we don't collide with any injected items list above.
+    const link = screen.getByTestId("memory-dropped-item-link-mem-canon-2");
+    expect(link.getAttribute("href")).toBe("/memory#item-mem-canon-2");
+    expect(link.textContent).toContain("Niche policy clause");
+
+    // Deleted row resolves async — wait for the live list to load and
+    // mark the missing id as unavailable rather than rendering a link.
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("memory-dropped-item-missing-mem-scratch-deleted"),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId("memory-dropped-item-link-mem-scratch-deleted"),
+    ).toBeNull();
+    expect(
+      screen.getByTestId("memory-dropped-item-missing-mem-scratch-deleted")
+        .textContent,
+    ).toContain("no longer available");
+
+    // Toggle back to collapsed.
+    fireEvent.click(screen.getByTestId("memory-dropped-items-toggle"));
+    expect(screen.queryByTestId("memory-dropped-items-body")).toBeNull();
+  });
+
+  it("discloses truncation when total dropped count exceeds the recorded dropped_items array", () => {
+    // Per-layer dropped lists are capped server-side at DROPPED_TITLES_CAP
+    // (currently 20). When the orchestrator dropped MORE notes than the
+    // audit row carries, the UI must say so explicitly — otherwise users
+    // read "I dropped 25, only 20 named" as a missing-data bug.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response("[]", {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    const droppedEntry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        canon_dropped: 25, // 25 dropped from canon, only 2 carried in dropped_items
+        dropped_items: [
+          { id: "mem-canon-2", layer: "canon", title: "Niche policy clause" },
+          { id: "mem-canon-3", layer: "canon", title: "Other clause" },
+        ],
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[droppedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    // Toggle button shows "2 of 25" instead of just "(2)".
+    const toggle = screen.getByTestId("memory-dropped-items-toggle");
+    expect(toggle.textContent).toMatch(/DROPPED ITEMS \(2 of 25\)/);
+
+    // Truncation hint only renders inside the expanded body.
+    expect(screen.queryByTestId("memory-dropped-items-truncated")).toBeNull();
+    fireEvent.click(toggle);
+    const hint = screen.getByTestId("memory-dropped-items-truncated");
+    expect(hint.textContent).toMatch(/Showing first 2 of 25 dropped notes/);
+  });
+
+  it("does NOT show the truncation hint when dropped_items carries every dropped note", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response("[]", {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    const droppedEntry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        canon_dropped: 2, // matches dropped_items.length exactly
+        dropped_items: [
+          { id: "mem-canon-2", layer: "canon", title: "Niche policy clause" },
+          { id: "mem-canon-3", layer: "canon", title: "Other clause" },
+        ],
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[droppedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    // Toggle uses the simple "(n)" form.
+    expect(
+      screen.getByTestId("memory-dropped-items-toggle").textContent,
+    ).toMatch(/DROPPED ITEMS \(2\)/);
+    fireEvent.click(screen.getByTestId("memory-dropped-items-toggle"));
+    expect(screen.queryByTestId("memory-dropped-items-truncated")).toBeNull();
+  });
+
+  it("does NOT fetch /api/memory until the dropped-items list is expanded", () => {
+    const fetchSpy = vi.fn(() =>
+      Promise.reject(new Error("should not be called")),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const droppedEntry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        canon_dropped: 1,
+        dropped_items: [
+          { id: "mem-canon-2", layer: "canon", title: "Niche policy clause" },
+        ],
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[droppedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+    // Panel is open; dropped items toggle is visible but NOT expanded yet.
+    expect(screen.getByTestId("memory-dropped-items-toggle")).toBeInTheDocument();
+    // The cross-reference fetch must not have fired — saving a roundtrip
+    // for the common case where the user only reads the count + budget copy.
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("shows a per-tile dropped counter even when the layer's items count is zero", () => {
     // Edge case: a layer can drop items even if NONE fit (budget too small
     // for any single ranked item). The tile still shows the count + 0 items

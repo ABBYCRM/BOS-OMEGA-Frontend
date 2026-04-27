@@ -448,6 +448,19 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     ...patches_sel.injected,
     ...scratchpad_sel.injected,
   ];
+  // Task #58: per-row provenance for the items the per-layer budget cut.
+  // Same shape as `injected_items` (id, layer, title) so the Memory Used
+  // panel (and the global Audit Log) can render them through the existing
+  // MemoryInjectedItemsList component — clickable Memory Manager
+  // deep-links plus "no longer available" markers when the source row was
+  // deleted after the task ran. Layer order matches `injected_items` so
+  // per-layer ordering on screen stays consistent.
+  const dropped_items_full = [
+    ...canon_sel.dropped_items,
+    ...continuity_sel.dropped_items,
+    ...patches_sel.dropped_items,
+    ...scratchpad_sel.dropped_items,
+  ];
   // Task #49: persist the full memory_context alongside the bounded preview.
   // The preview keeps the audit row cheap to render in the trace UI, while
   // memory_context_full is the un-truncated payload that "View full context"
@@ -479,6 +492,11 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     memory_context_preview: memory_context.slice(0, 8000),
     memory_context_full: memory_context,
     injected_items,
+    // Task #58: per-row provenance for the budget-cut items so the panel
+    // can render each dropped note with a Memory Manager deep-link, not
+    // just count-and-title text. Same shape as injected_items so the UI
+    // reuses the existing MemoryInjectedItemsList renderer.
+    dropped_items: dropped_items_full,
     // Task #59: persist the per-layer budgets that ran for THIS task so
     // the Memory Used panel shows historically-accurate budget numbers in
     // the dropped-notice copy and per-tile tooltips, even after the user

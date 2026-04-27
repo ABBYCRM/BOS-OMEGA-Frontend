@@ -45,6 +45,14 @@ type MemoryMeta = {
   section_headers?: string[];
   memory_context_preview?: string;
   injected_items?: InjectedItem[];
+  // Task #58: per-row provenance for items the per-layer budget cut.
+  // Same shape as injected_items so the panel can render the dropped
+  // list through MemoryInjectedItemsList — clickable Memory Manager
+  // deep-links + "no longer available" markers when the source row
+  // was deleted after the task ran. Optional so legacy MEMORY_INJECTED
+  // rows recorded before Task #58 keep rendering — they only had counts
+  // and titles, which the existing dropped-notice copy already covers.
+  dropped_items?: InjectedItem[];
   // Task #59: per-task budgets the orchestrator actually used. Optional
   // so legacy MEMORY_INJECTED rows recorded before Task #59 keep working
   // — they fall back to MEMORY_TOKEN_BUDGETS_DEFAULT below.
@@ -96,6 +104,11 @@ export function MemoryUsedPanel({
   // Task #53: transient confirmation that the clipboard write succeeded.
   // Auto-clears after a short delay so repeated copies still feel responsive.
   const [copied, setCopied] = useState(false);
+  // Task #58: dropped-items list lives inside the amber dropped notice and
+  // is collapsed by default — the count + budget copy already gives the
+  // headline, and a typical task can drop up to DROPPED_TITLES_CAP × 4
+  // layers = 80 rows, which would dominate the panel if always-on.
+  const [showDroppedItems, setShowDroppedItems] = useState(false);
 
   // Find the orchestrator-level MEMORY_INJECTED event. Task #46's pipeline
   // emits exactly one per task today, but if a future re-run produces more
@@ -112,6 +125,11 @@ export function MemoryUsedPanel({
       : {};
 
   const injected: InjectedItem[] = parseInjectedItems(meta.injected_items);
+  // Task #58: per-row provenance for the items the budget cut. Parsed
+  // through the same defensive validator as injected_items so a malformed
+  // metadata blob can't crash the panel — anything not-an-array or with
+  // non-string id/layer/title is silently filtered.
+  const dropped_items_full: InjectedItem[] = parseInjectedItems(meta.dropped_items);
 
   // Task #49: only fire the lazy fetch when the user has both opened the
   // panel AND clicked "View full context". Without the panel-open guard the
@@ -170,6 +188,14 @@ export function MemoryUsedPanel({
   // the AI use my note?". Negative or non-numeric dropped values are
   // coerced to 0 above so this filter is safe.
   const droppedLayers = layers.filter((l) => l.dropped > 0);
+  // Task #58: per-layer dropped lists are bounded server-side to
+  // DROPPED_TITLES_CAP (currently 20) so the audit row stays cheap to
+  // render. When the orchestrator counted more drops than the recorded
+  // dropped_items array carries, the list is truncated — surface that
+  // explicitly so users don't think a missing note "wasn't dropped".
+  const totalDroppedCount = droppedLayers.reduce((s, l) => s + l.dropped, 0);
+  const droppedItemsTruncated =
+    dropped_items_full.length > 0 && totalDroppedCount > dropped_items_full.length;
   const headers = Array.isArray(meta.section_headers) ? meta.section_headers : [];
   const preview =
     typeof meta.memory_context_preview === "string" ? meta.memory_context_preview : "";
@@ -415,6 +441,71 @@ export function MemoryUsedPanel({
                     </Link>{" "}
                     to make room.
                   </div>
+                  {/* Task #58: per-row provenance for the dropped items.
+                      Reuses MemoryInjectedItemsList so each dropped row
+                      shows the same layer chip + Memory Manager deep-link
+                      + "no longer available" marker pattern as the
+                      ITEMS INJECTED list. Collapsed by default — the
+                      headline copy above already gives the count, and a
+                      task can drop up to 80 rows in the worst case (4
+                      layers × DROPPED_TITLES_CAP) which would dominate
+                      the panel if always-on. Hidden entirely on legacy
+                      tasks (recorded before Task #58) whose audit row
+                      has no `dropped_items` array — the count + budget
+                      copy above still tells the user the headline. */}
+                  {dropped_items_full.length > 0 && (
+                    <div
+                      className="pt-1.5"
+                      data-testid="memory-dropped-items-section"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setShowDroppedItems((v) => !v)}
+                        aria-expanded={showDroppedItems}
+                        aria-controls="memory-dropped-items-body"
+                        className="text-[10px] font-mono text-primary hover:underline inline-flex items-center gap-1"
+                        data-testid="memory-dropped-items-toggle"
+                      >
+                        {showDroppedItems ? (
+                          <ChevronDown className="w-3 h-3" />
+                        ) : (
+                          <ChevronRight className="w-3 h-3" />
+                        )}
+                        {showDroppedItems ? "HIDE" : "SHOW"} DROPPED ITEMS (
+                        {droppedItemsTruncated
+                          ? `${dropped_items_full.length} of ${totalDroppedCount}`
+                          : dropped_items_full.length})
+                      </button>
+                      {showDroppedItems && (
+                        <div
+                          id="memory-dropped-items-body"
+                          className="mt-2 space-y-1.5"
+                          data-testid="memory-dropped-items-body"
+                        >
+                          <MemoryInjectedItemsList
+                            items={dropped_items_full}
+                            enabled={open && showDroppedItems}
+                            label="DROPPED ITEMS"
+                            testIdPrefix="memory-dropped-item"
+                          />
+                          {/* Disclose per-layer cap truncation so users don't
+                              read "I dropped 25, list shows 20" as a bug.
+                              The cap is currently DROPPED_TITLES_CAP (20)
+                              per layer in artifacts/api-server/src/bos/memoryHelpers.ts. */}
+                          {droppedItemsTruncated && (
+                            <div
+                              className="text-[10px] font-mono text-amber-700"
+                              data-testid="memory-dropped-items-truncated"
+                            >
+                              Showing first {dropped_items_full.length} of{" "}
+                              {totalDroppedCount} dropped notes (audit row caps
+                              per-layer dropped lists for cost reasons).
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

@@ -79,6 +79,16 @@ export interface LayerSelection {
   dropped_titles: string[];
   /** Per-item provenance for each rendered string in `items`, same order. */
   injected: InjectedItemRef[];
+  /**
+   * Task #58: per-item provenance for the items that ranked but did not
+   * fit the budget. Mirrors the shape of `injected` (id, layer, title) so
+   * the Memory Used panel can render dropped items the same way it renders
+   * injected items — clickable Memory Manager deep-links plus
+   * "no longer available" markers when the source row was deleted after
+   * the task ran. Bounded to `DROPPED_TITLES_CAP` for the same audit-row
+   * cost reason as `dropped_titles`.
+   */
+  dropped_items: InjectedItemRef[];
 }
 
 async function selectLayer(
@@ -88,7 +98,17 @@ async function selectLayer(
   prefix: string,
   initial_pull: number,
   user_id?: string | null,
-): Promise<{ items: RankedItem[]; dropped: number; dropped_titles: string[] }> {
+): Promise<{
+  items: RankedItem[];
+  dropped: number;
+  dropped_titles: string[];
+  /**
+   * Task #58: per-row provenance for items the budget cut, in the same
+   * iteration order as the greedy fit skipped them. Bounded to
+   * DROPPED_TITLES_CAP so the audit row stays cheap to render.
+   */
+  dropped_items: { id: string; title: string }[];
+}> {
   // Task #67 — strict per-user scoping for non-canon layers. When
   // `user_id` is provided we ONLY pull that exact user's rows; we do
   // NOT fall back to NULL-owned rows because doing so leaks anonymous
@@ -141,6 +161,11 @@ async function selectLayer(
   // can identify exactly which notes were hidden and act on them. Bounded
   // to DROPPED_TITLES_CAP so the audit blob stays cheap to render.
   const { items, dropped, dropped_items } = selectWithinBudget(annotated, budget_tokens);
+  // Task #58: same DROPPED_TITLES_CAP applied to both the title-only
+  // legacy field and the new full-provenance dropped_items array, so the
+  // audit row stays cheap to render and the panel can deep-link straight
+  // to the source row in the Memory Manager.
+  const capped_dropped = dropped_items.slice(0, DROPPED_TITLES_CAP);
   return {
     items: items.map((i) => ({
       id: i.r.id,
@@ -149,19 +174,29 @@ async function selectLayer(
       tokens: i.tokens,
     })),
     dropped,
-    dropped_titles: dropped_items.slice(0, DROPPED_TITLES_CAP).map((i) => i.r.title),
+    dropped_titles: capped_dropped.map((i) => i.r.title),
+    dropped_items: capped_dropped.map((i) => ({ id: i.r.id, title: i.r.title })),
   };
 }
 
 function toSelection(
   layer: MemoryLayer,
-  picked: { items: RankedItem[]; dropped: number; dropped_titles: string[] },
+  picked: {
+    items: RankedItem[];
+    dropped: number;
+    dropped_titles: string[];
+    dropped_items: { id: string; title: string }[];
+  },
 ): LayerSelection {
   return {
     items: picked.items.map((i) => i.rendered),
     dropped: picked.dropped,
     dropped_titles: picked.dropped_titles,
     injected: picked.items.map((i) => ({ id: i.id, layer, title: i.title })),
+    // Task #58: stamp the layer onto each dropped row so callers can
+    // treat the flattened cross-layer list the same way they treat
+    // `injected` (group + colour + Memory-Manager deep-link by layer).
+    dropped_items: picked.dropped_items.map((i) => ({ id: i.id, layer, title: i.title })),
   };
 }
 
