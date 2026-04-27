@@ -24,6 +24,7 @@ import {
 } from "./memoryEngine.js";
 import { getEffectiveBudgets } from "./userBudgets.js";
 import { auditLog, complianceHoldRequired, clearComplianceFailure } from "./auditEngine.js";
+import { writeAutoSummary } from "./scratchpadWriter.js";
 import { logger } from "../lib/logger.js";
 import { loadAttachmentBundle } from "../lib/uploads/loader.js";
 import { budgetForMode, checkBudget, type BudgetUsage } from "./budgets.js";
@@ -377,11 +378,17 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   // / pre-user-id tasks fall through to defaults inside getEffectiveBudgets.
   const effective_budgets = await getEffectiveBudgets(pipelineInput.user_id ?? null);
   try {
+    // Task #67 — pass user_id to non-canon layer fetchers so per-user
+    // memory rows (the auto-summary writer's output and freeform manual
+    // notes) cannot leak across users when the model context is built.
+    // Canon stays global (no user_id) by design — it's the global
+    // behaviour contract every request shares.
+    const memory_user_id = pipelineInput.user_id ?? null;
     [canon_sel, continuity_sel, patches_sel, scratchpad_sel] = await Promise.all([
       getCanonMemory(gate.sanitized_input, effective_budgets.canon),
-      getContinuityMemory(gate.sanitized_input, effective_budgets.continuity),
-      getPatchesMemory(gate.sanitized_input, effective_budgets.patches),
-      getScratchpad(gate.sanitized_input, effective_budgets.scratchpad),
+      getContinuityMemory(gate.sanitized_input, effective_budgets.continuity, memory_user_id),
+      getPatchesMemory(gate.sanitized_input, effective_budgets.patches, memory_user_id),
+      getScratchpad(gate.sanitized_input, effective_budgets.scratchpad, memory_user_id),
     ]);
   } catch (err) {
     await auditLog(task_id, "CANON_LOAD_ERROR", "Canon memory load failed; refusing to call model without governance overlay", {
@@ -686,6 +693,29 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     .where(eq(tasksTable.id, task_id));
 
   await auditLog(task_id, "TASK_COMPLETED", `Task completed with state ${result_with_denial.state}`, { mode: resolved_mode, run_id, canon_hash });
+
+  // Task #67 — Lattice continuity scratchpad auto-summary writer.
+  // Fires AFTER TASK_COMPLETED so the audit chain is complete even when
+  // the writer fails. Belt-and-suspenders try/catch around an internally
+  // non-throwing helper: writer failures must never observably affect
+  // task output. Skipped when state is ABORT to avoid persisting safety-
+  // refusal text into the model's continuity context.
+  if (result_with_denial.state !== "ABORT") {
+    try {
+      await writeAutoSummary({
+        task_id,
+        task_type,
+        state: result_with_denial.state,
+        answer: result_with_denial.answer ?? "",
+        input_text: pipelineInput.input,
+        assumptions: result_with_denial.assumptions,
+        uncertainties: result_with_denial.uncertainties,
+        user_id: pipelineInput.user_id ?? null,
+      });
+    } catch (err) {
+      logger.warn({ err, task_id }, "writeAutoSummary threw (non-fatal)");
+    }
+  }
 
   return {
     task_id,

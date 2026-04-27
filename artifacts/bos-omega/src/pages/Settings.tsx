@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import {
   Plus, Key, Trash2, CheckCircle2, XCircle, Loader2,
   Eye, EyeOff, AlertCircle, Sparkles, Zap, ShieldCheck, Lock, Database,
-  Palette, Monitor, Brain, RotateCcw, Save,
+  Palette, Monitor, Brain, RotateCcw, Save, Pin,
 } from "lucide-react";
 import { ProviderStatusBadge } from "@/components/StatusBadge";
 import { useTheme, type ThemeId } from "@/lib/theme";
@@ -401,6 +401,216 @@ function MemoryBudgetsCard() {
   );
 }
 
+// Task #67 — Lattice continuity scratchpad list.
+//
+// Lists the caller's scratchpad memory rows (auto-summary writes + manual
+// pins + freeform notes). Read/delete only — pins are created from the
+// chat surface (PinButton in MessageList.tsx), and auto-summaries are
+// written by the pipeline after every successful task. Source badges
+// help the user tell apart what they pinned vs what the system wrote.
+type ScratchpadSource = "auto_summary" | "manual_pin" | "manual" | string;
+type ScratchpadEntry = {
+  id: string;
+  user_id: string | null;
+  layer: string;
+  title: string;
+  content: string;
+  authority_level: number;
+  source: ScratchpadSource;
+  created_at: string;
+  updated_at: string;
+};
+
+const SCRATCHPAD_QUERY_KEY = ["/api/scratchpad"] as const;
+
+async function fetchScratchpad(): Promise<ScratchpadEntry[]> {
+  const r = await fetch("/api/scratchpad", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!r.ok) throw new Error(`GET /api/scratchpad failed: ${r.status}`);
+  return (await r.json()) as ScratchpadEntry[];
+}
+
+async function deleteScratchpadEntry(id: string): Promise<void> {
+  const r = await fetch(`/api/scratchpad/${id}`, {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!r.ok && r.status !== 204) throw new Error(`DELETE /api/scratchpad/${id} failed: ${r.status}`);
+}
+
+function ScratchpadSourceBadge({ source }: { source: ScratchpadSource }) {
+  const cfg =
+    source === "manual_pin"   ? { label: "PINNED",  cls: "bg-emerald-100 text-emerald-800 border-emerald-200" } :
+    source === "auto_summary" ? { label: "AUTO",    cls: "bg-amber-100 text-amber-800 border-amber-200" } :
+                                { label: "MANUAL",  cls: "bg-stone-100 text-stone-800 border-stone-200" };
+  return (
+    <span
+      className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border tracking-wider ${cfg.cls}`}
+      data-testid={`scratchpad-source-${source}`}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
+function ScratchpadCard() {
+  const queryClient = useQueryClient();
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: SCRATCHPAD_QUERY_KEY,
+    queryFn: fetchScratchpad,
+    retry: false,
+  });
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  const removeMutation = useMutation({
+    mutationFn: (id: string) => deleteScratchpadEntry(id),
+    onSuccess: (_void, id) => {
+      // Optimistically drop the row so the UI updates without a round trip;
+      // refetch on the side to reconcile against the server.
+      queryClient.setQueryData<ScratchpadEntry[]>(SCRATCHPAD_QUERY_KEY, (prev) =>
+        prev ? prev.filter((e) => e.id !== id) : prev,
+      );
+      setFeedback({ kind: "ok", text: "Scratchpad entry removed." });
+      void refetch();
+    },
+    onError: (err: Error) => {
+      setFeedback({ kind: "err", text: err.message || "Delete failed." });
+    },
+  });
+
+  useEffect(() => {
+    if (!feedback) return;
+    const t = window.setTimeout(() => setFeedback(null), 3500);
+    return () => window.clearTimeout(t);
+  }, [feedback]);
+
+  const handleDelete = (entry: ScratchpadEntry) => {
+    if (!confirm(`Remove this scratchpad entry?\n\n"${entry.title}"`)) return;
+    removeMutation.mutate(entry.id);
+  };
+
+  const renderBody = () => {
+    if (isLoading) {
+      return (
+        <div className="flex items-center gap-2 text-[12.5px] text-muted-foreground" data-testid="scratchpad-loading">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Loading scratchpad…
+        </div>
+      );
+    }
+    if (error) {
+      return (
+        <div className="text-[12.5px] text-amber-700 inline-flex items-center gap-2" data-testid="scratchpad-error">
+          <AlertCircle className="w-4 h-4" />
+          Couldn't load scratchpad — sign in is required to view your continuity entries.
+        </div>
+      );
+    }
+    if (!data || data.length === 0) {
+      return (
+        <div className="text-[12.5px] text-muted-foreground" data-testid="scratchpad-empty">
+          No scratchpad entries yet. Auto-summaries appear after each task; manual pins
+          appear when you click <span className="inline-flex items-center gap-1 align-baseline"><Pin className="w-3 h-3" /> Pin</span> on
+          an assistant message.
+        </div>
+      );
+    }
+
+    const counts = {
+      auto: data.filter((e) => e.source === "auto_summary").length,
+      pinned: data.filter((e) => e.source === "manual_pin").length,
+      manual: data.filter((e) => e.source !== "auto_summary" && e.source !== "manual_pin").length,
+    };
+
+    return (
+      <>
+        <div className="flex items-center gap-3 text-[11px] font-mono text-muted-foreground" data-testid="scratchpad-counts">
+          <span><span className="text-foreground font-bold">{data.length}</span> total</span>
+          <span>·</span>
+          <span><span className="text-emerald-700 font-bold">{counts.pinned}</span> pinned</span>
+          <span>·</span>
+          <span><span className="text-amber-700 font-bold">{counts.auto}</span> auto</span>
+          <span>·</span>
+          <span><span className="text-foreground font-bold">{counts.manual}</span> manual</span>
+        </div>
+
+        <ul className="divide-y divide-border border border-border rounded-lg overflow-hidden" data-testid="scratchpad-list">
+          {data.map((entry) => (
+            <li
+              key={entry.id}
+              className="px-3 py-2.5 bg-background flex items-start gap-3"
+              data-testid={`scratchpad-entry-${entry.id}`}
+            >
+              <div className="flex-1 min-w-0 space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <ScratchpadSourceBadge source={entry.source} />
+                  <span className="text-[12.5px] font-medium text-foreground truncate" title={entry.title}>
+                    {entry.title}
+                  </span>
+                  <span className="text-[10px] font-mono text-muted-foreground ml-auto whitespace-nowrap">
+                    {new Date(entry.updated_at).toLocaleString()}
+                  </span>
+                </div>
+                <p className="text-[11.5px] text-muted-foreground font-mono whitespace-pre-wrap line-clamp-3 select-text">
+                  {entry.content}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleDelete(entry)}
+                disabled={removeMutation.isPending}
+                data-testid={`button-delete-scratchpad-${entry.id}`}
+                className="text-muted-foreground hover:text-red-700 hover:bg-red-50 rounded-md p-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Remove this scratchpad entry"
+                aria-label="Remove scratchpad entry"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+
+        {feedback && (
+          <div
+            className={`text-[11.5px] inline-flex items-center gap-1 ${
+              feedback.kind === "ok" ? "text-emerald-700" : "text-amber-700"
+            }`}
+            data-testid={`scratchpad-feedback-${feedback.kind}`}
+          >
+            {feedback.kind === "ok" ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+            {feedback.text}
+          </div>
+        )}
+      </>
+    );
+  };
+
+  return (
+    <section
+      className="bg-card border border-card-border rounded-xl p-6 shadow-card space-y-4"
+      data-testid="scratchpad-card"
+    >
+      <div className="flex items-baseline justify-between">
+        <div>
+          <h2 className="text-[15px] font-serif font-semibold text-foreground tracking-tight inline-flex items-center gap-2">
+            <Pin className="w-4 h-4 text-primary" />
+            Scratchpad continuity
+          </h2>
+          <p className="text-[12.5px] text-muted-foreground mt-0.5">
+            Per-user notes that BOS-Omega reads back into later tasks. Auto-summaries are
+            written after every successful task; pins are deliberate signals you create
+            from the chat. Remove anything you no longer want carried forward.
+          </p>
+        </div>
+      </div>
+      {renderBody()}
+    </section>
+  );
+}
+
 function ProviderAvatar({ name }: { name: string }) {
   const brand = PROVIDER_BRAND[name.toLowerCase()] ?? { letter: name.charAt(0).toUpperCase(), bg: "bg-stone-100", fg: "text-stone-800" };
   return (
@@ -682,6 +892,9 @@ export function Settings() {
 
       {/* Per-user memory budgets (Task #59) */}
       <MemoryBudgetsCard />
+
+      {/* Lattice continuity scratchpad (Task #67) */}
+      <ScratchpadCard />
 
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-4">

@@ -131,6 +131,7 @@ type AuditEventType =
   //     reversible from the audit log alone.
   | "SCRATCHPAD_AUTO_WRITTEN"
   | "SCRATCHPAD_PINNED"
+  | "SCRATCHPAD_DELETED"
   | "LATTICE_EXPORTED"
   | "LATTICE_IMPORTED"
   | "CONVERSATION_CREATED"

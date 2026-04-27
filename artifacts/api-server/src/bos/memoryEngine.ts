@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
 import { memoryItemsTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc, isNull, or } from "drizzle-orm";
 import {
   approxTokenCount,
   buildContextFromMemory as buildContextFromMemoryHelper,
@@ -87,11 +87,27 @@ async function selectLayer(
   budget_tokens: number,
   prefix: string,
   initial_pull: number,
+  user_id?: string | null,
 ): Promise<{ items: RankedItem[]; dropped: number; dropped_titles: string[] }> {
+  // Task #67 — per-user scoping for non-canon layers. When `user_id` is
+  // provided we restrict the pull to that user's rows plus any legacy
+  // (user_id IS NULL) rows from before per-user tagging existed; this
+  // closes the cross-user leakage where one user's pinned scratchpad row
+  // could be injected into another user's prompt context. Canon does NOT
+  // pass user_id (canon rows are intentionally global) so the legacy
+  // layer-only filter is preserved for it.
+  const where_clause =
+    user_id !== undefined
+      ? and(
+          eq(memoryItemsTable.layer, layer),
+          or(eq(memoryItemsTable.user_id, user_id ?? ""), isNull(memoryItemsTable.user_id)),
+        )
+      : eq(memoryItemsTable.layer, layer);
+
   const rows = await db
     .select()
     .from(memoryItemsTable)
-    .where(eq(memoryItemsTable.layer, layer))
+    .where(where_clause)
     .orderBy(desc(memoryItemsTable.authority_level), desc(memoryItemsTable.updated_at))
     .limit(initial_pull);
 
@@ -157,17 +173,17 @@ export async function getCanonMemory(task_input = "", budget?: number): Promise<
   return toSelection("canon", picked);
 }
 
-export async function getContinuityMemory(task_input = "", budget?: number): Promise<LayerSelection> {
-  const picked = await selectLayer("continuity", task_input, budget ?? MEMORY_TOKEN_BUDGETS.continuity, "CONTINUITY", 50);
+export async function getContinuityMemory(task_input = "", budget?: number, user_id?: string | null): Promise<LayerSelection> {
+  const picked = await selectLayer("continuity", task_input, budget ?? MEMORY_TOKEN_BUDGETS.continuity, "CONTINUITY", 50, user_id);
   return toSelection("continuity", picked);
 }
 
-export async function getPatchesMemory(task_input = "", budget?: number): Promise<LayerSelection> {
-  const picked = await selectLayer("patches", task_input, budget ?? MEMORY_TOKEN_BUDGETS.patches, "PATCHES", 50);
+export async function getPatchesMemory(task_input = "", budget?: number, user_id?: string | null): Promise<LayerSelection> {
+  const picked = await selectLayer("patches", task_input, budget ?? MEMORY_TOKEN_BUDGETS.patches, "PATCHES", 50, user_id);
   return toSelection("patches", picked);
 }
 
-export async function getScratchpad(task_input = "", budget?: number): Promise<LayerSelection> {
-  const picked = await selectLayer("scratchpad", task_input, budget ?? MEMORY_TOKEN_BUDGETS.scratchpad, "SCRATCHPAD", 25);
+export async function getScratchpad(task_input = "", budget?: number, user_id?: string | null): Promise<LayerSelection> {
+  const picked = await selectLayer("scratchpad", task_input, budget ?? MEMORY_TOKEN_BUDGETS.scratchpad, "SCRATCHPAD", 25, user_id);
   return toSelection("scratchpad", picked);
 }

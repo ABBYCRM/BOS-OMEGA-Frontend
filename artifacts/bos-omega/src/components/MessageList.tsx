@@ -8,6 +8,7 @@ import { formatMs } from "@/lib/utils";
 import {
   Copy, Check, ChevronDown, ChevronUp, Loader2, Bot, User, Award,
   AlertTriangle, FileText, Image as ImageIcon, FileCode, FileSpreadsheet, Music, Video, File as FileIcon,
+  Pin,
 } from "lucide-react";
 
 const SERIES_ROLE_COLORS: Record<string, string> = {
@@ -282,6 +283,95 @@ function MODE_LABEL(mode: string, max_models?: number, agents_per_model?: number
   }
 }
 
+// Task #67: Pin an assistant message into the per-user scratchpad layer.
+// POSTs to /api/scratchpad/pin with the message's task_id, a generated
+// title (first line of the answer, truncated), and the full answer text
+// as content. The resulting memory_items row is what later tasks see in
+// their scratchpad context — not the live conversation transcript.
+//
+// State machine is hardened against:
+//   - Double-click → an in-flight ref guards against re-entry even before
+//     React batches the disabled re-render.
+//   - Stale timers → a single resetTimer ref is cleared on every state
+//     transition and on unmount so an old "back to idle" timeout cannot
+//     re-enable the button mid-request.
+function PinButton({ task_id, answer }: { task_id?: string; answer: string }) {
+  const [state, setState] = useState<"idle" | "pinning" | "pinned" | "error">("idle");
+  const inFlightRef = useRef(false);
+  const resetTimerRef = useRef<number | null>(null);
+
+  const clearResetTimer = () => {
+    if (resetTimerRef.current !== null) {
+      window.clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = null;
+    }
+  };
+
+  // Cancel any pending reset on unmount so the timer can't fire on a
+  // disposed component (avoids a React warning + the documented stale-
+  // transition bug raised in code review).
+  useEffect(() => clearResetTimer, []);
+
+  const scheduleReset = (ms: number) => {
+    clearResetTimer();
+    resetTimerRef.current = window.setTimeout(() => {
+      resetTimerRef.current = null;
+      setState("idle");
+    }, ms);
+  };
+
+  const onPin = async () => {
+    if (inFlightRef.current || state === "pinning" || state === "pinned") return;
+    inFlightRef.current = true;
+    clearResetTimer();
+    setState("pinning");
+    const head = (answer.split("\n")[0] ?? "").trim();
+    const title = head ? `Pin: ${head.slice(0, 80)}` : `Pin: task ${(task_id ?? "manual").slice(0, 8)}`;
+    try {
+      const r = await fetch("/api/scratchpad/pin", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ task_id, title, content: answer }),
+      });
+      if (!r.ok) throw new Error(`POST /api/scratchpad/pin failed: ${r.status}`);
+      setState("pinned");
+      scheduleReset(2000);
+    } catch {
+      setState("error");
+      scheduleReset(2500);
+    } finally {
+      inFlightRef.current = false;
+    }
+  };
+  const label =
+    state === "pinning" ? "Pinning…" :
+    state === "pinned"  ? "Pinned"   :
+    state === "error"   ? "Failed"   : "Pin";
+  return (
+    <button
+      type="button"
+      onClick={onPin}
+      data-testid="button-pin-message"
+      disabled={state === "pinning" || state === "pinned"}
+      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-60 disabled:cursor-default"
+      aria-label={state === "pinned" ? "Pinned to scratchpad" : "Pin to scratchpad"}
+      title={
+        state === "pinned" ? "Pinned to scratchpad" :
+        state === "error"  ? "Pin failed — try again" :
+        "Pin this answer into your scratchpad memory layer"
+      }
+    >
+      {state === "pinning"
+        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        : state === "pinned"
+          ? <Check className="w-3.5 h-3.5 text-green-700" />
+          : <Pin className="w-3.5 h-3.5" />}
+      {label}
+    </button>
+  );
+}
+
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const onCopy = async () => {
@@ -381,7 +471,10 @@ function AssistantBubble({ msg }: { msg: AssistantMessage }) {
               </span>
             )}
             {msg.status === "done" && answer_text && (
-              <div className="ml-auto"><CopyButton text={answer_text} /></div>
+              <div className="ml-auto flex items-center gap-1">
+                <PinButton task_id={msg.task?.task_id} answer={answer_text} />
+                <CopyButton text={answer_text} />
+              </div>
             )}
           </div>
 
