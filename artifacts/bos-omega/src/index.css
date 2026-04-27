@@ -604,61 +604,113 @@
 :root.theme-cyberdine .bg-primary { background: #ff0000 !important; color: #000 !important; }
 
 /* --- UMBRELLA CORPORATION (Resident Evil) --------------------- */
+/* Pitch-black corporate ops console. Umbrella red accent, hex-grid bg,
+   dark cards with thin red borders. Inspired by the Umbrella tactical
+   dashboard mockup. */
 :root.theme-umbrella {
-  --background: 0 0% 100%;
-  --foreground: 0 0% 8%;
-  --card: 0 0% 100%;
-  --card-foreground: 0 0% 8%;
-  --card-border: 0 80% 40%;
-  --border: 0 0% 80%;
-  --input: 0 0% 96%;
+  --background: 0 0% 0%;              /* pitch black */
+  --foreground: 0 0% 96%;
+  --card: 0 0% 6%;                    /* near-black card */
+  --card-foreground: 0 0% 96%;
+  --card-border: 0 84% 50%;           /* Umbrella red border */
+  --border: 0 30% 18%;                /* dim red-gray hairlines */
+  --input: 0 0% 8%;
 
-  --sidebar: 0 0% 6%;                 /* black sidebar */
-  --sidebar-foreground: 0 0% 96%;
-  --sidebar-border: 0 80% 40%;
-  --sidebar-primary: 0 80% 45%;       /* Umbrella red */
+  --sidebar: 0 0% 0%;                 /* pitch-black sidebar */
+  --sidebar-foreground: 0 0% 92%;
+  --sidebar-border: 0 60% 25%;
+  --sidebar-primary: 0 84% 50%;       /* active item: solid Umbrella red */
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 0 0% 12%;
+  --sidebar-accent: 0 60% 18%;        /* hover dark red */
   --sidebar-accent-foreground: 0 0% 100%;
-  --sidebar-accent-border: 0 80% 40%;
-  --sidebar-ring: 0 80% 45%;
+  --sidebar-accent-border: 0 84% 50%;
+  --sidebar-ring: 0 84% 55%;
 
-  --popover: 0 0% 100%;
-  --popover-foreground: 0 0% 8%;
-  --popover-border: 0 0% 80%;
+  --popover: 0 0% 6%;
+  --popover-foreground: 0 0% 96%;
+  --popover-border: 0 60% 30%;
 
-  --primary: 0 80% 45%;
+  --primary: 0 84% 50%;               /* Umbrella red #ED1C24-ish */
   --primary-foreground: 0 0% 100%;
-  --accent: 0 80% 45%;
+  --accent: 0 84% 50%;
   --accent-foreground: 0 0% 100%;
-  --secondary: 0 0% 95%;
-  --secondary-foreground: 0 0% 8%;
-  --muted: 0 0% 94%;
-  --muted-foreground: 0 0% 35%;
-  --destructive: 0 80% 45%;
+  --secondary: 0 0% 10%;
+  --secondary-foreground: 0 0% 96%;
+  --muted: 0 0% 10%;
+  --muted-foreground: 0 0% 65%;
+  --destructive: 0 84% 50%;
   --destructive-foreground: 0 0% 100%;
-  --ring: 0 80% 45%;
-  --chart-1: 0 80% 45%;
-  --chart-2: 0 0% 8%;
-  --chart-3: 0 0% 50%;
-  --chart-4: 0 60% 60%;
-  --chart-5: 0 0% 80%;
+  --ring: 0 84% 55%;
+  --chart-1: 0 84% 55%;               /* red */
+  --chart-2: 217 91% 60%;             /* blue */
+  --chart-3: 142 71% 45%;             /* green */
+  --chart-4: 271 81% 56%;             /* purple */
+  --chart-5: 38 92% 50%;              /* amber */
 
   --app-font-sans: 'Inter', 'system-ui', sans-serif;
   --app-font-serif: 'Cormorant Garamond', 'Georgia', serif;
   --app-font-mono: 'JetBrains Mono', 'Menlo', monospace;
-  --radius: .25rem;
+  --radius: .375rem;
 }
+/* Subtle red hex-grid overlay on pure black */
 :root.theme-umbrella body {
   font-family: var(--app-font-sans);
-  background:
-    linear-gradient(135deg, transparent 49.5%, rgba(193,12,12,0.04) 49.5% 50.5%, transparent 50.5%) 0 0/24px 24px,
-    hsl(var(--background));
+  background-color: #000;
+  background-image:
+    linear-gradient(30deg, rgba(237,28,36,0.05) 1px, transparent 1px),
+    linear-gradient(150deg, rgba(237,28,36,0.05) 1px, transparent 1px),
+    linear-gradient(90deg,  rgba(237,28,36,0.04) 1px, transparent 1px),
+    radial-gradient(ellipse at top, rgba(237,28,36,0.08), transparent 60%);
+  background-size: 28px 48px, 28px 48px, 28px 48px, 100% 100%;
 }
 :root.theme-umbrella h1,
 :root.theme-umbrella h2,
-:root.theme-umbrella h3 { font-family: var(--app-font-serif); letter-spacing: 0.02em; }
-:root.theme-umbrella .bg-primary { background: #c10c0c !important; }
+:root.theme-umbrella h3 {
+  font-family: var(--app-font-serif);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fff;
+}
+/* Small red accent bar before headings, like the mockup section titles */
+:root.theme-umbrella h2::before,
+:root.theme-umbrella h3::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 0.9em;
+  background: hsl(var(--primary));
+  margin-right: 0.55rem;
+  vertical-align: -0.08em;
+}
+/* Card chrome: thin red border + soft red glow */
+:root.theme-umbrella [class*="rounded-"] {
+  border-color: rgba(237,28,36,0.35);
+}
+:root.theme-umbrella .bg-card,
+:root.theme-umbrella [data-slot="card"] {
+  background: linear-gradient(180deg, #0a0a0a 0%, #050505 100%) !important;
+  border: 1px solid rgba(237,28,36,0.45) !important;
+  box-shadow:
+    0 0 0 1px rgba(237,28,36,0.08),
+    0 8px 24px rgba(0,0,0,0.6),
+    0 0 24px rgba(237,28,36,0.06) inset;
+}
+:root.theme-umbrella .bg-primary { background: #ED1C24 !important; color: #fff !important; }
+:root.theme-umbrella .text-primary { color: #ED1C24 !important; }
+/* Inputs/buttons: red focus ring + dark fill */
+:root.theme-umbrella input,
+:root.theme-umbrella textarea,
+:root.theme-umbrella select {
+  background: #0a0a0a !important;
+  border-color: rgba(237,28,36,0.35) !important;
+  color: #fff !important;
+}
+:root.theme-umbrella input:focus,
+:root.theme-umbrella textarea:focus,
+:root.theme-umbrella select:focus {
+  border-color: #ED1C24 !important;
+  box-shadow: 0 0 0 2px rgba(237,28,36,0.35) !important;
+}
 
 /* --- CAPYBARA ------------------------------------------------- */
 :root.theme-capybara {
