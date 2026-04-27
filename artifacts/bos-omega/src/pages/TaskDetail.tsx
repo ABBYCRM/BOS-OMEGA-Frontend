@@ -3,6 +3,7 @@ import { useGetTask } from "@workspace/api-client-react";
 import { TriStateBadge, TaskStatusBadge } from "@/components/StatusBadge";
 import { OverrideActions } from "@/components/OverrideActions";
 import { MemoryUsedPanel } from "@/components/MemoryUsedPanel";
+import { ActivePersonaPanel } from "@/components/ActivePersonaPanel";
 import { formatDate, formatMs, formatCost } from "@/lib/utils";
 import { Link } from "wouter";
 import { ArrowLeft, CheckCircle, XCircle } from "lucide-react";
@@ -84,6 +85,14 @@ export function TaskDetail() {
           MEMORY_INJECTED audit event. Collapsed by default to keep the
           trace compact. */}
       <MemoryUsedPanel audit={audit} taskId={id} />
+
+      {/* Task #57: persona overlay used for this task (slot A/B/C). The
+          panel reads persona_slot + persona_title off the TASK_RECEIVED
+          audit row, links to the slot in the console editor, and falls
+          back to "no longer available" if the slot was edited or cleared
+          after the task ran. Renders nothing for tasks that didn't use a
+          persona. */}
+      <ActivePersonaPanel audit={audit} />
 
       {/* Pipeline trace */}
       <div className="bg-card border border-card-border rounded-lg p-5">

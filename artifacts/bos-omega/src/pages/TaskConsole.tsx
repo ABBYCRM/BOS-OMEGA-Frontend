@@ -157,6 +157,19 @@ const COST_LABEL: Record<string, { label: string; color: string }> = {
 let MSG_SEQ = 0;
 const newMsgId = () => `m-${Date.now()}-${++MSG_SEQ}`;
 
+// Task #57: Task Detail's "Active persona" panel deep-links to a specific
+// slot via `/console#persona-slot-A` (or B/C). We parse that hash here so
+// the console can scroll to the persona section AND auto-open the editor
+// for the matching slot. Reading window.location.hash directly is
+// intentional — wouter's path-based router doesn't track hash.
+function readPersonaSlotHash(): PersonaSlotKey | null {
+  if (typeof window === "undefined") return null;
+  const m = /^#persona-slot-([ABC])$/.exec(window.location.hash);
+  if (!m) return null;
+  const s = m[1];
+  return s === "A" || s === "B" || s === "C" ? s : null;
+}
+
 // Lattice continuity (Task #68): conversation scoping comes through
 // /console?conversation=<id>. The sidebar emits these links, the server
 // clusterer pins each new task to that thread, and the page rehydrates
@@ -240,7 +253,7 @@ export function TaskConsole() {
   const [mode, setMode] = useState<Mode>("auto");
   const [persona_slot, setPersonaSlotState] = useState<PersonaSlotKey | null>(() => readStoredPersonaSlot());
   const [editing_slot, setEditingSlot] = useState<PersonaSlotView | null>(null);
-  const { slots: persona_slots } = usePersonas();
+  const { slots: persona_slots, is_loading: persona_slots_loading } = usePersonas();
   const [parallelCount, setParallelCount] = useState(3);
   const [maxModels, setMaxModels] = useState(3);
   const [agentsPerModel, setAgentsPerModel] = useState(5);
@@ -327,6 +340,49 @@ export function TaskConsole() {
     setPersonaSlotState(p);
     writeStoredPersonaSlot(p);
   }
+
+  // Task #57: when the URL hash is `#persona-slot-A|B|C` (deep-linked from
+  // the task detail "Active persona" panel), scroll the persona section
+  // into view and auto-open the editor for that slot.
+  //
+  // Important gating: `usePersonas()` synchronously returns 3 fallback
+  // slot views (id=null, content="") on first render before
+  // `useListPersonas` resolves. If we acted on those, the editor would
+  // open against stale fallback data and we'd consume the hash before the
+  // canonical row arrived — so saves could overwrite the wrong content.
+  // We therefore wait until `persona_slots_loading` flips to false AND
+  // the matched slot has a non-null id (a confirmed live row), then
+  // consume the hash exactly once.
+  //
+  // The hash is also re-checked on `hashchange` so a second click on the
+  // same link from another tab/window still re-opens the editor.
+  useEffect(() => {
+    function handlePersonaHash() {
+      if (persona_slots_loading) return;
+      const slot_key = readPersonaSlotHash();
+      if (!slot_key) return;
+      const target = persona_slots.find((p) => p.slot === slot_key);
+      // Without an id the live row hasn't been written yet (or doesn't
+      // exist). Falling back to the synthetic view here would let the
+      // user "save" against a phantom row, so we bail instead. This keeps
+      // the deep-link a no-op for missing slots; the panel on the task
+      // detail page already shows "no longer available" in that case.
+      if (!target || !target.id) return;
+      const el = document.getElementById("persona-slots-section");
+      // scrollIntoView is missing in jsdom and some embedded browsers; we
+      // probe before calling so the editor still opens even when the
+      // scroll-into-view affordance is unavailable.
+      if (el && typeof el.scrollIntoView === "function") {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      setEditingSlot(target);
+      // Clear the hash so a manual close + refresh doesn't reopen.
+      window.history.replaceState({}, "", window.location.pathname + window.location.search);
+    }
+    handlePersonaHash();
+    window.addEventListener("hashchange", handlePersonaHash);
+    return () => window.removeEventListener("hashchange", handlePersonaHash);
+  }, [persona_slots, persona_slots_loading]);
 
   function submitTask(text: string, attachment_ids: string[], attachments: UploadedAttachment[]) {
     if (!text.trim() && attachment_ids.length === 0) return;
@@ -555,7 +611,7 @@ export function TaskConsole() {
         </div>
 
         {/* Persona quick-launch */}
-        <div className="mb-5">
+        <div className="mb-5" id="persona-slots-section">
           <div className="flex items-center justify-between mb-2">
             <label className="block text-[12.5px] font-medium text-foreground">Domain persona</label>
             {persona_slot && (
