@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { fetchAuthState, logout, roleLabel, type AuthUser } from "@/lib/auth";
 import { ConversationsList } from "@/components/ConversationsList";
+import { LatticeMenu } from "@/components/LatticeMenu";
 import {
   Terminal,
   Server,
@@ -228,6 +229,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </div>
             {user && (
               <>
+                <div className="w-px h-4 bg-border" />
+                <LatticeMenu />
                 <div className="w-px h-4 bg-border" />
                 <div className="flex items-center gap-2">
                   <span className="text-[11.5px] font-mono text-foreground" data-testid="text-user-email">

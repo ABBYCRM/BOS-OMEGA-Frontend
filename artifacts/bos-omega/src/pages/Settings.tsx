@@ -635,6 +635,123 @@ function ScratchpadCard() {
   );
 }
 
+// Task #69 — recent lattice exports.
+//
+// Lists the last 10 lattice exports the caller initiated so the user can
+// see, at a glance, when they last exported their continuity blob and
+// what the integrity hash was. Read-only; the actual export action lives
+// in the LatticeMenu user-menu component (Layout top bar).
+type LatticeExportRow = {
+  id: string;
+  user_id: string;
+  fidelity_sha256: string;
+  byte_size: number;
+  task_count: number;
+  created_at: string;
+};
+
+const LATTICE_EXPORTS_QUERY_KEY = ["/api/lattice/exports"] as const;
+
+async function fetchLatticeExports(): Promise<LatticeExportRow[]> {
+  const r = await fetch("/api/lattice/exports", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!r.ok) throw new Error(`GET /api/lattice/exports failed: ${r.status}`);
+  return (await r.json()) as LatticeExportRow[];
+}
+
+function RecentLatticeExportsCard() {
+  const { data, isLoading, error } = useQuery({
+    queryKey: LATTICE_EXPORTS_QUERY_KEY,
+    queryFn: fetchLatticeExports,
+    retry: false,
+  });
+
+  const renderBody = () => {
+    if (isLoading) {
+      return (
+        <div
+          className="flex items-center gap-2 text-[12.5px] text-muted-foreground"
+          data-testid="lattice-exports-loading"
+        >
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Loading recent exports…
+        </div>
+      );
+    }
+    if (error || !data) {
+      return (
+        <div
+          className="text-[12.5px] text-amber-700 inline-flex items-center gap-2"
+          data-testid="lattice-exports-error"
+        >
+          <AlertCircle className="w-4 h-4" />
+          Couldn't load recent exports.
+        </div>
+      );
+    }
+    if (data.length === 0) {
+      return (
+        <div className="text-[12.5px] text-muted-foreground" data-testid="lattice-exports-empty">
+          No lattice exports yet. Use the <span className="font-medium text-foreground">Lattice</span>{" "}
+          menu in the top bar to export your continuity snapshot.
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-1.5" data-testid="lattice-exports-list">
+        {data.map((row) => {
+          const ts = new Date(row.created_at);
+          const when = isNaN(ts.getTime()) ? row.created_at : ts.toLocaleString();
+          return (
+            <div
+              key={row.id}
+              className="flex items-center gap-3 px-3 py-2 rounded border border-border bg-background text-[11.5px] font-mono"
+              data-testid={`lattice-export-row-${row.id}`}
+            >
+              <span className="text-muted-foreground" title={row.created_at}>
+                {when}
+              </span>
+              <span className="ml-auto text-foreground" title={row.fidelity_sha256}>
+                sha256 <span className="text-primary">{row.fidelity_sha256.slice(0, 12)}…</span>
+              </span>
+              <span className="text-muted-foreground">
+                {row.byte_size.toLocaleString()} B
+              </span>
+              <span className="text-muted-foreground">
+                {row.task_count} task{row.task_count === 1 ? "" : "s"}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <section
+      className="bg-card border border-card-border rounded-xl p-6 shadow-card space-y-4"
+      data-testid="lattice-exports-card"
+    >
+      <div className="flex items-baseline justify-between">
+        <div>
+          <h2 className="text-[15px] font-serif font-semibold text-foreground tracking-tight inline-flex items-center gap-2">
+            <Database className="w-4 h-4 text-primary" />
+            Recent lattice exports
+          </h2>
+          <p className="text-[12.5px] text-muted-foreground mt-0.5">
+            Last 10 continuity blobs you exported. Each row records the
+            sha256 fidelity hash, byte size, and how many task transcripts
+            were bundled — proof of when you took a snapshot.
+          </p>
+        </div>
+      </div>
+      {renderBody()}
+    </section>
+  );
+}
+
 function ProviderAvatar({ name }: { name: string }) {
   const brand = PROVIDER_BRAND[name.toLowerCase()] ?? { letter: name.charAt(0).toUpperCase(), bg: "bg-stone-100", fg: "text-stone-800" };
   return (
@@ -919,6 +1036,9 @@ export function Settings() {
 
       {/* Lattice continuity scratchpad (Task #67) */}
       <ScratchpadCard />
+
+      {/* Recent Lattice Exports (Task #69) */}
+      <RecentLatticeExportsCard />
 
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-4">
