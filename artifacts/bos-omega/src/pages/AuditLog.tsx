@@ -123,6 +123,30 @@ export function AuditLog() {
               const droppedItems = isMemoryInjected
                 ? parseInjectedItems(meta?.dropped_items)
                 : [];
+              // Task #96: the orchestrator caps each per-layer
+              // *_dropped_titles / dropped_items array at DROPPED_TITLES_CAP
+              // (currently 20) per layer in
+              // artifacts/api-server/src/bos/memoryHelpers.ts so the audit
+              // row stays cheap to render. When the per-layer numeric
+              // counters (`canon_dropped + continuity_dropped +
+              // patches_dropped + scratchpad_dropped`) report a higher
+              // total than the recorded `dropped_items` array carries, the
+              // list is truncated — surface that explicitly so users don't
+              // think a missing note "wasn't dropped". Mirrors the
+              // `droppedItemsTruncated` block in MemoryUsedPanel.
+              const pickDropped = (raw: unknown): number =>
+                typeof raw === "number" && Number.isFinite(raw) && raw >= 0
+                  ? raw
+                  : 0;
+              const totalDroppedCount = isMemoryInjected
+                ? pickDropped(meta?.canon_dropped) +
+                  pickDropped(meta?.continuity_dropped) +
+                  pickDropped(meta?.patches_dropped) +
+                  pickDropped(meta?.scratchpad_dropped)
+                : 0;
+              const droppedItemsTruncated =
+                droppedItems.length > 0 &&
+                totalDroppedCount > droppedItems.length;
               const expandable = !!meta;
               const isOpen = expandable && !!expanded[log.id];
               const showDropped = isOpen && !!droppedShown[log.id];
@@ -216,12 +240,22 @@ export function AuditLog() {
                               <ChevronRight className="w-3 h-3" />
                             )}
                             {showDropped ? "HIDE" : "SHOW"} DROPPED ITEMS (
-                            {droppedItems.length})
+                            {/* Task #96: when the recorded list is shorter
+                                than the per-layer numeric counters, the
+                                toggle counter switches from "(N)" to
+                                "(N of M)" so users notice truncation
+                                without expanding. Mirrors the same
+                                "<recorded> of <counter-total>" wording
+                                used by the Task Detail "Memory used"
+                                panel. */}
+                            {droppedItemsTruncated
+                              ? `${droppedItems.length} of ${totalDroppedCount}`
+                              : droppedItems.length})
                           </button>
                           {showDropped && (
                             <div
                               id={`audit-row-dropped-body-${log.id}`}
-                              className="mt-2"
+                              className="mt-2 space-y-1.5"
                               data-testid={`audit-row-dropped-body-${log.id}`}
                             >
                               <MemoryInjectedItemsList
@@ -230,6 +264,28 @@ export function AuditLog() {
                                 label="DROPPED ITEMS"
                                 testIdPrefix="memory-dropped-item"
                               />
+                              {/* Task #96: amber truncation hint mirroring
+                                  MemoryUsedPanel's `memory-dropped-items-
+                                  truncated` block — same wording so users
+                                  who see it on Task Detail recognise it
+                                  here. The orchestrator caps each per-
+                                  layer dropped_items array at
+                                  DROPPED_TITLES_CAP (currently 20) per
+                                  layer for cost reasons; without this
+                                  hint, a busy task would render "(20)"
+                                  with no indication that more notes were
+                                  cut beyond what the audit row carries. */}
+                              {droppedItemsTruncated && (
+                                <div
+                                  className="text-[10px] font-mono text-amber-700"
+                                  data-testid={`audit-row-dropped-truncated-${log.id}`}
+                                >
+                                  Showing first {droppedItems.length} of{" "}
+                                  {totalDroppedCount} dropped notes (audit row
+                                  caps per-layer dropped lists for cost
+                                  reasons).
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>

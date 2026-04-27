@@ -352,6 +352,154 @@ describe("AuditLog page", () => {
     ).toBeNull();
   });
 
+  // ----- Task #96: dropped-items truncation hint -----
+
+  it("Task #96: shows '(N of M)' on the toggle and an amber truncation hint when per-layer counters exceed dropped_items.length", async () => {
+    // Per-layer counters say 25 items were dropped (20 canon + 5 scratchpad),
+    // but the orchestrator only persisted 20 entries in dropped_items
+    // (mirrors the DROPPED_TITLES_CAP=20 server-side cap). The toggle
+    // should switch from "(20)" to "(20 of 25)" and the expanded body
+    // should render the amber truncation hint with the same wording the
+    // Task Detail "Memory used" panel uses.
+    const truncatedRow = {
+      ...memoryInjectedRow,
+      id: "audit-mi-truncated",
+      metadata: {
+        ...memoryInjectedRow.metadata,
+        canon_dropped: 20,
+        continuity_dropped: 0,
+        patches_dropped: 0,
+        scratchpad_dropped: 5,
+        dropped_items: Array.from({ length: 20 }, (_, i) => ({
+          id: `mem-canon-d-${i}`,
+          layer: "canon",
+          title: `Less-relevant canon ${i}`,
+        })),
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      makeFetch([truncatedRow], { memoryRows: [] }),
+    );
+    renderWithClient(<AuditLog />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("audit-row-toggle-audit-mi-truncated"),
+      ).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByTestId("audit-row-toggle-audit-mi-truncated"));
+
+    // Toggle counter switches to "(20 of 25)".
+    const droppedToggle = screen.getByTestId(
+      "audit-row-dropped-toggle-audit-mi-truncated",
+    );
+    expect(droppedToggle.textContent).toMatch(
+      /SHOW DROPPED ITEMS \(20 of 25\)/,
+    );
+
+    // Truncation hint not rendered until the body is expanded.
+    expect(
+      screen.queryByTestId("audit-row-dropped-truncated-audit-mi-truncated"),
+    ).toBeNull();
+
+    fireEvent.click(droppedToggle);
+
+    const hint = screen.getByTestId(
+      "audit-row-dropped-truncated-audit-mi-truncated",
+    );
+    expect(hint.textContent).toMatch(
+      /Showing first 20 of 25 dropped notes \(audit row caps per-layer dropped lists for cost reasons\)\./,
+    );
+  });
+
+  it("Task #96: shows plain '(N)' on the toggle (no truncation hint) when per-layer counters match dropped_items.length", async () => {
+    // Counters and array agree → no truncation, label stays "(2)" and the
+    // amber hint is not rendered.
+    const exactRow = {
+      ...memoryInjectedRow,
+      id: "audit-mi-exact",
+      metadata: {
+        ...memoryInjectedRow.metadata,
+        canon_dropped: 1,
+        continuity_dropped: 0,
+        patches_dropped: 0,
+        scratchpad_dropped: 1,
+        dropped_items: [
+          { id: "mem-canon-2", layer: "canon", title: "Less-relevant canon" },
+          { id: "mem-scratch-1", layer: "scratchpad", title: "Old scratch" },
+        ],
+      },
+    };
+    vi.stubGlobal("fetch", makeFetch([exactRow], { memoryRows: [] }));
+    renderWithClient(<AuditLog />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("audit-row-toggle-audit-mi-exact"),
+      ).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByTestId("audit-row-toggle-audit-mi-exact"));
+
+    const droppedToggle = screen.getByTestId(
+      "audit-row-dropped-toggle-audit-mi-exact",
+    );
+    // Plain "(2)" — never "(2 of 2)".
+    expect(droppedToggle.textContent).toMatch(/SHOW DROPPED ITEMS \(2\)/);
+    expect(droppedToggle.textContent).not.toMatch(/of/);
+
+    fireEvent.click(droppedToggle);
+
+    expect(
+      screen.queryByTestId("audit-row-dropped-truncated-audit-mi-exact"),
+    ).toBeNull();
+  });
+
+  it("Task #96: defaults to plain '(N)' when per-layer counter fields are missing on a row that still has dropped_items (cannot infer truncation)", async () => {
+    // Pre-#48 rows can carry dropped_items (e.g. via a backfill) without
+    // the *_dropped numeric counters. We cannot infer truncation in that
+    // case, so the toggle stays "(N)" and the amber hint is not shown.
+    const noCountersRow = {
+      ...memoryInjectedRow,
+      id: "audit-mi-no-counters",
+      metadata: {
+        canon_items: 1,
+        memory_context_chars: 100,
+        injected_items: [
+          { id: "mem-canon-1", layer: "canon", title: "BOS Safety Canon" },
+        ],
+        dropped_items: [
+          { id: "mem-canon-2", layer: "canon", title: "Less-relevant canon" },
+        ],
+        // No canon_dropped / continuity_dropped / patches_dropped /
+        // scratchpad_dropped fields.
+      },
+    };
+    vi.stubGlobal("fetch", makeFetch([noCountersRow], { memoryRows: [] }));
+    renderWithClient(<AuditLog />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("audit-row-toggle-audit-mi-no-counters"),
+      ).toBeInTheDocument(),
+    );
+
+    fireEvent.click(
+      screen.getByTestId("audit-row-toggle-audit-mi-no-counters"),
+    );
+    const droppedToggle = screen.getByTestId(
+      "audit-row-dropped-toggle-audit-mi-no-counters",
+    );
+    expect(droppedToggle.textContent).toMatch(/SHOW DROPPED ITEMS \(1\)/);
+    expect(droppedToggle.textContent).not.toMatch(/of/);
+
+    fireEvent.click(droppedToggle);
+    expect(
+      screen.queryByTestId(
+        "audit-row-dropped-truncated-audit-mi-no-counters",
+      ),
+    ).toBeNull();
+  });
+
   it("does not render a DROPPED ITEMS section on legacy MEMORY_INJECTED rows recorded before Task #58 (no dropped_items field)", async () => {
     const legacyDropped = {
       ...memoryInjectedRow,
