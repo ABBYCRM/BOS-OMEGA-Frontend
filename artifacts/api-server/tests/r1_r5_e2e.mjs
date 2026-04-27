@@ -86,6 +86,30 @@ async function request(method, path, body) {
   return data;
 }
 
+// Task #55: per-session variant of `request` that does NOT touch the
+// global `cookieHeader`. Used by the cross-user isolation tests so we can
+// hold three concurrent sessions (admin + userA + userB) without one login
+// stomping on another's cookie. The jar is mutated in place when the
+// server returns a Set-Cookie header (e.g. on /api/auth/login) so callers
+// can re-use the same jar across multiple requests for the same user.
+async function requestWithJar(jar, method, path, body) {
+  const headers = { "Content-Type": "application/json" };
+  if (jar.cookie) headers["Cookie"] = jar.cookie;
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const setCookie = res.headers.get("set-cookie");
+  if (setCookie) {
+    jar.cookie = setCookie.split(",").map((c) => c.split(";")[0].trim()).join("; ");
+  }
+  const text = await res.text();
+  let data;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  return { ok: res.ok, status: res.status, data };
+}
+
 async function login() {
   await request("POST", "/api/auth/login", { email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
   if (!cookieHeader.includes("bos_session=")) {
@@ -1023,6 +1047,153 @@ async function main() {
       } catch (err) {
         console.log(`       (warn: failed to delete seeded memory ${seeded.id}: ${err.message})`);
       }
+    }
+  });
+
+  // ---------------- Task #55: GET /:id/memory-context cross-user isolation ----------------
+  // The handler in routes/tasks.ts reuses visibilityFilter() — the same
+  // role-aware filter that gates GET /:id (super_admin sees everything;
+  // everyone else sees own + legacy NULL rows). This test pins down the
+  // contract end-to-end:
+  //
+  //   - Two non-super users (role="user") each create a task. The task
+  //     row is stamped with the creator's user_id atomically inside the
+  //     pipeline (see routes/tasks.ts: `user_id: req.user?.id ?? null`).
+  //   - User A probing user B's task id MUST get a 404 (and vice versa).
+  //     Anything else is a cross-tenant leak: another user's
+  //     memory_context can contain proprietary continuity notes,
+  //     attachments references, and patches that leak business data.
+  //   - Each user MUST get 200 on their own task.
+  //   - super_admin MUST get 200 on both task ids and the response shape
+  //     MUST be exactly { memory_context, chars, truncated }.
+  //
+  // Without this test, a future refactor of visibilityFilter() (e.g.
+  // someone widening the legacy NULL fallback or accidentally inverting
+  // the role check) could quietly turn this endpoint into a leak vector
+  // and the unit-level filter test would still pass.
+  await test("#55 memory-context cross-user isolation: 404 across users, 200 for owner + super_admin, response shape", async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const userA = {
+      email: `task55-usera-${stamp}@bos-omega.local`,
+      password: `Task55_UserA_${stamp}!`,
+    };
+    const userB = {
+      email: `task55-userb-${stamp}@bos-omega.local`,
+      password: `Task55_UserB_${stamp}!`,
+    };
+
+    // (1) Create both non-super users via the super_admin-only POST /api/users.
+    // The harness session is already logged in as ADMIN_EMAIL (super_admin).
+    const createdA = await request("POST", "/api/users", {
+      email: userA.email,
+      password: userA.password,
+      role: "user",
+      reason: "task #55 e2e: cross-user memory-context isolation test",
+    });
+    const createdB = await request("POST", "/api/users", {
+      email: userB.email,
+      password: userB.password,
+      role: "user",
+      reason: "task #55 e2e: cross-user memory-context isolation test",
+    });
+    assert.equal(createdA.user.role, "user", "userA must be created as a non-super user");
+    assert.equal(createdB.user.role, "user", "userB must be created as a non-super user");
+
+    // (2) Independent cookie jars so admin/userA/userB sessions don't
+    // stomp on each other. The harness's global cookieHeader still holds
+    // the admin session for the final super_admin assertions below.
+    const jarA = { cookie: "" };
+    const jarB = { cookie: "" };
+    const loginA = await requestWithJar(jarA, "POST", "/api/auth/login", {
+      email: userA.email, password: userA.password,
+    });
+    assert.equal(loginA.status, 200, `userA login should return 200, got ${loginA.status}`);
+    assert.ok(jarA.cookie.includes("bos_session="), "userA login must set bos_session cookie");
+    const loginB = await requestWithJar(jarB, "POST", "/api/auth/login", {
+      email: userB.email, password: userB.password,
+    });
+    assert.equal(loginB.status, 200, `userB login should return 200, got ${loginB.status}`);
+    assert.ok(jarB.cookie.includes("bos_session="), "userB login must set bos_session cookie");
+
+    // (3) Each user creates a task. The pipeline stamps user_id atomically
+    // on insert, so visibilityFilter() will scope each task to its owner.
+    // We use simple "single" mode tasks so this test stays cheap and is
+    // not at the mercy of provider availability for the leak assertion —
+    // even if the model call degrades, the task row + MEMORY_INJECTED
+    // audit row are still written before any LLM call returns.
+    const taskARes = await requestWithJar(jarA, "POST", "/api/tasks", {
+      input: "task55 userA: what is 1+1?", mode: "single",
+    });
+    assert.equal(taskARes.status, 200, `userA task create should return 200, got ${taskARes.status}: ${JSON.stringify(taskARes.data).slice(0, 200)}`);
+    const taskAId = taskARes.data?.id;
+    assert.ok(taskAId, `userA task must have an id, got ${JSON.stringify(taskARes.data).slice(0, 200)}`);
+
+    const taskBRes = await requestWithJar(jarB, "POST", "/api/tasks", {
+      input: "task55 userB: what is 2+2?", mode: "single",
+    });
+    assert.equal(taskBRes.status, 200, `userB task create should return 200, got ${taskBRes.status}: ${JSON.stringify(taskBRes.data).slice(0, 200)}`);
+    const taskBId = taskBRes.data?.id;
+    assert.ok(taskBId, `userB task must have an id, got ${JSON.stringify(taskBRes.data).slice(0, 200)}`);
+    assert.notEqual(taskAId, taskBId, "userA and userB should have distinct task ids");
+
+    // (4) Owner-side sanity: each user MUST be able to read their own
+    // task's memory-context. If this fails, the cross-user 404 below
+    // would be testing the wrong thing (it'd just mean nobody can read
+    // it). The shape check is repeated for super_admin below; here we
+    // only need to confirm the request succeeds for the owner.
+    const ownAonA = await requestWithJar(jarA, "GET", `/api/tasks/${taskAId}/memory-context`);
+    assert.equal(ownAonA.status, 200, `userA reading own task memory-context should be 200, got ${ownAonA.status}`);
+    const ownBonB = await requestWithJar(jarB, "GET", `/api/tasks/${taskBId}/memory-context`);
+    assert.equal(ownBonB.status, 200, `userB reading own task memory-context should be 200, got ${ownBonB.status}`);
+
+    // (5) THE LEAK CHECK. userA probing userB's task id (and vice versa)
+    // MUST get 404. NOT 403 — visibilityFilter intentionally returns 404
+    // so non-super users can't enumerate the existence of other users'
+    // task ids. A 200 here would mean the un-truncated memory_context of
+    // another user's task leaked through; a 500 would mean the route
+    // crashed instead of denying access (also a regression).
+    const aProbesB = await requestWithJar(jarA, "GET", `/api/tasks/${taskBId}/memory-context`);
+    assert.equal(
+      aProbesB.status,
+      404,
+      `LEAK: userA reading userB's memory-context returned ${aProbesB.status}, expected 404. body=${JSON.stringify(aProbesB.data).slice(0, 300)}`,
+    );
+    assert.ok(
+      !aProbesB.data || !aProbesB.data.memory_context,
+      `LEAK: userA's 404 response leaked memory_context payload: ${JSON.stringify(aProbesB.data).slice(0, 300)}`,
+    );
+    const bProbesA = await requestWithJar(jarB, "GET", `/api/tasks/${taskAId}/memory-context`);
+    assert.equal(
+      bProbesA.status,
+      404,
+      `LEAK: userB reading userA's memory-context returned ${bProbesA.status}, expected 404. body=${JSON.stringify(bProbesA.data).slice(0, 300)}`,
+    );
+    assert.ok(
+      !bProbesA.data || !bProbesA.data.memory_context,
+      `LEAK: userB's 404 response leaked memory_context payload: ${JSON.stringify(bProbesA.data).slice(0, 300)}`,
+    );
+
+    // (6) super_admin (the harness's global session) MUST get 200 on both
+    // task ids — proves visibility is wider for super_admin and the
+    // route's final response really is { memory_context, chars, truncated }.
+    // We assert exact shape (no extra keys leak through) so the contract
+    // documented in routes/tasks.ts is locked in.
+    const adminOnA = await request("GET", `/api/tasks/${taskAId}/memory-context`, undefined);
+    const adminOnB = await request("GET", `/api/tasks/${taskBId}/memory-context`, undefined);
+    for (const [label, body] of [["taskA", adminOnA], ["taskB", adminOnB]]) {
+      assert.ok(body && typeof body === "object", `super_admin ${label} response must be an object`);
+      assert.equal(typeof body.memory_context, "string", `super_admin ${label}: memory_context must be a string`);
+      assert.equal(typeof body.chars, "number", `super_admin ${label}: chars must be a number`);
+      assert.equal(typeof body.truncated, "boolean", `super_admin ${label}: truncated must be a boolean`);
+      // Lock the response shape exactly so a future field addition forces
+      // a deliberate test update (and thus a code review of what new
+      // data we're about to ship to clients).
+      const keys = Object.keys(body).sort();
+      assert.deepEqual(
+        keys,
+        ["chars", "memory_context", "truncated"],
+        `super_admin ${label}: response shape must be exactly {memory_context, chars, truncated}; got keys=${keys.join(",")}`,
+      );
     }
   });
 
