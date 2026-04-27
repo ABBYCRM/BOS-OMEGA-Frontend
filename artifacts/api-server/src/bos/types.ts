@@ -111,6 +111,13 @@ export interface TaskContext {
   attachment_images?: VisionImage[];
   /** Optional domain-persona overlay applied to every model call in this task. */
   persona?: Persona | string;
+  /**
+   * Pre-rendered memory context (canon + continuity + patches + scratchpad)
+   * computed by the orchestrator once per task, then handed to every
+   * execution engine. Engines must consume this rather than fetching
+   * memory themselves so all five modes share the same retrieval path.
+   */
+  memory_context?: string;
 }
 
 export interface VisionImage {

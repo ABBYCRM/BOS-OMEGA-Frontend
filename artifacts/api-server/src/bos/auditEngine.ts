@@ -84,7 +84,13 @@ type AuditEventType =
   | "SERIES_PASS_DEGRADED"
   | "BTO_DEGRADED"
   | "BTO_SYNTHESIS_FAILED"
-  | "BTO_ADVERSARIAL_FAILED";
+  | "BTO_ADVERSARIAL_FAILED"
+  // Task #46: orchestrator emits this once per task immediately after
+  // memory retrieval (canon + continuity + patches + scratchpad), so the
+  // audit trail shows exactly what memory_context was injected into the
+  // model prompt in every execution mode.
+  | "MEMORY_INJECTED"
+  | "LLM_INPUT_PREPARED";
 
 const AUDIT_QUEUE_DIR = process.env["AUDIT_QUEUE_DIR"] || path.resolve(process.cwd(), ".local", "audit-queue");
 const AUDIT_QUEUE_FILE = path.join(AUDIT_QUEUE_DIR, "pending.jsonl");

@@ -1,6 +1,18 @@
 import { db } from "@workspace/db";
 import { memoryItemsTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
+import {
+  approxTokenCount,
+  buildContextFromMemory as buildContextFromMemoryHelper,
+  relevanceScore,
+  tokensFromText,
+} from "./memoryHelpers.js";
+
+// Re-export the pure helpers so existing call sites that import from
+// memoryEngine keep working, and so unit tests that need to stay no-DB
+// can import them from memoryHelpers.ts directly.
+export { buildContextFromMemoryHelper as buildContextFromMemory };
+export { relevanceScore, tokensFromText, approxTokenCount } from "./memoryHelpers.js";
 
 /**
  * v1.1 hardened memory layer — per-layer token budgets and explicit
@@ -23,37 +35,6 @@ export const MEMORY_TOKEN_BUDGETS = {
 
 export type MemoryLayer = keyof typeof MEMORY_TOKEN_BUDGETS;
 
-const APPROX_CHARS_PER_TOKEN = 4;
-const STOPWORDS = new Set([
-  "the","a","an","and","or","but","of","to","in","on","at","for","with","by",
-  "is","are","was","were","be","been","being","do","does","did","have","has",
-  "had","i","you","he","she","it","we","they","this","that","these","those",
-  "as","if","then","than","so","not","no","yes","what","why","how","when","where",
-]);
-
-function tokensFromText(text: string): Set<string> {
-  return new Set(
-    text
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, " ")
-      .split(/\s+/)
-      .filter((w) => w.length >= 3 && !STOPWORDS.has(w)),
-  );
-}
-
-function relevanceScore(item_text: string, task_tokens: Set<string>): number {
-  if (task_tokens.size === 0) return 0;
-  const item_tokens = tokensFromText(item_text);
-  if (item_tokens.size === 0) return 0;
-  let overlap = 0;
-  for (const t of task_tokens) if (item_tokens.has(t)) overlap += 1;
-  return overlap / task_tokens.size;
-}
-
-function approxTokenCount(text: string): number {
-  return Math.ceil(text.length / APPROX_CHARS_PER_TOKEN);
-}
-
 interface RankedItem {
   rendered: string;
   tokens: number;
@@ -73,13 +54,12 @@ async function selectLayer(
     .orderBy(desc(memoryItemsTable.authority_level), desc(memoryItemsTable.updated_at))
     .limit(initial_pull);
 
-  const task_tokens = tokensFromText(task_input);
   const annotated = rows.map((r) => {
     const rendered = `[${prefix}:${r.title}] ${r.content}`;
     return {
       r,
       rendered,
-      relevance: relevanceScore(`${r.title} ${r.content}`, task_tokens),
+      relevance: relevanceScore(`${r.title} ${r.content}`, task_input),
       authority: r.authority_level ?? 0,
       updated_at: r.updated_at?.getTime?.() ?? 0,
       tokens: approxTokenCount(rendered),
@@ -109,15 +89,17 @@ export async function getCanonMemory(task_input = ""): Promise<string[]> {
   return items.map((i) => i.rendered);
 }
 
-export async function getScratchpad(task_input = ""): Promise<string[]> {
-  const items = await selectLayer("scratchpad", task_input, MEMORY_TOKEN_BUDGETS.scratchpad, "SCRATCHPAD", 25);
+export async function getContinuityMemory(task_input = ""): Promise<string[]> {
+  const items = await selectLayer("continuity", task_input, MEMORY_TOKEN_BUDGETS.continuity, "CONTINUITY", 50);
   return items.map((i) => i.rendered);
 }
 
-export function buildContextFromMemory(canon: string[], scratchpad: string[]): string {
-  if (canon.length === 0 && scratchpad.length === 0) return "";
-  const parts: string[] = [];
-  if (canon.length > 0) parts.push("=== CANON CONTEXT ===\n" + canon.join("\n"));
-  if (scratchpad.length > 0) parts.push("=== SCRATCHPAD ===\n" + scratchpad.join("\n"));
-  return parts.join("\n\n");
+export async function getPatchesMemory(task_input = ""): Promise<string[]> {
+  const items = await selectLayer("patches", task_input, MEMORY_TOKEN_BUDGETS.patches, "PATCHES", 50);
+  return items.map((i) => i.rendered);
+}
+
+export async function getScratchpad(task_input = ""): Promise<string[]> {
+  const items = await selectLayer("scratchpad", task_input, MEMORY_TOKEN_BUDGETS.scratchpad, "SCRATCHPAD", 25);
+  return items.map((i) => i.rendered);
 }

@@ -165,6 +165,12 @@ export async function runSeriesPass(
     const call_result = await callProviderDirect(prompt, "series_pass", model_info, {
       attachment_context: ctx.attachment_context,
       attachment_images: ctx.attachment_images,
+      // Task #46: memory_context is built once by the orchestrator and threaded
+      // through TaskContext. Every series role (DRAFTER → CRITIC → EXPANDER →
+      // ADVERSARY → SYNTHESIZER) must receive the same canon/continuity/patches/
+      // scratchpad block so the entire series sees stored facts (e.g. the
+      // elephant continuity row) instead of running blind.
+      memory_context: ctx.memory_context,
       persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
       task_id: ctx.task_id,
     });

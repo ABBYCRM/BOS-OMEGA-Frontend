@@ -18,7 +18,6 @@ import { validateOutput, extractJsonCandidate } from "./validationEngine.js";
 import { repairOutput } from "./repairEngine.js";
 import { recordSuccess, recordFailure, ensureProviderHealth } from "./circuitBreaker.js";
 import { auditLog } from "./auditEngine.js";
-import { getCanonMemory, getScratchpad, buildContextFromMemory } from "./memoryEngine.js";
 import { resolveProviderKey } from "../lib/keyResolver.js";
 import { callOpenAI } from "../providers/openaiAdapter.js";
 import { callAnthropic } from "../providers/anthropicAdapter.js";
@@ -36,13 +35,11 @@ export async function executePipeline(
   ctx: TaskContext,
   selected_models: ModelScore[]
 ): Promise<{ result: BosOutput; attempts_saved: string[] }> {
-  // v1.1: relevance-aware memory selection — pass the task input so canon and
-  // scratchpad items are ranked by overlap with the actual question, not just authority.
-  const [canon, scratchpad] = await Promise.all([
-    getCanonMemory(ctx.input),
-    getScratchpad(ctx.input),
-  ]);
-  const memory_context = buildContextFromMemory(canon, scratchpad);
+  // Task #46: memory_context is built once by runBosPipeline (covering all
+  // four memory layers) and threaded through TaskContext. Engines must not
+  // refetch — partial in-engine fetches were the bug that dropped continuity
+  // and patches and skipped memory entirely for series_pass / boil_the_ocean.
+  const memory_context = ctx.memory_context ?? "";
 
   if (ctx.mode === "parallel" || ctx.mode === "consensus") {
     return executeParallel(ctx, selected_models, memory_context);
@@ -245,6 +242,33 @@ async function callProvider(
   // Sending image content to text-only models on a vision-capable provider
   // (e.g. gpt-3.5 on OpenAI) will produce 400s or silently misbehave.
   const supports_vision = (model_info.capability_tags ?? []).includes("multimodal");
+
+  // Task #46: per-call evidence that ctx.memory_context (built once by the
+  // orchestrator) was actually threaded through to every adapter dispatch
+  // in single/parallel/consensus modes. Mirrors the LLM_INPUT_PREPARED
+  // event emitted by providerBridge.callProviderDirect for the
+  // series_pass and boil_the_ocean code paths so the regression test can
+  // assert on a uniform per-call payload across all 5 modes.
+  const memory_chars = memory_context.length;
+  await auditLog(ctx.task_id, "LLM_INPUT_PREPARED",
+    `Prepared input for ${model_info.provider_name}/${model_info.model_name}`,
+    {
+      provider_name: model_info.provider_name,
+      model: model_info.model_name,
+      task_type,
+      prompt_chars: input.length,
+      memory_context_chars: memory_chars,
+      // 32 KB preview is large enough to capture all four section bodies
+      // (sum of per-layer token budgets ≈ 6250 tokens ≈ 25 KB at 4
+      // chars/token) so the regression test can assert on the full
+      // rendered context, not a header-truncated slice.
+      memory_context_preview: memory_chars > 0 ? memory_context.slice(0, 32000) : "",
+      attachment_context_chars: ctx.attachment_context?.length ?? 0,
+      has_images: supports_vision && (ctx.attachment_images?.length ?? 0) > 0,
+      persona_prompt_chars: (buildPersonaSystemSuffix(ctx.persona) || "").length,
+      role_overlay_chars: extras?.role_overlay?.length ?? 0,
+    },
+  );
 
   // R-5.5: Ollama bypasses resolveProviderKey entirely — emit a synthetic
   // KEY_RESOLVED so the audit chain still records the routing decision

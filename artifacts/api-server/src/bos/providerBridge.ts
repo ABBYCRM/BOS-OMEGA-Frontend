@@ -77,6 +77,34 @@ export async function callProviderDirect(
     role_overlay: options.role_overlay,
   };
 
+  // Task #46: per-call evidence that the orchestrator-built memory_context
+  // actually reached the provider invocation. The MEMORY_INJECTED event
+  // proves the orchestrator BUILT the context; this LLM_INPUT_PREPARED
+  // event proves each engine THREADED it through to every model call
+  // (including BTO synthesis/adversarial and series_pass per-step calls).
+  // Without this, the e2e regression can only assert what was built, not
+  // what was passed to providers.
+  const memory_chars = options.memory_context?.length ?? 0;
+  await auditLog(options.task_id, "LLM_INPUT_PREPARED",
+    `Prepared input for ${model_info.provider_name}/${model_info.model_name}`,
+    {
+      provider_name: model_info.provider_name,
+      model: model_info.model_name,
+      task_type,
+      prompt_chars: prompt.length,
+      memory_context_chars: memory_chars,
+      // 32 KB preview is enough to capture the full rendered context across
+      // all four layers (sum of per-layer token budgets ≈ 6250 tokens ≈ 25 KB
+      // at 4 chars/token) so the regression test can assert on the full
+      // payload that reached the adapter, not a header-truncated slice.
+      memory_context_preview: memory_chars > 0 ? options.memory_context!.slice(0, 32000) : "",
+      attachment_context_chars: options.attachment_context?.length ?? 0,
+      has_images: supports_vision && (options.attachment_images?.length ?? 0) > 0,
+      persona_prompt_chars: options.persona_prompt?.length ?? 0,
+      role_overlay_chars: options.role_overlay?.length ?? 0,
+    },
+  );
+
   // Ollama bypasses resolveProviderKey entirely (no key required), so emit
   // a synthetic KEY_RESOLVED with source="env" so the audit chain still has
   // a uniform per-call routing record. R-5.5.

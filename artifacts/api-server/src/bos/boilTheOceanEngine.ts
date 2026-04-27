@@ -221,6 +221,12 @@ export async function runBoilTheOcean(
         callProviderDirect(prompt, ctx.task_type, job.model, {
           attachment_context: ctx.attachment_context,
           attachment_images: ctx.attachment_images,
+          // Task #46: memory_context is built once by the orchestrator and
+          // threaded through TaskContext. Every BTO agent (ARCHITECT/CRITIC/
+          // RESEARCHER/BUILDER/VALIDATOR) must receive the same canon/
+          // continuity/patches/scratchpad block so the dispatched fan-out
+          // sees stored facts instead of running blind.
+          memory_context: ctx.memory_context,
           persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
           task_id: ctx.task_id,
         }),
@@ -386,6 +392,10 @@ export async function runBoilTheOcean(
   const synthesis_result = await callProviderDirect(synthesis_prompt, ctx.task_type, synthesis_model, {
     attachment_context: ctx.attachment_context,
     attachment_images: ctx.attachment_images,
+    // Task #46: synthesis must also see the same memory_context that fanned
+    // out to the agents — otherwise the synthesizer can contradict facts
+    // the agents were grounded on.
+    memory_context: ctx.memory_context,
     persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
     task_id: ctx.task_id,
   });
@@ -453,6 +463,10 @@ export async function runBoilTheOcean(
     const adversarial_result = await callProviderDirect(adversarial_prompt, ctx.task_type, adversarial_model, {
       attachment_context: ctx.attachment_context,
       attachment_images: ctx.attachment_images,
+      // Task #46: adversarial reviewer also sees the same memory_context so
+      // its hardening pass is grounded on the same facts as the agents and
+      // synthesizer.
+      memory_context: ctx.memory_context,
       persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
       task_id: ctx.task_id,
     });

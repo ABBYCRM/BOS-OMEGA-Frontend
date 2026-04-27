@@ -602,6 +602,140 @@ async function main() {
     }
   });
 
+  // ---------------- Task #46: memory injection across ALL execution modes ----------------
+  // Seeds a continuity-layer memory row, runs a task in every one of the 5
+  // modes (single, parallel, consensus, series_pass, boil_the_ocean), and
+  // asserts that the orchestrator emitted a MEMORY_INJECTED audit event in
+  // each run whose persisted memory_context payload contains:
+  //   (a) the "=== CONTINUITY ===" section header, and
+  //   (b) the seeded item content (proves the relevance ranker actually
+  //       selected the item for the elephant query, not just that some
+  //       header was emitted).
+  // This is the regression guard for the original bug: continuity + patches
+  // were silently dropped from the executionEngine fetch, and series_pass /
+  // boil_the_ocean fetched no memory at all.
+  await test("#46 memory injection: MEMORY_INJECTED + continuity content reaches all 5 execution modes", async () => {
+    // Seed a continuity row whose content the relevance ranker can match
+    // against the task input ("elephants" in both — singular/plural variant
+    // equivalence is unit-tested separately).
+    const seedTitle = `task46-continuity-${Date.now()}`;
+    const seeded = await request("POST", "/api/memory", {
+      layer: "continuity",
+      title: seedTitle,
+      content: "Field log: we counted twelve elephants at the watering hole this morning.",
+      authority_level: 9,
+    });
+    assert.ok(seeded?.id, `seed POST /api/memory must return an id; got ${JSON.stringify(seeded)}`);
+
+    try {
+      const modes = ["single", "parallel", "consensus", "series_pass", "boil_the_ocean"];
+      for (const mode of modes) {
+        const payload = { input: "How many elephants did we see today?", mode };
+        if (mode === "parallel" || mode === "consensus") payload.parallel_models = 2;
+        const { detail } = await submitTask(payload);
+        const { audit } = detail;
+
+        // (1) MEMORY_INJECTED must fire exactly once per task — emitted by
+        // runBosPipeline immediately after building the four-layer context.
+        const injectEvents = audit.filter((a) => a.event_type === "MEMORY_INJECTED");
+        assert.equal(
+          injectEvents.length,
+          1,
+          `[mode=${mode}] expected exactly 1 MEMORY_INJECTED event; got ${injectEvents.length}. Events: ${JSON.stringify(eventTypes(audit))}`,
+        );
+
+        const meta = parseMetadata(injectEvents[0].metadata);
+        assert.ok(
+          meta && typeof meta === "object",
+          `[mode=${mode}] MEMORY_INJECTED.metadata must be a structured object`,
+        );
+
+        // (2) The continuity counter must reflect the seeded row reaching
+        // the orchestrator's selectLayer call.
+        assert.ok(
+          typeof meta.continuity_items === "number" && meta.continuity_items >= 1,
+          `[mode=${mode}] MEMORY_INJECTED.metadata.continuity_items expected >=1, got ${meta.continuity_items}`,
+        );
+
+        // (3) Audit metadata exposes section_headers (the rendered
+        // `=== ... ===` section names found in the full memory_context).
+        // We assert the CONTINUITY section was rendered — this is what
+        // proves the seeded continuity row reached buildContextFromMemory
+        // and was emitted into the model prompt. We assert against the
+        // structured header list (not the truncated preview) because
+        // canon's larger budget can otherwise bury later headers past the
+        // preview window.
+        const headers = Array.isArray(meta.section_headers) ? meta.section_headers : [];
+        assert.ok(
+          headers.includes("=== CONTINUITY ==="),
+          `[mode=${mode}] section_headers missing '=== CONTINUITY ==='. Got: ${JSON.stringify(headers)}`,
+        );
+        // The total memory_context_chars must be > 0 (sanity: not just
+        // a continuity-counter bug paired with an empty payload).
+        assert.ok(
+          typeof meta.memory_context_chars === "number" && meta.memory_context_chars > 0,
+          `[mode=${mode}] memory_context_chars must be > 0; got ${meta.memory_context_chars}`,
+        );
+
+        // (4) MEMORY_INJECTED must precede every engine-dispatch event so
+        // the engines actually receive the context, not get it post-hoc.
+        const injectIdx = audit.findIndex((a) => a.event_type === "MEMORY_INJECTED");
+        const dispatchEvents = [
+          "LLM_CALL_STARTED",
+          "PARALLEL_EXECUTION_STARTED",
+          "SERIES_PASS_STARTED",
+          "BTO_STARTED",
+        ];
+        for (const evt of dispatchEvents) {
+          const evtIdx = audit.findIndex((a) => a.event_type === evt);
+          if (evtIdx === -1) continue; // event not produced by this mode
+          assert.ok(
+            injectIdx < evtIdx,
+            `[mode=${mode}] MEMORY_INJECTED (idx=${injectIdx}) must precede ${evt} (idx=${evtIdx}) so engines see ctx.memory_context`,
+          );
+        }
+
+        // (5) Per-call provider evidence: every callProviderDirect now emits
+        // LLM_INPUT_PREPARED with the actual memory_context payload that
+        // reached the adapter. This is the strict regression guard the
+        // reviewer asked for — it proves not just that the orchestrator
+        // BUILT the context but that each engine THREADED it through to
+        // every model invocation (BTO synthesis/adversarial, series_pass
+        // per-step, parallel/consensus per-model). Audit-metadata-only
+        // checks could otherwise mask an engine that fetched memory but
+        // forgot to forward it.
+        const inputEvents = audit.filter((a) => a.event_type === "LLM_INPUT_PREPARED");
+        assert.ok(
+          inputEvents.length >= 1,
+          `[mode=${mode}] expected >=1 LLM_INPUT_PREPARED event; got ${inputEvents.length}. Events: ${JSON.stringify(eventTypes(audit))}`,
+        );
+        for (const ev of inputEvents) {
+          const m = parseMetadata(ev.metadata);
+          assert.ok(
+            m && typeof m === "object",
+            `[mode=${mode}] LLM_INPUT_PREPARED.metadata must be a structured object`,
+          );
+          assert.ok(
+            typeof m.memory_context_chars === "number" && m.memory_context_chars > 0,
+            `[mode=${mode}] LLM_INPUT_PREPARED.memory_context_chars must be > 0 for provider=${m.provider_name} model=${m.model}; got ${m.memory_context_chars}`,
+          );
+          const preview = typeof m.memory_context_preview === "string" ? m.memory_context_preview : "";
+          assert.ok(
+            preview.includes("=== CONTINUITY ===") && /elephant/i.test(preview),
+            `[mode=${mode}] LLM_INPUT_PREPARED.memory_context_preview must contain '=== CONTINUITY ===' and the seeded 'elephant' content for provider=${m.provider_name} model=${m.model}; got: ${preview.slice(0, 400)}`,
+          );
+        }
+      }
+    } finally {
+      // Cleanup the seeded row so repeated test runs don't accumulate.
+      try {
+        await request("DELETE", `/api/memory/${seeded.id}`, undefined);
+      } catch (err) {
+        console.log(`       (warn: failed to delete seeded memory ${seeded.id}: ${err.message})`);
+      }
+    }
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);
 }

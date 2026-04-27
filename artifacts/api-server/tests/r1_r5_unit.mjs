@@ -35,6 +35,13 @@ import {
 // to walk @workspace/db (executionEngine.ts pulls in the schema directory,
 // which the bare ESM resolver can't handle).
 import { mergeParallelResponses } from "../src/bos/consensusMerge.ts";
+// Task #46: pure helpers for the memory layer live in memoryHelpers.ts so
+// the bare ESM loader doesn't have to walk @workspace/db.
+import {
+  relevanceScore,
+  buildContextFromMemory,
+  approxTokenCount,
+} from "../src/bos/memoryHelpers.ts";
 
 let pass = 0;
 let fail = 0;
@@ -401,6 +408,68 @@ test("BTO synthesis success-flag with empty body is treated as failure by the en
   const r = assessBtoFinalState({ successful_agents: 5, total_agents: 5, synthesis_success: synthesis_usable });
   assert.equal(r.final_state, "HOLD");
   assert.equal(r.reason, "synthesis_failed");
+});
+
+console.log("\nTask #46 memory layer");
+
+test("relevanceScore matches singular task token to plural item token", () => {
+  // The stored continuity content uses plural ("elephants") while the user
+  // query phrases the same noun in the singular ("elephant"). The plural-
+  // variant equivalence in withPluralVariants must rescue this so the seeded
+  // continuity row reaches the model prompt across all execution modes.
+  // Asymmetric tokens are required here: shared exact tokens would pass
+  // even without the plural-variant logic and would not exercise it.
+  const score = relevanceScore("we counted twelve elephants today", "describe the elephant we saw");
+  assert.ok(score > 0, `expected > 0, got ${score}`);
+});
+
+test("relevanceScore matches plural task token to singular item token", () => {
+  const score = relevanceScore("the elephant is grey", "tell me about elephants");
+  assert.ok(score > 0, `expected > 0, got ${score}`);
+});
+
+test("relevanceScore substring fallback awards small positive score when no token overlap", () => {
+  // Both sides lose every token to STOPWORDS / length filter, so token
+  // overlap is zero — but the item phrase appears verbatim inside the
+  // query. Substring fallback must rescue it with a small positive score.
+  const score = relevanceScore("be it so", "to be or not to be it so then");
+  assert.ok(score > 0 && score <= 0.1, `expected (0, 0.1], got ${score}`);
+});
+
+test("relevanceScore returns 0 for fully unrelated text", () => {
+  const score = relevanceScore("kubernetes pod scheduler quirks", "banana bread baking time");
+  assert.equal(score, 0);
+});
+
+test("buildContextFromMemory emits all four section headers when every layer is non-empty", () => {
+  const ctx = buildContextFromMemory(
+    ["[CANON:a] one"],
+    ["[CONTINUITY:b] two"],
+    ["[PATCHES:c] three"],
+    ["[SCRATCHPAD:d] four"],
+  );
+  assert.match(ctx, /=== CANON CONTEXT ===/);
+  assert.match(ctx, /=== CONTINUITY ===/);
+  assert.match(ctx, /=== PATCHES ===/);
+  assert.match(ctx, /=== SCRATCHPAD ===/);
+});
+
+test("buildContextFromMemory omits empty layers entirely (no stray empty headers)", () => {
+  const ctx = buildContextFromMemory([], ["[CONTINUITY:b] two"], [], []);
+  assert.match(ctx, /=== CONTINUITY ===/);
+  assert.ok(!ctx.includes("=== CANON CONTEXT ==="), "canon header leaked when empty");
+  assert.ok(!ctx.includes("=== PATCHES ==="), "patches header leaked when empty");
+  assert.ok(!ctx.includes("=== SCRATCHPAD ==="), "scratchpad header leaked when empty");
+});
+
+test("buildContextFromMemory returns empty string when all layers are empty", () => {
+  assert.equal(buildContextFromMemory([], [], [], []), "");
+});
+
+test("approxTokenCount uses ~4-chars-per-token heuristic", () => {
+  assert.equal(approxTokenCount(""), 0);
+  assert.equal(approxTokenCount("abcd"), 1);
+  assert.equal(approxTokenCount("abcde"), 2);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
