@@ -208,27 +208,80 @@ await test("LATTICE_IMPORTED (verified=true) audit event recorded", async () => 
   assert.ok(evt, "expected LATTICE_IMPORTED audit row with verified=true");
 });
 
-await test("import cannot overwrite another user's memory row (cross-tenant defense)", async () => {
-  // Take an EXISTING continuity item id that's owned by `user_id=null`
-  // (canon — a global row we just exported). The admin user is a
-  // super_admin so `canon` writes are allowed for them; instead, we
-  // craft a NEW unique id and confirm the row gets created under THIS
-  // user, then we hand the same blob to the same admin again
-  // (idempotent) and verify the row stays owned by THIS user.
-  //
-  // The deeper cross-user defense (where a non-admin tries to clobber
-  // a different user's row) cannot be exercised in this single-user
-  // test harness without provisioning a second user; the unit
-  // contract is "ON CONFLICT DO UPDATE WHERE user_id = $1 → no-op,
-  // skipped++" which the architect verified by code review. This test
-  // instead pins the observable side of that contract: a clean import
-  // never reports skipped > 0 for rows the importer legitimately owns.
+await test("import never writes global canon (skips global rows on conflict)", async () => {
+  // Re-importing your own session on the SAME install will hit
+  // existing global canon rows (user_id IS NULL). The import path
+  // refuses to mutate global rows — it tries to upsert each canon
+  // item under the importer's user_id, but the conflict on `id`
+  // matches the existing global row, the WHERE clause
+  // (user_id = importer) rejects the update, INSERT is suppressed,
+  // and we count it under `skipped`. So a clean self-import should
+  // succeed AND report skipped >= number-of-canon-rows-in-the-blob.
   const r = await request("GET", "/api/lattice/export");
   assert.equal(r.status, 200);
+  // Count the canon items the export declared so we have an expected
+  // floor for skipped. We inspect the embedded JSON envelope rather
+  // than re-implementing the parser here.
+  const m = r.data.blob.match(/```MEMORY_LATTICE_V1\s*\n([\s\S]*?)\n```/);
+  assert.ok(m, "export blob should contain the v1 fence");
+  const envelope = JSON.parse(m[1]);
+  const expected_canon = envelope.memory_layers.canon.length;
+  assert.ok(expected_canon > 0, "test precondition: there should be at least one canon row to skip");
+
   const r2 = await request("POST", "/api/lattice/import", { blob: r.data.blob });
   assert.equal(r2.status, 200);
-  assert.equal(r2.data.skipped, 0,
-    `clean import for the same admin user should report skipped=0, got ${r2.data.skipped}`);
+  assert.ok(
+    r2.data.skipped >= expected_canon,
+    `expected at least ${expected_canon} skipped (canon rows are global and cannot be re-claimed); got ${r2.data.skipped}`,
+  );
+  assert.equal(
+    r2.data.imported.canon, 0,
+    `imported.canon must be 0 because the WHERE rejected every conflicting global row; got ${r2.data.imported.canon}`,
+  );
+});
+
+await test("dry_run preview returns counts without writing", async () => {
+  // The two-step UI uses ?dry_run=1 to fetch a preview before the
+  // user commits. The preview must return parsed counts and the
+  // hash, and must NOT cause a new lattice_exports row, conversation,
+  // or task to appear in the database.
+  const r = await request("GET", "/api/lattice/export");
+  assert.equal(r.status, 200);
+
+  const before = await request("GET", "/api/conversations");
+  const beforeList = Array.isArray(before.data) ? before.data : (before.data?.items ?? before.data?.conversations ?? []);
+  const beforeCount = beforeList.length;
+
+  const dry = await request("POST", "/api/lattice/import?dry_run=1", { blob: r.data.blob });
+  assert.equal(dry.status, 200, `dry_run failed: ${dry.status} ${JSON.stringify(dry.data)}`);
+  assert.equal(dry.data.dry_run, true, "response must mark itself as dry_run");
+  assert.equal(typeof dry.data.preview, "object");
+  assert.equal(typeof dry.data.preview.canon, "number");
+  assert.equal(typeof dry.data.preview.tasks, "number");
+  assert.equal(dry.data.preview.conversations, 1, "preview always declares the rehydration conversation");
+  assert.equal(typeof dry.data.conversation_title, "string");
+  assert.match(dry.data.conversation_title, /^Imported from /);
+  assert.equal(dry.data.fidelity_sha256, r.data.hash);
+
+  const after = await request("GET", "/api/conversations");
+  const afterList = Array.isArray(after.data) ? after.data : (after.data?.items ?? after.data?.conversations ?? []);
+  assert.equal(
+    afterList.length, beforeCount,
+    "dry_run must not create any conversations",
+  );
+});
+
+await test("dry_run with tampered blob → 400 (same gate as commit path)", async () => {
+  const r = await request("GET", "/api/lattice/export");
+  assert.equal(r.status, 200);
+  const tampered = r.data.blob.replace(/"format_version":\s*"1\.0"/, '"format_version": "1.0 "');
+  assert.notEqual(tampered, r.data.blob);
+  const dry = await request("POST", "/api/lattice/import?dry_run=1", { blob: tampered });
+  assert.equal(dry.status, 400, `dry_run with tampered blob should reject; got ${dry.status}`);
+  assert.ok(
+    dry.data.code === "LATTICE_HASH_MISMATCH" || dry.data.code === "LATTICE_PARSE_ERROR",
+    `unexpected code: ${dry.data.code}`,
+  );
 });
 
 await test("idempotent re-import of the same blob → succeeds, NEW conversation created", async () => {
