@@ -107,8 +107,32 @@ router.get("/export", async (req, res) => {
     source_task_id: r.source_task_id ?? null,
   });
 
+  // Canon = global canon (user_id IS NULL) ∪ this user's personal
+  // canon (user_id = req.user.id AND layer = 'canon'). The memory API
+  // (routes/memory.ts) lets authenticated users create layer="canon"
+  // items under their own user_id, so the lattice MUST include those
+  // user-scoped canon rows or the export is not a complete snapshot
+  // of the four memory layers (which is the contract). Dedupe by id
+  // — a user-scoped row with the same id as a global row would only
+  // arise from a re-import on the same install, but we still keep
+  // the first occurrence (global wins to preserve the platform
+  // canon's authority).
+  const canon_seen = new Set<string>();
+  const canon_combined: LatticeMemoryItem[] = [];
+  for (const r of canonRows) {
+    if (canon_seen.has(r.id)) continue;
+    canon_seen.add(r.id);
+    canon_combined.push(toItem(r));
+  }
+  for (const r of userRows) {
+    if (r.layer !== "canon") continue;
+    if (canon_seen.has(r.id)) continue;
+    canon_seen.add(r.id);
+    canon_combined.push(toItem(r));
+  }
+
   const layers = {
-    canon: canonRows.map(toItem),
+    canon: canon_combined,
     continuity: userRows.filter((r) => r.layer === "continuity").map(toItem),
     patches: userRows.filter((r) => r.layer === "patches").map(toItem),
     scratchpad: userRows.filter((r) => r.layer === "scratchpad").map(toItem),

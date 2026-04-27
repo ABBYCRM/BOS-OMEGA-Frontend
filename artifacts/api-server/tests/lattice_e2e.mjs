@@ -209,34 +209,46 @@ await test("LATTICE_IMPORTED (verified=true) audit event recorded", async () => 
 });
 
 await test("import never writes global canon (skips global rows on conflict)", async () => {
-  // Re-importing your own session on the SAME install will hit
-  // existing global canon rows (user_id IS NULL). The import path
-  // refuses to mutate global rows — it tries to upsert each canon
-  // item under the importer's user_id, but the conflict on `id`
-  // matches the existing global row, the WHERE clause
-  // (user_id = importer) rejects the update, INSERT is suppressed,
-  // and we count it under `skipped`. So a clean self-import should
-  // succeed AND report skipped >= number-of-canon-rows-in-the-blob.
+  // The export now includes BOTH global canon (user_id IS NULL) and
+  // this user's own canon rows (user_id = req.user.id). On re-import
+  // to the same user:
+  //   * Global canon ids: conflict on id matches a row with
+  //     user_id=null. The WHERE clause (user_id=importer) rejects
+  //     the update, INSERT is suppressed, .returning() length=0,
+  //     counted as `skipped`. The global row stays untouched —
+  //     this is the security boundary.
+  //   * User-owned canon ids: conflict on id matches a row with
+  //     user_id=importer, the WHERE matches, the UPDATE fires,
+  //     counted under `imported.canon`. This is the rehydration
+  //     path for personal canon.
+  // So the assertion is: at least one global canon was skipped
+  // (proving the boundary holds), and imported.canon is bounded
+  // above by the total canon count in the blob (proving we didn't
+  // overwrite anything that wasn't already ours). We seed two
+  // global authority-9 canon rows at boot (Receiver Protocol +
+  // Header Preamble) so we know skipped >= 2 minimum from those
+  // alone, regardless of the rest.
   const r = await request("GET", "/api/lattice/export");
   assert.equal(r.status, 200);
-  // Count the canon items the export declared so we have an expected
-  // floor for skipped. We inspect the embedded JSON envelope rather
-  // than re-implementing the parser here.
   const m = r.data.blob.match(/```MEMORY_LATTICE_V1\s*\n([\s\S]*?)\n```/);
   assert.ok(m, "export blob should contain the v1 fence");
   const envelope = JSON.parse(m[1]);
-  const expected_canon = envelope.memory_layers.canon.length;
-  assert.ok(expected_canon > 0, "test precondition: there should be at least one canon row to skip");
+  const total_canon = envelope.memory_layers.canon.length;
+  assert.ok(total_canon > 0, "precondition: export should contain canon items");
 
   const r2 = await request("POST", "/api/lattice/import", { blob: r.data.blob });
   assert.equal(r2.status, 200);
   assert.ok(
-    r2.data.skipped >= expected_canon,
-    `expected at least ${expected_canon} skipped (canon rows are global and cannot be re-claimed); got ${r2.data.skipped}`,
+    r2.data.skipped >= 2,
+    `expected at least 2 skipped (the two seeded global canon rows must be rejected); got ${r2.data.skipped}`,
   );
-  assert.equal(
-    r2.data.imported.canon, 0,
-    `imported.canon must be 0 because the WHERE rejected every conflicting global row; got ${r2.data.imported.canon}`,
+  assert.ok(
+    r2.data.imported.canon <= total_canon,
+    `imported.canon (${r2.data.imported.canon}) cannot exceed total canon in blob (${total_canon})`,
+  );
+  assert.ok(
+    r2.data.imported.canon + r2.data.skipped >= total_canon,
+    `every canon item should be either imported or skipped; imported=${r2.data.imported.canon} skipped=${r2.data.skipped} total=${total_canon}`,
   );
 });
 

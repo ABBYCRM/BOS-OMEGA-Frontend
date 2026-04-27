@@ -214,10 +214,23 @@ function renderConversationsSection(convs: LatticeConversation[]): string {
  * Build the full lattice blob from a payload-without-hash. The hash is
  * computed here (single source of truth) and stitched into both the
  * embedded JSON and the returned `hash` field.
+ *
+ * Returned shape (matches the task spec contract):
+ *   - markdown: human-readable layered narrative + header preamble,
+ *     WITHOUT the fenced JSON envelope. Useful when a caller wants
+ *     to render only the prose half (e.g. preview pane).
+ *   - json:     the JSON envelope text (pretty-printed). Useful when
+ *     a caller wants to feed the structured form to another tool.
+ *   - blob:     the full hybrid markdown+fenced-json string that is
+ *     persisted, copied to clipboard, downloaded, and parsed back.
+ *   - hash:     sha256 hex of canonicalJSON(payload \ fidelity_hash).
+ *   - byte_size: UTF-8 byte length of `blob`. Convenience for the
+ *     audit row and the Recent Exports list.
  */
 export function buildLatticeBlob(input: Omit<LatticePayload, "fidelity_hash">): {
+  markdown: string;
+  json: string;
   blob: string;
-  json_text: string;
   hash: string;
   byte_size: number;
 } {
@@ -226,9 +239,9 @@ export function buildLatticeBlob(input: Omit<LatticePayload, "fidelity_hash">): 
   // Pretty-printed for human readability inside the markdown. The hash
   // was computed against the canonical (non-pretty) form above, so the
   // pretty whitespace here does NOT influence verification.
-  const json_text = JSON.stringify(payload, null, 2);
+  const json = JSON.stringify(payload, null, 2);
 
-  const sections: string[] = [
+  const markdownSections: string[] = [
     LATTICE_HEADER_PREAMBLE,
     "",
     renderLayerSection("Canon", payload.memory_layers.canon),
@@ -237,17 +250,22 @@ export function buildLatticeBlob(input: Omit<LatticePayload, "fidelity_hash">): 
     renderLayerSection("Scratchpad", payload.memory_layers.scratchpad),
     renderConversationsSection(payload.conversations),
     "",
+  ];
+  const markdown = markdownSections.join("\n");
+
+  const blobSections: string[] = [
+    markdown,
     "---",
     "",
     "<!-- The fenced block below is the machine-readable form. Do not edit. -->",
     "",
     "```" + LATTICE_FENCE_LABEL,
-    json_text,
+    json,
     "```",
     "",
   ];
-  const blob = sections.join("\n");
-  return { blob, json_text, hash, byte_size: Buffer.byteLength(blob, "utf8") };
+  const blob = blobSections.join("\n");
+  return { markdown, json, blob, hash, byte_size: Buffer.byteLength(blob, "utf8") };
 }
 
 /**

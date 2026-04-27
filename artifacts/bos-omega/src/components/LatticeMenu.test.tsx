@@ -8,11 +8,19 @@ import { LatticeMenu } from "./LatticeMenu";
 // drafts used "lattice-menu-trigger". This shim keeps the test stable
 // across either spelling so a renaming refactor doesn't silently
 // invalidate the test.
-function getTrigger() {
-  return (
-    screen.queryByTestId("lattice-menu-button") ??
-    getTrigger()
-  );
+function getTrigger(): HTMLElement {
+  // Look up both spellings directly (no recursion!) so a renaming
+  // refactor doesn't silently invalidate the test, and so a missing
+  // button raises a single clear error instead of an infinite loop.
+  const el =
+    screen.queryByTestId("lattice-menu-button") ||
+    screen.queryByTestId("lattice-menu-trigger");
+  if (!el) {
+    throw new Error(
+      'LatticeMenu trigger not found (looked for testid "lattice-menu-button" or "lattice-menu-trigger")',
+    );
+  }
+  return el;
 }
 
 // Helper that renders the menu with a fresh QueryClient. retry:false so
