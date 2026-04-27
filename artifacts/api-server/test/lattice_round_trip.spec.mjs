@@ -713,10 +713,20 @@ await test("Audit chain records all lattice + scratchpad + conversation events",
   };
 
   for (const t of Object.keys(auditCounts)) auditCounts[t] = 0;
+  // Track which task_ids actually emitted an LLM_INPUT_PREPARED row, so
+  // we can scope the audit-trail proof to the SPECIFIC post-import task
+  // and not just an aggregate count. Some routing configurations emit
+  // multiple LLM_INPUT_PREPARED rows per task (e.g. boil-the-ocean
+  // synthesis + adversarial passes), which would let an aggregate
+  // ">=4" pass even if step 7's task silently HOLD'd or short-circuited.
+  const llmInputTaskIds = new Set();
   for (const row of rows) {
     if (!(row.event_type in auditCounts)) continue;
     if (!isOurs(row)) continue;
     auditCounts[row.event_type]++;
+    if (row.event_type === "LLM_INPUT_PREPARED" && typeof row.task_id === "string") {
+      llmInputTaskIds.add(row.task_id);
+    }
   }
 
   // Concrete contract: at least one of each must be present from the
@@ -734,6 +744,24 @@ await test("Audit chain records all lattice + scratchpad + conversation events",
   // userATaskIds + userBNewTaskId is what closes the audit-trail proof.
   assert.ok(auditCounts.LLM_INPUT_PREPARED >= 4,
     `expected >=4 LLM_INPUT_PREPARED (3 original + 1 post-import); got ${auditCounts.LLM_INPUT_PREPARED}`);
+  // STRICT scoped proof: the post-import task itself must have emitted
+  // at least one LLM_INPUT_PREPARED row. Without this, a future
+  // regression where step 7 silently HOLD'd or fell through to a
+  // non-LLM branch could still pass the aggregate check above (because
+  // a single original task can emit multiple LLM_INPUT_PREPARED rows
+  // under boil-the-ocean / adversarial routing). Tying the assertion
+  // to userBNewTaskId pins the proof to the actual rehydration target.
+  assert.ok(
+    typeof userBNewTaskId === "string" && userBNewTaskId.length > 0,
+    "internal: userBNewTaskId must have been captured in step 7 before this assertion runs",
+  );
+  assert.ok(
+    llmInputTaskIds.has(userBNewTaskId),
+    `expected at least one LLM_INPUT_PREPARED row scoped to the post-import task ${userBNewTaskId}; ` +
+    `got rows for task_ids=[${Array.from(llmInputTaskIds).join(", ") || "(none)"}]. ` +
+    `This means the rehydrated lattice never actually reached the model on step 7's task — ` +
+    `the round-trip proof is broken even if the aggregate count looks fine.`,
+  );
   // CONVERSATION_CREATED / CONVERSATION_ASSIGNED are emitted by the
   // task pipeline. They may not always be filterable to our test
   // run's exact metadata shape, so we treat them as informational
