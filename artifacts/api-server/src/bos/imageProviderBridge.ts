@@ -143,6 +143,50 @@ async function loadEnabledProviders(): Promise<ResolvedProviderRow[]> {
   }
 }
 
+/**
+ * Normalize the provider base_url for the image adapters' fetch URL
+ * shape (`${base_url}/models/...` for Gemini, `${base_url}/images/generations`
+ * for OpenAI). The seeded `llm_providers` row for Gemini uses the bare
+ * vendor host `https://generativelanguage.googleapis.com` (no `/v1beta`),
+ * which would build `https://generativelanguage.googleapis.com/models/...`
+ * — a 404. Pre-pending `/v1beta` here keeps the seed row valid for both
+ * the chat router (which already normalizes) and the image bridge.
+ *
+ * For OpenAI the only nudge is "ensure /v1 suffix" — the same hosts work
+ * for both chat and images.
+ *
+ * IMPORTANT: this normalization runs ONLY for vendor URLs. The Replit AI
+ * Integrations proxy returns `key + base_url` from `resolveProviderKey`
+ * with `source === "proxy"` and the proxy's URL is already correct as-is
+ * (it expects `${base_url}/models/...` with no version segment to inject).
+ * The caller passes `key_source` so we can leave proxy URLs untouched.
+ */
+function normalizeBaseUrl(
+  provider_name: string,
+  raw: string | null,
+  key_source: string,
+): string {
+  const name = provider_name.toLowerCase();
+  if (!raw) {
+    return name === "openai"
+      ? "https://api.openai.com/v1"
+      : "https://generativelanguage.googleapis.com/v1beta";
+  }
+  const trimmed = raw.replace(/\/+$/, "");
+  // Proxy base URLs come from the AI Integrations resolver and must not be
+  // version-rewritten — the proxy host owns its path layout.
+  if (key_source === "proxy") return trimmed;
+  if (name === "gemini") {
+    if (/\/v\d+(beta)?$/.test(trimmed)) return trimmed;
+    return `${trimmed}/v1beta`;
+  }
+  if (name === "openai") {
+    if (/\/v\d+$/.test(trimmed)) return trimmed;
+    return `${trimmed}/v1`;
+  }
+  return trimmed;
+}
+
 interface PlannedAttempt {
   adapter: ImageProviderAdapter;
   provider_id: string;
@@ -188,11 +232,12 @@ export async function runImageGeneration(
   const enabled = await loadEnabledProviders();
   const planned = planAttempts(enabled);
 
-  // Anthropic-only situation: no image-capable adapter is enabled. Surface a
-  // user-actionable HOLD instead of silently mock-fallback even in live mode.
-  // In mock mode we still proceed with the mock so dev/CI remains functional.
+  // Anthropic-only situation: no image-capable adapter is enabled. Surface
+  // the user-actionable switch-provider HOLD in BOTH live and mock mode so
+  // mock-mode dev/CI mirrors the prod surface (otherwise an Anthropic-only
+  // install silently returns a mock image and the user never learns they
+  // need to enable OpenAI/Gemini before going live).
   const anthropic_only =
-    live &&
     planned.length === 0 &&
     enabled.some((p) => p.name.toLowerCase() === "anthropic");
 
@@ -280,12 +325,11 @@ export async function runImageGeneration(
       continue;
     }
 
-    const base_url =
-      resolved.base_url ??
-      plan.base_url ??
-      (plan.provider_name === "openai"
-        ? "https://api.openai.com/v1"
-        : "https://generativelanguage.googleapis.com/v1beta");
+    const base_url = normalizeBaseUrl(
+      plan.provider_name,
+      resolved.base_url ?? plan.base_url ?? null,
+      resolved.source,
+    );
 
     const result = await plan.adapter.call({
       prompt: options.prompt,

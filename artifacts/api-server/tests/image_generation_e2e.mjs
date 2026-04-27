@@ -113,6 +113,30 @@ async function submitTask(input) {
   return { ...row, task_id: row.id, bos_output };
 }
 
+// ----------------------------------------------------------------- 1b. Provider setup
+//
+// The image bridge plans attempts from the `llm_providers` table. If the only
+// enabled provider is Anthropic (no image-capable adapter), the bridge HOLDs
+// with a switch-provider hint in BOTH live and mock mode (so dev/CI mirror
+// prod). For these tests to exercise the happy path we ensure OpenAI is
+// enabled — the deterministic mock still returns the placeholder PNG, but
+// the planning + persistence + audit chain runs end-to-end the way it would
+// in production.
+await test("setup: ensure OpenAI provider is enabled (image-capable adapter)", async () => {
+  const list = await request(jar, "GET", "/api/providers");
+  assert.equal(list.status, 200, "GET /api/providers responded 200");
+  const openai = (list.data || []).find(
+    (p) => String(p.name).toLowerCase() === "openai",
+  );
+  assert.ok(openai, "OpenAI provider seed row exists");
+  if (!openai.enabled) {
+    const upd = await request(jar, "PATCH", `/api/providers/${openai.id}`, {
+      enabled: true,
+    });
+    assert.equal(upd.status, 200, "PATCH /api/providers/:id enabled→true");
+  }
+});
+
 // ----------------------------------------------------------------- 2. Image gen mock
 let firstResult;
 await test("submits image-generation prompt → routes to image bridge (mock mode)", async () => {
