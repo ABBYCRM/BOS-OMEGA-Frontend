@@ -15,4 +15,5 @@ export const MemoryItemLayer = {
   continuity: "continuity",
   logs: "logs",
   scratchpad: "scratchpad",
+  persona: "persona",
 } as const;

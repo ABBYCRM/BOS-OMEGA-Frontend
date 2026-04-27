@@ -12,6 +12,7 @@ import {
 } from "./lib/security/auth.js";
 import { auditLog } from "./bos/auditEngine.js";
 import { seedFrontDoorCanon } from "./bos/frontDoorCanonSeed.js";
+import { seedPersonaSlots } from "./bos/personaCanonSeed.js";
 import { errorHandler, notFoundHandler } from "./lib/security/errors.js";
 
 const app: Express = express();
@@ -111,6 +112,14 @@ export async function bootstrap(): Promise<void> {
     await seedFrontDoorCanon();
   } catch (err) {
     logger.error({ err }, "Front-door canon seed failed (non-fatal)");
+  }
+  // BOP.PERSONA_SLOTS.v1 — three editable persona overlays (slots A/B/C)
+  // backed by `memory_items` rows. Idempotent: only inserts missing slots,
+  // so user-edited titles/contents survive restart. Non-fatal on failure.
+  try {
+    await seedPersonaSlots();
+  } catch (err) {
+    logger.error({ err }, "Persona slot seed failed (non-fatal)");
   }
   // Owner break-glass account: reconciled on every boot so the owner can
   // never be locked out, regardless of what's in the users table. Failures

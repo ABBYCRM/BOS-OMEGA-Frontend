@@ -67,7 +67,13 @@ export const CreateTaskBody = zod.object({
     .enum(["legal", "engineering", "cyber"])
     .optional()
     .describe(
-      "Optional domain persona overlay applied to every model call. Composes with the Master Prompt Kernel — does not replace it. Personas reshape the answer content while preserving BOS schema and governance.",
+      "DEPRECATED: legacy hardcoded domain persona overlay. Use persona_slot instead.",
+    ),
+  persona_slot: zod
+    .enum(["A", "B", "C"])
+    .optional()
+    .describe(
+      "Persona slot (A|B|C) to use as the domain overlay. The slot's title and content are user-editable via \/api\/personas. Wraps the resolved content in a DOMAIN PERSONA header and adds it as one extra context pass to every model call. Composes with the Master Prompt Kernel — does not replace it.",
     ),
 });
 
@@ -583,7 +589,14 @@ export const ListAuditLogsResponse = zod.array(ListAuditLogsResponseItem);
  */
 export const ListMemoryResponseItem = zod.object({
   id: zod.string(),
-  layer: zod.enum(["canon", "patches", "continuity", "logs", "scratchpad"]),
+  layer: zod.enum([
+    "canon",
+    "patches",
+    "continuity",
+    "logs",
+    "scratchpad",
+    "persona",
+  ]),
   title: zod.string(),
   content: zod.string(),
   authority_level: zod.number(),
@@ -622,7 +635,14 @@ export const UpdateMemoryBody = zod.object({
 
 export const UpdateMemoryResponse = zod.object({
   id: zod.string(),
-  layer: zod.enum(["canon", "patches", "continuity", "logs", "scratchpad"]),
+  layer: zod.enum([
+    "canon",
+    "patches",
+    "continuity",
+    "logs",
+    "scratchpad",
+    "persona",
+  ]),
   title: zod.string(),
   content: zod.string(),
   authority_level: zod.number(),
@@ -637,6 +657,53 @@ export const UpdateMemoryResponse = zod.object({
 export const DeleteMemoryParams = zod.object({
   id: zod.coerce.string(),
 });
+
+/**
+ * Returns slots A, B, C (in stable order) with their current title and content. The slots are backed by memory_items rows with layer="persona".
+ * @summary List the three persona overlay slots
+ */
+export const ListPersonasResponseItem = zod
+  .object({
+    slot: zod.enum(["A", "B", "C"]),
+    id: zod.string().nullish(),
+    title: zod.string().nullish(),
+    content: zod.string().nullish(),
+    authority_level: zod.number().nullish(),
+    updated_at: zod.string().nullish(),
+  })
+  .describe(
+    'One of the three editable persona overlay slots (A, B, C). Backed by a memory_items row with layer=\"persona\" and a deterministic id (persona_slot_a\/b\/c).',
+  );
+export const ListPersonasResponse = zod.array(ListPersonasResponseItem);
+
+/**
+ * @summary Rename or rewrite a persona slot
+ */
+export const UpdatePersonaSlotParams = zod.object({
+  slot: zod.enum(["A", "B", "C"]),
+});
+
+export const updatePersonaSlotBodyTitleMax = 120;
+
+export const updatePersonaSlotBodyContentMax = 20000;
+
+export const UpdatePersonaSlotBody = zod.object({
+  title: zod.string().min(1).max(updatePersonaSlotBodyTitleMax).optional(),
+  content: zod.string().min(1).max(updatePersonaSlotBodyContentMax).optional(),
+});
+
+export const UpdatePersonaSlotResponse = zod
+  .object({
+    slot: zod.enum(["A", "B", "C"]),
+    id: zod.string().nullish(),
+    title: zod.string().nullish(),
+    content: zod.string().nullish(),
+    authority_level: zod.number().nullish(),
+    updated_at: zod.string().nullish(),
+  })
+  .describe(
+    'One of the three editable persona overlay slots (A, B, C). Backed by a memory_items row with layer=\"persona\" and a deterministic id (persona_slot_a\/b\/c).',
+  );
 
 /**
  * @summary List model attempts for a task

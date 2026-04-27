@@ -3,13 +3,15 @@ import { useCreateTask, useGetTaskStats } from "@workspace/api-client-react";
 import type { BosOutput } from "@workspace/api-client-react";
 import { Composer } from "@/components/Composer";
 import { MessageList, type ChatMessage, type AssistantMessage } from "@/components/MessageList";
+import { PersonaEditor } from "@/components/PersonaEditor";
 import type { UploadedAttachment } from "@/lib/uploads";
 import { formatMs } from "@/lib/utils";
 import { buildLocalMemoryInjection } from "@/lib/localMemory";
+import { usePersonas, type PersonaSlotKey, type PersonaSlotView } from "@/lib/personas";
 import {
   Send, Loader2, Layers, GitMerge, Vote, Zap, Flame, AlertTriangle,
   CheckCircle2, ChevronRight, MessageSquarePlus, Scale, Code2, ShieldAlert, X,
-  ShieldCheck, FileSearch, GitPullRequest, Wrench,
+  ShieldCheck, FileSearch, GitPullRequest, Wrench, Settings2,
 } from "lucide-react";
 
 // BOP.FRONT_DOOR.v1 — first-run prompt cards. These mirror the four
@@ -62,58 +64,49 @@ const FRONT_DOOR_PROMPTS: Array<{
 ];
 
 type Mode = "auto" | "single" | "parallel" | "consensus" | "series_pass" | "boil_the_ocean";
-type Persona = "legal" | "engineering" | "cyber";
 
-const PERSONA_LS_KEY = "bos.persona.v1";
+// BOP.PERSONA_SLOTS.v1 — three editable persona slots whose title/content
+// live as canon-style memory rows on the server. The UI here is purely
+// presentational (icon + accent colour); the persona text the model sees
+// comes from the server-side row resolved at pipeline time.
+const PERSONA_LS_KEY = "bos.persona_slot.v1";
 
-interface PersonaOption {
-  value: Persona;
-  label: string;
+type PersonaPresentation = {
   icon: React.ComponentType<{ className?: string }>;
-  desc: string;
   color: string;
   activeColor: string;
-}
+};
 
-const PERSONA_OPTIONS: PersonaOption[] = [
-  {
-    value: "legal",
-    label: "Legal Counsel",
+const PERSONA_PRESENTATION: Record<PersonaSlotKey, PersonaPresentation> = {
+  A: {
     icon: Scale,
-    desc: "Structured legal memo: jurisdictions, authority, analysis, risk, mitigations.",
     color: "border-amber-200 bg-amber-50/40 hover:bg-amber-50",
     activeColor: "bg-amber-100 border-amber-400 ring-2 ring-amber-300/40",
   },
-  {
-    value: "engineering",
-    label: "Engineer / Coder",
+  B: {
     icon: Code2,
-    desc: "Architecture, implementation, tests, edge cases, deployment & ops.",
     color: "border-blue-200 bg-blue-50/40 hover:bg-blue-50",
     activeColor: "bg-blue-100 border-blue-400 ring-2 ring-blue-300/40",
   },
-  {
-    value: "cyber",
-    label: "Cyber Analyst",
+  C: {
     icon: ShieldAlert,
-    desc: "Threat assessment with severity, attack surface, IoCs, remediation.",
     color: "border-red-200 bg-red-50/40 hover:bg-red-50",
     activeColor: "bg-red-100 border-red-400 ring-2 ring-red-300/40",
   },
-];
+};
 
-function readStoredPersona(): Persona | null {
+function readStoredPersonaSlot(): PersonaSlotKey | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(PERSONA_LS_KEY);
-    if (raw === "legal" || raw === "engineering" || raw === "cyber") return raw;
+    if (raw === "A" || raw === "B" || raw === "C") return raw;
   } catch {
     // ignore
   }
   return null;
 }
 
-function writeStoredPersona(p: Persona | null): void {
+function writeStoredPersonaSlot(p: PersonaSlotKey | null): void {
   if (typeof window === "undefined") return;
   try {
     if (p === null) window.localStorage.removeItem(PERSONA_LS_KEY);
@@ -121,6 +114,16 @@ function writeStoredPersona(p: Persona | null): void {
   } catch {
     // ignore
   }
+}
+
+// First non-blank line of the persona content, used as a one-line tooltip /
+// description under the slot's title on the persona button.
+function personaSummary(content: string): string {
+  for (const line of content.split(/\r?\n/)) {
+    const t = line.trim();
+    if (t.length > 0) return t.length > 140 ? `${t.slice(0, 137)}…` : t;
+  }
+  return "Click to edit this persona's instruction.";
 }
 
 type ModeOption = {
@@ -155,7 +158,9 @@ const newMsgId = () => `m-${Date.now()}-${++MSG_SEQ}`;
 export function TaskConsole() {
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<Mode>("auto");
-  const [persona, setPersonaState] = useState<Persona | null>(() => readStoredPersona());
+  const [persona_slot, setPersonaSlotState] = useState<PersonaSlotKey | null>(() => readStoredPersonaSlot());
+  const [editing_slot, setEditingSlot] = useState<PersonaSlotView | null>(null);
+  const { slots: persona_slots } = usePersonas();
   const [parallelCount, setParallelCount] = useState(3);
   const [maxModels, setMaxModels] = useState(3);
   const [agentsPerModel, setAgentsPerModel] = useState(5);
@@ -165,9 +170,9 @@ export function TaskConsole() {
   const createTask = useCreateTask();
   const { data: stats } = useGetTaskStats();
 
-  function setPersona(p: Persona | null) {
-    setPersonaState(p);
-    writeStoredPersona(p);
+  function setPersonaSlot(p: PersonaSlotKey | null) {
+    setPersonaSlotState(p);
+    writeStoredPersonaSlot(p);
   }
 
   function submitTask(text: string, attachment_ids: string[], attachments: UploadedAttachment[]) {
@@ -213,7 +218,7 @@ export function TaskConsole() {
             max_models: maxModels,
             agents_per_model: agentsPerModel,
             attachment_ids,
-            ...(persona ? { persona } : {}),
+            ...(persona_slot ? { persona_slot } : {}),
           },
         },
         {
@@ -344,10 +349,10 @@ export function TaskConsole() {
         <div className="mb-5">
           <div className="flex items-center justify-between mb-2">
             <label className="block text-[12.5px] font-medium text-foreground">Domain persona</label>
-            {persona && (
+            {persona_slot && (
               <button
                 type="button"
-                onClick={() => setPersona(null)}
+                onClick={() => setPersonaSlot(null)}
                 className="inline-flex items-center gap-1 text-[11.5px] text-muted-foreground hover:text-foreground"
                 data-testid="button-clear-persona"
               >
@@ -357,37 +362,66 @@ export function TaskConsole() {
             )}
           </div>
           <div className="grid grid-cols-3 gap-2.5">
-            {PERSONA_OPTIONS.map((p) => {
-              const Icon = p.icon;
-              const active = persona === p.value;
+            {persona_slots.map((p) => {
+              const presentation = PERSONA_PRESENTATION[p.slot];
+              const Icon = presentation.icon;
+              const active = persona_slot === p.slot;
               return (
-                <button
-                  key={p.value}
-                  type="button"
-                  onClick={() => setPersona(active ? null : p.value)}
-                  className={`flex flex-col items-start gap-1.5 p-3 rounded-lg border text-left transition-all ${
-                    active ? p.activeColor : `bg-background ${p.color}`
+                <div
+                  key={p.slot}
+                  className={`relative flex flex-col items-start gap-1.5 p-3 rounded-lg border text-left transition-all ${
+                    active ? presentation.activeColor : `bg-background ${presentation.color}`
                   }`}
-                  data-testid={`button-persona-${p.value}`}
                 >
-                  <div className="flex items-center gap-2 w-full">
-                    <Icon className={`w-4 h-4 shrink-0 ${active ? "text-foreground" : "text-muted-foreground"}`} />
-                    <span className="text-[13px] font-medium text-foreground">{p.label}</span>
-                    {active && (
-                      <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-foreground/10 text-foreground font-medium uppercase tracking-wide">
-                        Active
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[11.5px] leading-snug text-muted-foreground">{p.desc}</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setPersonaSlot(active ? null : p.slot)}
+                    className="flex flex-col items-start gap-1.5 w-full text-left"
+                    data-testid={`button-persona-${p.slot.toLowerCase()}`}
+                    title={p.content || "Click to edit this persona"}
+                  >
+                    <div className="flex items-center gap-2 w-full pr-7">
+                      <Icon className={`w-4 h-4 shrink-0 ${active ? "text-foreground" : "text-muted-foreground"}`} />
+                      <span className="text-[13px] font-medium text-foreground truncate">{p.title}</span>
+                      {active && (
+                        <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-foreground/10 text-foreground font-medium uppercase tracking-wide shrink-0">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[11.5px] leading-snug text-muted-foreground line-clamp-2">
+                      {personaSummary(p.content)}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingSlot(p);
+                    }}
+                    className="absolute top-2 right-2 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors"
+                    title={`Edit slot ${p.slot}`}
+                    aria-label={`Edit persona slot ${p.slot}`}
+                    data-testid={`button-edit-persona-${p.slot.toLowerCase()}`}
+                  >
+                    <Settings2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               );
             })}
           </div>
           <p className="text-[11px] text-muted-foreground mt-2">
             Personas compose with the Master Prompt Kernel and apply across every execution mode while preserving BOS structured output.
+            Click the gear to rename a slot or rewrite its instruction.
           </p>
         </div>
+        <PersonaEditor
+          slot={editing_slot}
+          open={editing_slot !== null}
+          onOpenChange={(o) => {
+            if (!o) setEditingSlot(null);
+          }}
+        />
 
         {/* Mode selector */}
         <div className="mb-5">

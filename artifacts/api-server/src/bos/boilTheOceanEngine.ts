@@ -227,7 +227,7 @@ export async function runBoilTheOcean(
           // continuity/patches/scratchpad block so the dispatched fan-out
           // sees stored facts instead of running blind.
           memory_context: ctx.memory_context,
-          persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
+          persona_prompt: ctx.persona_prompt_text || buildPersonaSystemSuffix(ctx.persona) || undefined,
           task_id: ctx.task_id,
         }),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("agent_timeout")), AGENT_TIMEOUT_MS)),
@@ -396,7 +396,7 @@ export async function runBoilTheOcean(
     // out to the agents — otherwise the synthesizer can contradict facts
     // the agents were grounded on.
     memory_context: ctx.memory_context,
-    persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
+    persona_prompt: ctx.persona_prompt_text || buildPersonaSystemSuffix(ctx.persona) || undefined,
     task_id: ctx.task_id,
   });
   const synthesis_latency = Date.now() - synthesis_start;
@@ -467,7 +467,7 @@ export async function runBoilTheOcean(
       // its hardening pass is grounded on the same facts as the agents and
       // synthesizer.
       memory_context: ctx.memory_context,
-      persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
+      persona_prompt: ctx.persona_prompt_text || buildPersonaSystemSuffix(ctx.persona) || undefined,
       task_id: ctx.task_id,
     });
     const adversarial_latency = Date.now() - adversarial_start;

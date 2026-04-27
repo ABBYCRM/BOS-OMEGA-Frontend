@@ -57,6 +57,7 @@ import type {
   OverrideTaskResponse,
   OverrideTriStateResponse,
   ParallelAgent,
+  PersonaSlot,
   Provider,
   ProviderDiscoveryResult,
   ProviderHealth,
@@ -81,6 +82,7 @@ import type {
   UnlockTaskBody,
   UpdateMemoryBody,
   UpdateModelBody,
+  UpdatePersonaSlotBody,
   UpdateProviderBody,
   UpdateUserBody,
   UploadFileBody,
@@ -2023,6 +2025,169 @@ export const useDeleteMemory = <
   TContext
 > => {
   return useMutation(getDeleteMemoryMutationOptions(options));
+};
+
+/**
+ * Returns slots A, B, C (in stable order) with their current title and content. The slots are backed by memory_items rows with layer="persona".
+ * @summary List the three persona overlay slots
+ */
+export const getListPersonasUrl = () => {
+  return `/api/personas`;
+};
+
+export const listPersonas = async (
+  options?: RequestInit,
+): Promise<PersonaSlot[]> => {
+  return customFetch<PersonaSlot[]>(getListPersonasUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListPersonasQueryKey = () => {
+  return [`/api/personas`] as const;
+};
+
+export const getListPersonasQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPersonas>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listPersonas>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListPersonasQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listPersonas>>> = ({
+    signal,
+  }) => listPersonas({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listPersonas>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListPersonasQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listPersonas>>
+>;
+export type ListPersonasQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the three persona overlay slots
+ */
+
+export function useListPersonas<
+  TData = Awaited<ReturnType<typeof listPersonas>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listPersonas>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListPersonasQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Rename or rewrite a persona slot
+ */
+export const getUpdatePersonaSlotUrl = (slot: "A" | "B" | "C") => {
+  return `/api/personas/${slot}`;
+};
+
+export const updatePersonaSlot = async (
+  slot: "A" | "B" | "C",
+  updatePersonaSlotBody: UpdatePersonaSlotBody,
+  options?: RequestInit,
+): Promise<PersonaSlot> => {
+  return customFetch<PersonaSlot>(getUpdatePersonaSlotUrl(slot), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updatePersonaSlotBody),
+  });
+};
+
+export const getUpdatePersonaSlotMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updatePersonaSlot>>,
+    TError,
+    { slot: "A" | "B" | "C"; data: BodyType<UpdatePersonaSlotBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updatePersonaSlot>>,
+  TError,
+  { slot: "A" | "B" | "C"; data: BodyType<UpdatePersonaSlotBody> },
+  TContext
+> => {
+  const mutationKey = ["updatePersonaSlot"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updatePersonaSlot>>,
+    { slot: "A" | "B" | "C"; data: BodyType<UpdatePersonaSlotBody> }
+  > = (props) => {
+    const { slot, data } = props ?? {};
+
+    return updatePersonaSlot(slot, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdatePersonaSlotMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updatePersonaSlot>>
+>;
+export type UpdatePersonaSlotMutationBody = BodyType<UpdatePersonaSlotBody>;
+export type UpdatePersonaSlotMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Rename or rewrite a persona slot
+ */
+export const useUpdatePersonaSlot = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updatePersonaSlot>>,
+    TError,
+    { slot: "A" | "B" | "C"; data: BodyType<UpdatePersonaSlotBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updatePersonaSlot>>,
+  TError,
+  { slot: "A" | "B" | "C"; data: BodyType<UpdatePersonaSlotBody> },
+  TContext
+> => {
+  return useMutation(getUpdatePersonaSlotMutationOptions(options));
 };
 
 /**

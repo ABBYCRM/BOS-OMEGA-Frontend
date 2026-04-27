@@ -7,6 +7,7 @@
  */
 import type { CreateTaskBodyMode } from "./createTaskBodyMode";
 import type { CreateTaskBodyPersona } from "./createTaskBodyPersona";
+import type { CreateTaskBodyPersonaSlot } from "./createTaskBodyPersonaSlot";
 
 export interface CreateTaskBody {
   /** User input text */
@@ -23,6 +24,8 @@ export interface CreateTaskBody {
   agents_per_model?: number;
   /** IDs of files previously uploaded via POST /uploads to attach to this task */
   attachment_ids?: string[];
-  /** Optional domain persona overlay applied to every model call. Composes with the Master Prompt Kernel — does not replace it. Personas reshape the answer content while preserving BOS schema and governance. */
+  /** DEPRECATED: legacy hardcoded domain persona overlay. Use persona_slot instead. */
   persona?: CreateTaskBodyPersona;
+  /** Persona slot (A|B|C) to use as the domain overlay. The slot's title and content are user-editable via /api/personas. Wraps the resolved content in a DOMAIN PERSONA header and adds it as one extra context pass to every model call. Composes with the Master Prompt Kernel — does not replace it. */
+  persona_slot?: CreateTaskBodyPersonaSlot;
 }

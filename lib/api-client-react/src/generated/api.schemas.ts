@@ -30,7 +30,7 @@ export const CreateTaskBodyMode = {
 } as const;
 
 /**
- * Optional domain persona overlay applied to every model call. Composes with the Master Prompt Kernel — does not replace it. Personas reshape the answer content while preserving BOS schema and governance.
+ * DEPRECATED: legacy hardcoded domain persona overlay. Use persona_slot instead.
  */
 export type CreateTaskBodyPersona =
   (typeof CreateTaskBodyPersona)[keyof typeof CreateTaskBodyPersona];
@@ -39,6 +39,18 @@ export const CreateTaskBodyPersona = {
   legal: "legal",
   engineering: "engineering",
   cyber: "cyber",
+} as const;
+
+/**
+ * Persona slot (A|B|C) to use as the domain overlay. The slot's title and content are user-editable via /api/personas. Wraps the resolved content in a DOMAIN PERSONA header and adds it as one extra context pass to every model call. Composes with the Master Prompt Kernel — does not replace it.
+ */
+export type CreateTaskBodyPersonaSlot =
+  (typeof CreateTaskBodyPersonaSlot)[keyof typeof CreateTaskBodyPersonaSlot];
+
+export const CreateTaskBodyPersonaSlot = {
+  A: "A",
+  B: "B",
+  C: "C",
 } as const;
 
 export interface CreateTaskBody {
@@ -56,8 +68,10 @@ export interface CreateTaskBody {
   agents_per_model?: number;
   /** IDs of files previously uploaded via POST /uploads to attach to this task */
   attachment_ids?: string[];
-  /** Optional domain persona overlay applied to every model call. Composes with the Master Prompt Kernel — does not replace it. Personas reshape the answer content while preserving BOS schema and governance. */
+  /** DEPRECATED: legacy hardcoded domain persona overlay. Use persona_slot instead. */
   persona?: CreateTaskBodyPersona;
+  /** Persona slot (A|B|C) to use as the domain overlay. The slot's title and content are user-editable via /api/personas. Wraps the resolved content in a DOMAIN PERSONA header and adds it as one extra context pass to every model call. Composes with the Master Prompt Kernel — does not replace it. */
+  persona_slot?: CreateTaskBodyPersonaSlot;
 }
 
 export type TaskTriState = (typeof TaskTriState)[keyof typeof TaskTriState];
@@ -390,6 +404,7 @@ export const MemoryItemLayer = {
   continuity: "continuity",
   logs: "logs",
   scratchpad: "scratchpad",
+  persona: "persona",
 } as const;
 
 export interface MemoryItem {
@@ -436,6 +451,40 @@ export interface UpdateMemoryBody {
   content?: string;
   authority_level?: number;
   layer?: UpdateMemoryBodyLayer;
+}
+
+export type PersonaSlotSlot =
+  (typeof PersonaSlotSlot)[keyof typeof PersonaSlotSlot];
+
+export const PersonaSlotSlot = {
+  A: "A",
+  B: "B",
+  C: "C",
+} as const;
+
+/**
+ * One of the three editable persona overlay slots (A, B, C). Backed by a memory_items row with layer="persona" and a deterministic id (persona_slot_a/b/c).
+ */
+export interface PersonaSlot {
+  slot: PersonaSlotSlot;
+  id?: string | null;
+  title?: string | null;
+  content?: string | null;
+  authority_level?: number | null;
+  updated_at?: string | null;
+}
+
+export interface UpdatePersonaSlotBody {
+  /**
+   * @minLength 1
+   * @maxLength 120
+   */
+  title?: string;
+  /**
+   * @minLength 1
+   * @maxLength 20000
+   */
+  content?: string;
 }
 
 export type ExecutionRunMode =

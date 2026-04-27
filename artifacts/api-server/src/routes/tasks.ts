@@ -69,6 +69,7 @@ router.post("/", expensiveLimiter, async (req, res) => {
       agents_per_model: parsed.data.agents_per_model || undefined,
       attachment_ids: attachment_ids.length > 0 ? attachment_ids : undefined,
       persona: (parsed.data.persona as "legal" | "engineering" | "cyber" | undefined) || undefined,
+      persona_slot: (parsed.data as { persona_slot?: string }).persona_slot as ("A"|"B"|"C"|undefined) || undefined,
       // Ownership is set atomically inside the pipeline's saveTask INSERT
       // so newly created tasks are never momentarily visible to other
       // tenants via the legacy NULL-fallback in visibility filters.

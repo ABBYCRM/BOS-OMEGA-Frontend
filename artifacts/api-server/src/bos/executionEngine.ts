@@ -58,7 +58,9 @@ function buildOptions(
     memory_context,
     attachment_context: ctx.attachment_context,
     images: supports_vision ? ctx.attachment_images : undefined,
-    persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
+    // Prefer the resolved persona-slot overlay text (already wrapped with
+    // its DOMAIN PERSONA header) over the legacy hardcoded persona id.
+    persona_prompt: ctx.persona_prompt_text || buildPersonaSystemSuffix(ctx.persona) || undefined,
     // R-1: per-call role overlay used by parallel/consensus modes to
     // differentiate the perspective each model takes on the task.
     role_overlay: extras?.role_overlay,
@@ -265,7 +267,7 @@ async function callProvider(
       memory_context_preview: memory_chars > 0 ? memory_context.slice(0, 32000) : "",
       attachment_context_chars: ctx.attachment_context?.length ?? 0,
       has_images: supports_vision && (ctx.attachment_images?.length ?? 0) > 0,
-      persona_prompt_chars: (buildPersonaSystemSuffix(ctx.persona) || "").length,
+      persona_prompt_chars: (ctx.persona_prompt_text || buildPersonaSystemSuffix(ctx.persona) || "").length,
       role_overlay_chars: extras?.role_overlay?.length ?? 0,
     },
   );

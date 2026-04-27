@@ -171,7 +171,10 @@ export async function runSeriesPass(
       // scratchpad block so the entire series sees stored facts (e.g. the
       // elephant continuity row) instead of running blind.
       memory_context: ctx.memory_context,
-      persona_prompt: buildPersonaSystemSuffix(ctx.persona) || undefined,
+      // BOP.PERSONA_SLOTS.v1: prefer the resolved persona-slot overlay text
+      // (already wrapped with its DOMAIN PERSONA header) over the legacy
+      // hardcoded persona id so series-pass tasks honour slot selection too.
+      persona_prompt: ctx.persona_prompt_text || buildPersonaSystemSuffix(ctx.persona) || undefined,
       task_id: ctx.task_id,
     });
     const latency_ms = Date.now() - start_time;

@@ -1,5 +1,7 @@
 import { db } from "@workspace/db";
-import { tasksTable, triStateDecisionsTable, modelAttemptsTable } from "@workspace/db";
+import { tasksTable, triStateDecisionsTable, modelAttemptsTable, memoryItemsTable } from "@workspace/db";
+import { personaSlotId } from "./personaCanonSeed.js";
+import { buildPersonaOverlay } from "./personaOverlay.js";
 import { eq, sql, inArray } from "drizzle-orm";
 import { randomUUID, createHash } from "crypto";
 import type { BosOutput, ExecutionMode, TaskContext, TriState } from "./types.js";
@@ -144,6 +146,10 @@ export interface PipelineInput {
   agents_per_model?: number;
   attachment_ids?: string[];
   persona?: "legal" | "engineering" | "cyber";
+  /** Persona slot (A|B|C) — resolves at pipeline start to a memory_items row
+   *  whose content becomes the persona overlay. Takes precedence over the
+   *  legacy `persona` field. */
+  persona_slot?: "A" | "B" | "C";
   // Owning user. The pipeline writes this into tasks.user_id atomically on
   // the very first INSERT so a freshly-created task is never visible as a
   // legacy NULL-owned row to other authenticated users.
@@ -170,6 +176,25 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   const attachment_ids = pipelineInput.attachment_ids ?? [];
   const attachment_bundle = await loadAttachmentBundle(attachment_ids);
 
+  // === Resolve persona slot (A|B|C) to its memory_items row, if requested ===
+  // The slot row (layer="persona") carries the user-editable title + content
+  // overlay. We resolve once here so every execution engine receives the same
+  // already-wrapped persona prompt text and the audit chain records exactly
+  // which slot ran.
+  let persona_slot_resolved: { slot: "A"|"B"|"C"; title: string; content: string } | null = null;
+  if (pipelineInput.persona_slot) {
+    const slot = pipelineInput.persona_slot;
+    const slot_id = personaSlotId(slot);
+    const [row] = await db
+      .select()
+      .from(memoryItemsTable)
+      .where(eq(memoryItemsTable.id, slot_id))
+      .limit(1);
+    if (row) {
+      persona_slot_resolved = { slot, title: row.title, content: row.content };
+    }
+  }
+
   await auditLog(task_id, "TASK_RECEIVED", "Task received by BOS-OMEGA", {
     mode: requested_mode,
     input_length: pipelineInput.input.length,
@@ -177,6 +202,8 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     attachment_images: attachment_bundle.images.length,
     attachment_context_chars: attachment_bundle.context_block.length,
     persona: pipelineInput.persona ?? null,
+    persona_slot: persona_slot_resolved?.slot ?? null,
+    persona_title: persona_slot_resolved?.title ?? null,
   });
 
   if (attachment_bundle.notes.length > 0) {
@@ -451,6 +478,10 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     attachment_context: attachment_bundle.context_block || undefined,
     attachment_images: attachment_bundle.images.length > 0 ? attachment_bundle.images : undefined,
     persona: pipelineInput.persona,
+    persona_slot: persona_slot_resolved?.slot,
+    persona_prompt_text: persona_slot_resolved
+      ? buildPersonaOverlay(persona_slot_resolved)
+      : undefined,
     memory_context: memory_context || undefined,
   };
 

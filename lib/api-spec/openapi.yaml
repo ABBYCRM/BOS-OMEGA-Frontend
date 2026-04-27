@@ -20,6 +20,8 @@ tags:
     description: Audit logs
   - name: memory
     description: Memory management
+  - name: personas
+    description: Persona overlay slots (A, B, C) — editable domain personas
   - name: fallback
     description: Fallback events
   - name: runs
@@ -496,6 +498,60 @@ paths:
                 properties:
                   error:
                     type: string
+
+  /personas:
+    get:
+      operationId: listPersonas
+      tags: [personas]
+      summary: List the three persona overlay slots
+      description: Returns slots A, B, C (in stable order) with their current title and content. The slots are backed by memory_items rows with layer="persona".
+      responses:
+        "200":
+          description: Persona slot list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PersonaSlot"
+
+  /personas/{slot}:
+    patch:
+      operationId: updatePersonaSlot
+      tags: [personas]
+      summary: Rename or rewrite a persona slot
+      parameters:
+        - name: slot
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [A, B, C]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePersonaSlotBody"
+      responses:
+        "200":
+          description: Updated slot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonaSlot"
+        "400":
+          description: Invalid slot or body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Slot not found (was the seed run?)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /tasks/{id}/attempts:
     get:
@@ -1226,7 +1282,11 @@ components:
         persona:
           type: string
           enum: [legal, engineering, cyber]
-          description: "Optional domain persona overlay applied to every model call. Composes with the Master Prompt Kernel — does not replace it. Personas reshape the answer content while preserving BOS schema and governance."
+          description: "DEPRECATED: legacy hardcoded domain persona overlay. Use persona_slot instead."
+        persona_slot:
+          type: string
+          enum: [A, B, C]
+          description: "Persona slot (A|B|C) to use as the domain overlay. The slot's title and content are user-editable via /api/personas. Wraps the resolved content in a DOMAIN PERSONA header and adds it as one extra context pass to every model call. Composes with the Master Prompt Kernel — does not replace it."
       required: [input]
 
     Task:
@@ -1668,7 +1728,7 @@ components:
           type: string
         layer:
           type: string
-          enum: [canon, patches, continuity, logs, scratchpad]
+          enum: [canon, patches, continuity, logs, scratchpad, persona]
         title:
           type: string
         content:
@@ -1686,6 +1746,11 @@ components:
       properties:
         layer:
           type: string
+          # NB: "persona" is intentionally absent. Persona slots are managed
+          # exclusively via /api/personas — exposing the layer here would let
+          # any user pollute the persona namespace through the generic memory
+          # endpoint. The MemoryItem response schema does include "persona"
+          # so consumers can still describe rows that exist (e.g. listMemory).
           enum: [canon, patches, continuity, logs, scratchpad]
         title:
           type: string
@@ -1707,7 +1772,45 @@ components:
           type: integer
         layer:
           type: string
+          # See note on CreateMemoryBody.layer — "persona" is excluded so the
+          # generic memory endpoint can't move rows into the persona namespace.
           enum: [canon, patches, continuity, logs, scratchpad]
+
+    PersonaSlot:
+      type: object
+      description: One of the three editable persona overlay slots (A, B, C). Backed by a memory_items row with layer="persona" and a deterministic id (persona_slot_a/b/c).
+      properties:
+        slot:
+          type: string
+          enum: [A, B, C]
+        id:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        content:
+          type: string
+          nullable: true
+        authority_level:
+          type: integer
+          nullable: true
+        updated_at:
+          type: string
+          nullable: true
+      required: [slot]
+
+    UpdatePersonaSlotBody:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        content:
+          type: string
+          minLength: 1
+          maxLength: 20000
 
     BosOutput:
       type: object

@@ -7,7 +7,7 @@
  */
 
 /**
- * Optional domain persona overlay applied to every model call. Composes with the Master Prompt Kernel — does not replace it. Personas reshape the answer content while preserving BOS schema and governance.
+ * DEPRECATED: legacy hardcoded domain persona overlay. Use persona_slot instead.
  */
 export type CreateTaskBodyPersona =
   (typeof CreateTaskBodyPersona)[keyof typeof CreateTaskBodyPersona];

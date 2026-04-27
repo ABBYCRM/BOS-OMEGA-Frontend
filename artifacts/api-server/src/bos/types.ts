@@ -119,8 +119,15 @@ export interface TaskContext {
   parallel_models: number;
   attachment_context?: string;
   attachment_images?: VisionImage[];
-  /** Optional domain-persona overlay applied to every model call in this task. */
+  /** Optional legacy domain-persona id (legal|engineering|cyber). Used only when
+   *  persona_prompt_text is not set — kept for backwards compatibility. */
   persona?: Persona | string;
+  /** Optional persona slot (A|B|C) selected for this task. Audit-only — the
+   *  resolved overlay text is carried in persona_prompt_text. */
+  persona_slot?: "A" | "B" | "C";
+  /** Pre-resolved persona overlay text (already wrapped with header). When
+   *  set, takes precedence over the legacy `persona` field in adapters. */
+  persona_prompt_text?: string;
   /**
    * Pre-rendered memory context (canon + continuity + patches + scratchpad)
    * computed by the orchestrator once per task, then handed to every
