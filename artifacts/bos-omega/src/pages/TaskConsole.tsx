@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useSearch } from "wouter";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCreateTask, useGetTaskStats } from "@workspace/api-client-react";
 import type { BosOutput } from "@workspace/api-client-react";
 import { Composer } from "@/components/Composer";
@@ -155,7 +157,85 @@ const COST_LABEL: Record<string, { label: string; color: string }> = {
 let MSG_SEQ = 0;
 const newMsgId = () => `m-${Date.now()}-${++MSG_SEQ}`;
 
+// Lattice continuity (Task #68): conversation scoping comes through
+// /console?conversation=<id>. The sidebar emits these links, the server
+// clusterer pins each new task to that thread, and the page rehydrates
+// historical messages from the conversation row's task list on mount.
+function readActiveConversationId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const sp = new URLSearchParams(window.location.search);
+    const v = sp.get("conversation");
+    return v && v.length > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+type ConversationDetail = {
+  conversation: {
+    id: string;
+    title: string;
+    archived: boolean;
+  };
+  tasks: Array<{
+    id: string;
+    input_text: string;
+    tri_state: string;
+    task_type: string;
+    final_status: string;
+    created_at: string;
+  }>;
+};
+
+async function fetchConversationDetail(id: string): Promise<ConversationDetail> {
+  const r = await fetch(`/api/conversations/${encodeURIComponent(id)}`, {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!r.ok) throw new Error(`Failed to load conversation (${r.status})`);
+  return (await r.json()) as ConversationDetail;
+}
+
+// Re-hydrate a conversation's stored tasks into the chat-thread shape the
+// MessageList expects. We deliberately don't refetch each task's full
+// final_output here — the message bubble shows the input + a bare-bones
+// task summary, and clicking through opens the full Task Detail view.
+function conversationToMessages(detail: ConversationDetail): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  for (const t of detail.tasks) {
+    out.push({
+      id: `u-${t.id}`,
+      role: "user",
+      text: t.input_text,
+      attachments: [],
+      ts: new Date(t.created_at).getTime(),
+    });
+    out.push({
+      id: `a-${t.id}`,
+      role: "assistant",
+      status: "done",
+      mode: "auto",
+      task: {
+        task_id: t.id,
+        task_type: t.task_type,
+        tri_state: t.tri_state,
+        final_status: t.final_status,
+      },
+      ts: new Date(t.created_at).getTime() + 1,
+    });
+  }
+  return out;
+}
+
 export function TaskConsole() {
+  const [location] = useLocation();
+  // wouter's useLocation only tracks pathname; subscribe to the search
+  // string separately so navigating /console → /console?conversation=<id>
+  // (sidebar click) and back actually re-runs the activeConversationId
+  // memo and triggers the rehydrate effect below.
+  const search = useSearch();
+  const qc = useQueryClient();
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<Mode>("auto");
   const [persona_slot, setPersonaSlotState] = useState<PersonaSlotKey | null>(() => readStoredPersonaSlot());
@@ -166,6 +246,56 @@ export function TaskConsole() {
   const [agentsPerModel, setAgentsPerModel] = useState(5);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [resetSignal, setResetSignal] = useState(0);
+
+  // Re-derive the active conversation id whenever EITHER the pathname
+  // or the search string changes (sidebar nav rewrites only the search
+  // string, "+ New" rewrites both). The memo keys off both so we don't
+  // miss query-only navigations.
+  const activeConversationId = useMemo<string | null>(
+    () => readActiveConversationId(),
+    [location, search],
+  );
+
+  const { data: conversationDetail } = useQuery({
+    queryKey: ["conversation-detail", activeConversationId],
+    queryFn: () => fetchConversationDetail(activeConversationId!),
+    enabled: !!activeConversationId,
+    staleTime: 10_000,
+    retry: false,
+  });
+
+  // When the active conversation CHANGES, replace the in-memory thread
+  // with the server-side history exactly once. After that we keep the
+  // thread mutable so optimistic user/assistant entries don't get
+  // clobbered by an incidental conversationDetail refetch (focus,
+  // staleness, post-mutation invalidation). The ref tracks which
+  // conversation id we've already rehydrated for.
+  //
+  // Switching to a different conversation must clear the in-memory
+  // thread immediately so a slow detail fetch can't show last
+  // conversation's messages briefly. Switching to "no conversation"
+  // (e.g. clicking "New chat") also clears.
+  const hydratedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeConversationId !== hydratedFor.current) {
+      // Different conversation (or unscoped). Drop stale state up
+      // front; we'll repopulate when conversationDetail arrives.
+      setMessages([]);
+      hydratedFor.current = activeConversationId;
+    }
+    if (activeConversationId && conversationDetail
+        && conversationDetail.conversation.id === activeConversationId
+        && hydratedFor.current === activeConversationId) {
+      // Only hydrate if we haven't already loaded messages for this
+      // conversation in this mount. Optimistic appends from submitTask
+      // bring the thread back > 0 entries; once that happens we won't
+      // re-overwrite. Initial load (messages.length === 0) is the only
+      // moment we materialize server history into the chat thread.
+      setMessages((prev) => prev.length === 0
+        ? conversationToMessages(conversationDetail)
+        : prev);
+    }
+  }, [activeConversationId, conversationDetail]);
 
   const createTask = useCreateTask();
   const { data: stats } = useGetTaskStats();
@@ -209,18 +339,26 @@ export function TaskConsole() {
         ? `${injection}\n\n=== USER REQUEST ===\n${send_text}`
         : send_text;
 
+      // Lattice continuity (Task #68): pin the new task to the open
+      // conversation thread when there is one. The server clusterer
+      // honors `conversation_id` as an explicit override (case 1) so
+      // the task lands in the user-selected thread regardless of
+      // Jaccard score. These fields are NOT in the orval-generated
+      // CreateTaskBody schema yet — the server side-parses them with
+      // its own zod schema, so we cast through `unknown` to stop TS
+      // from stripping them at the boundary.
+      const body = {
+        input: final_input,
+        mode,
+        parallel_models: parallelCount,
+        max_models: maxModels,
+        agents_per_model: agentsPerModel,
+        attachment_ids,
+        ...(persona_slot ? { persona_slot } : {}),
+        ...(activeConversationId ? { conversation_id: activeConversationId } : {}),
+      } as unknown as Parameters<typeof createTask.mutate>[0]["data"];
       createTask.mutate(
-        {
-          data: {
-            input: final_input,
-            mode,
-            parallel_models: parallelCount,
-            max_models: maxModels,
-            agents_per_model: agentsPerModel,
-            attachment_ids,
-            ...(persona_slot ? { persona_slot } : {}),
-          },
-        },
+        { data: body },
         {
           onSuccess: (task: {
             id: string;
@@ -290,17 +428,34 @@ export function TaskConsole() {
       {/* Page header */}
       <header className="flex items-start justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-2xl font-serif font-semibold text-foreground tracking-tight">Task console</h1>
+          <h1 className="text-2xl font-serif font-semibold text-foreground tracking-tight" data-testid="text-task-console-title">
+            {activeConversationId && conversationDetail
+              ? conversationDetail.conversation.title
+              : "Task console"}
+          </h1>
           <p className="text-[13.5px] text-muted-foreground max-w-2xl">
-            Submit a task and let BOS-Omega orchestrate the optimal multi-model execution strategy.
+            {activeConversationId
+              ? "Continuing this conversation. New tasks pin to this thread automatically."
+              : "Submit a task and let BOS-Omega orchestrate the optimal multi-model execution strategy."}
           </p>
         </div>
         {messages.length > 0 && (
           <button
             type="button"
-            onClick={() => setMessages([])}
+            onClick={() => {
+              setMessages([]);
+              if (activeConversationId) {
+                // Drop the URL param so the next task gets clustered
+                // fresh, then re-fetch the sidebar so the new thread
+                // appears the moment the task lands.
+                window.history.pushState({}, "", "/console");
+                void qc.invalidateQueries({ queryKey: ["conversations", "sidebar"] });
+                void qc.invalidateQueries({ queryKey: ["conversation-detail"] });
+              }
+            }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
             title="Start a new conversation"
+            data-testid="button-new-chat"
           >
             <MessageSquarePlus className="w-3.5 h-3.5" />
             New chat

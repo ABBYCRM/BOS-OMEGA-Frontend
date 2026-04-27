@@ -14,6 +14,18 @@ import { runBosPipeline } from "../bos/pipeline.js";
 import { CreateTaskBody, ListTasksQueryParams } from "@workspace/api-zod";
 import { logger } from "../lib/logger.js";
 import { expensiveLimiter } from "../lib/security/rateLimit.js";
+import { z } from "zod";
+import { assignConversation, ConversationNotFoundError } from "../bos/conversationClusterer.js";
+
+// Lattice continuity (Task #68) — these two fields are NOT part of the
+// orval-generated CreateTaskBody schema (we deliberately don't regen
+// openapi.yaml mid-feature), so the orval zod parser would silently
+// strip them. Parse them off the raw body with a side schema before
+// invoking the clusterer.
+const ConversationCreateExtras = z.object({
+  conversation_id: z.string().uuid().optional(),
+  force_new_conversation: z.boolean().optional(),
+});
 
 const router = Router();
 
@@ -59,6 +71,45 @@ router.post("/", expensiveLimiter, async (req, res) => {
     }
   }
 
+  // Lattice continuity (Task #68): assign a conversation BEFORE the
+  // pipeline runs so the resulting tasks row carries `conversation_id`
+  // atomically and the sidebar reflects the new task on the very first
+  // refresh after creation. Three precedence levels are handled inside
+  // assignConversation: explicit id > force_new > heuristic Jaccard.
+  // The clusterer is user-scoped: candidate threads are filtered by
+  // user_id before scoring, so cross-tenant leakage is impossible.
+  // Anonymous tasks (no req.user) skip clustering entirely — there is
+  // nothing to scope to.
+  const extras = ConversationCreateExtras.safeParse(req.body ?? {});
+  if (!extras.success) {
+    res.status(400).json({
+      error: "Invalid conversation parameters",
+      code: "INPUT_ERROR",
+      issues: extras.error.issues.map((i) => ({ path: i.path, message: i.message, code: i.code })),
+    });
+    return;
+  }
+  let conversation_id: string | null = null;
+  if (req.user?.id) {
+    try {
+      const assignment = await assignConversation({
+        userId: req.user.id,
+        inputText: parsed.data.input,
+        explicitId: extras.data.conversation_id ?? null,
+        forceNew: extras.data.force_new_conversation ?? false,
+      });
+      conversation_id = assignment.conversation_id;
+    } catch (err) {
+      if (err instanceof ConversationNotFoundError) {
+        res.status(404).json({ error: err.message, code: err.code });
+        return;
+      }
+      // Clustering must not block task submission — log and continue
+      // unscoped so a transient DB read can't take task creation down.
+      req.log.warn({ err }, "Conversation assignment failed; proceeding without conversation_id");
+    }
+  }
+
   try {
     const result = await runBosPipeline({
       input: parsed.data.input,
@@ -74,6 +125,7 @@ router.post("/", expensiveLimiter, async (req, res) => {
       // so newly created tasks are never momentarily visible to other
       // tenants via the legacy NULL-fallback in visibility filters.
       user_id: req.user?.id ?? null,
+      conversation_id,
     });
 
     const task_rows = await db.select().from(tasksTable).where(eq(tasksTable.id, result.task_id)).limit(1);

@@ -158,6 +158,11 @@ export interface PipelineInput {
   // the very first INSERT so a freshly-created task is never visible as a
   // legacy NULL-owned row to other authenticated users.
   user_id?: string | null;
+  // Lattice continuity (Task #68) — conversation grouping. The route layer
+  // resolves this via assignConversation() before invoking the pipeline so
+  // the very first saveTask INSERT carries the conversation_id atomically.
+  // null when anonymous or the clusterer was bypassed.
+  conversation_id?: string | null;
 }
 
 export interface PipelineResult {
@@ -275,7 +280,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   if (gate.state === "ABORT") {
     const base = buildAbortOutput(gate.reason || "Policy violation", task_id);
     const output = attachDenial(base, "input_gate_abort", gate.reason || "Policy violation");
-    await saveTask(task_id, pipelineInput.input, "safety_review", "ABORT", requested_mode, undefined, undefined, "ABORTED", JSON.stringify(output), pipelineInput.user_id ?? null);
+    await saveTask(task_id, pipelineInput.input, "safety_review", "ABORT", requested_mode, undefined, undefined, "ABORTED", JSON.stringify(output), pipelineInput.user_id ?? null, pipelineInput.conversation_id ?? null);
     await auditLog(task_id, "TASK_ABORTED", gate.reason || "Aborted by input gate");
     return { task_id, tri_state: "ABORT", task_type: "safety_review", final_status: "ABORTED", bos_output: output };
   }
@@ -332,7 +337,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
       recommended_next_action: "Configure an eligible provider/model and retry.",
     };
     const output = attachDenial(base, "no_provider_available", reason);
-    await saveTask(task_id, pipelineInput.input, task_type, "HOLD", resolved_mode, undefined, undefined, "HELD", JSON.stringify(output), pipelineInput.user_id ?? null);
+    await saveTask(task_id, pipelineInput.input, task_type, "HOLD", resolved_mode, undefined, undefined, "HELD", JSON.stringify(output), pipelineInput.user_id ?? null, pipelineInput.conversation_id ?? null);
     await auditLog(task_id, "TASK_HELD", reason, { cause: "no_provider_available", task_type });
     // Persist a display-only tri-state row mirroring the runtime decision
     // so the existing /api/tri-state/by-task endpoint always has data.
@@ -355,6 +360,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     "RUNNING",
     undefined,
     pipelineInput.user_id ?? null,
+    pipelineInput.conversation_id ?? null,
   );
 
   // Task #46: build memory_context once at the orchestrator level so every
@@ -754,6 +760,7 @@ async function saveTask(
   final_status: string | undefined,
   final_output: string | undefined,
   user_id: string | null,
+  conversation_id: string | null = null,
 ): Promise<void> {
   await db.insert(tasksTable).values({
     id: task_id,
@@ -766,5 +773,6 @@ async function saveTask(
     final_status: final_status || "pending",
     final_output: final_output || null,
     user_id,
+    conversation_id,
   });
 }

@@ -2,6 +2,7 @@ import { Link, useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { fetchAuthState, logout, roleLabel, type AuthUser } from "@/lib/auth";
+import { ConversationsList } from "@/components/ConversationsList";
 import {
   Terminal,
   Server,
@@ -154,36 +155,41 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Nav */}
         <nav className="flex-1 py-3 overflow-y-auto">
           {sections.map((section) => (
-            <div key={section.label} className="mb-4">
-              <div className="px-5 mb-1.5 text-[10px] uppercase tracking-[0.12em] text-muted-foreground/70 font-semibold">
-                {section.label}
-              </div>
-              {section.items.map((item) => {
-                const Icon = item.icon;
-                const active = location === item.href || (item.href === "/console" && location === "/");
-                return (
-                  <Link key={item.href} href={item.href}>
-                    <div
-                      className={cn(
-                        "flex items-center gap-3 px-3 py-2 mx-2 rounded-md text-sm cursor-pointer transition-all duration-150",
-                        active
-                          ? "bg-card text-foreground shadow-card font-medium"
-                          : "text-sidebar-foreground hover:bg-sidebar-accent",
-                      )}
-                      data-testid={`nav-${item.href.replace(/^\//, "") || "home"}`}
-                    >
-                      <Icon
+            <div key={section.label}>
+              <div className="mb-4">
+                <div className="px-5 mb-1.5 text-[10px] uppercase tracking-[0.12em] text-muted-foreground/70 font-semibold">
+                  {section.label}
+                </div>
+                {section.items.map((item) => {
+                  const Icon = item.icon;
+                  const active = location === item.href || (item.href === "/console" && location === "/");
+                  return (
+                    <Link key={item.href} href={item.href}>
+                      <div
                         className={cn(
-                          "w-4 h-4 flex-shrink-0",
-                          active ? "text-accent" : "text-muted-foreground",
+                          "flex items-center gap-3 px-3 py-2 mx-2 rounded-md text-sm cursor-pointer transition-all duration-150",
+                          active
+                            ? "bg-card text-foreground shadow-card font-medium"
+                            : "text-sidebar-foreground hover:bg-sidebar-accent",
                         )}
-                        strokeWidth={active ? 2.25 : 1.75}
-                      />
-                      <span className="text-[13px]">{item.label}</span>
-                    </div>
-                  </Link>
-                );
-              })}
+                        data-testid={`nav-${item.href.replace(/^\//, "") || "home"}`}
+                      >
+                        <Icon
+                          className={cn(
+                            "w-4 h-4 flex-shrink-0",
+                            active ? "text-accent" : "text-muted-foreground",
+                          )}
+                          strokeWidth={active ? 2.25 : 1.75}
+                        />
+                        <span className="text-[13px]">{item.label}</span>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+              {/* Lattice continuity (Task #68): conversations belong with
+                  the Operate group since they scope the Task Console. */}
+              {section.label === "Operate" && user && <ConversationsList />}
             </div>
           ))}
         </nav>
