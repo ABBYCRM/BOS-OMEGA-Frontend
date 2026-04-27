@@ -1895,7 +1895,42 @@ components:
             $ref: "#/components/schemas/ParallelResponse"
         merge_strategy:
           type: string
+        generated_attachments:
+          description: |
+            Task #83 — populated when the input was routed through the
+            image-generation provider bridge. Each entry refers to an
+            attachment row the chat UI can render via /api/uploads/{id}/raw
+            (auth-checked: owner / super_admin only). The `mock` flag is
+            true when bytes came from the deterministic placeholder
+            fallback (no live API key configured / IMAGE_GENERATION_LIVE
+            unset) so the UI can show a clear "MOCK" indicator.
+          type: array
+          items:
+            $ref: "#/components/schemas/GeneratedImageRef"
       required: [state, task_type, answer]
+
+    GeneratedImageRef:
+      type: object
+      properties:
+        id:
+          type: string
+        mime:
+          type: string
+        width:
+          type: integer
+          nullable: true
+        height:
+          type: integer
+          nullable: true
+        provider:
+          type: string
+        model:
+          type: string
+        mock:
+          type: boolean
+        original_name:
+          type: string
+      required: [id, mime, provider, model, mock, original_name]
 
     ParallelResponse:
       type: object

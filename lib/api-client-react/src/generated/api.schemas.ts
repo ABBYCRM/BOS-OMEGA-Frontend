@@ -166,6 +166,17 @@ export interface ParallelResponse {
   selected?: boolean;
 }
 
+export interface GeneratedImageRef {
+  id: string;
+  mime: string;
+  width?: number | null;
+  height?: number | null;
+  provider: string;
+  model: string;
+  mock: boolean;
+  original_name: string;
+}
+
 export interface BosOutput {
   state: BosOutputState;
   task_type: string;
@@ -177,6 +188,15 @@ export interface BosOutput {
   recommended_next_action?: string;
   parallel_responses?: ParallelResponse[];
   merge_strategy?: string;
+  /** Task #83 — populated when the input was routed through the
+image-generation provider bridge. Each entry refers to an
+attachment row the chat UI can render via /api/uploads/{id}/raw
+(auth-checked: owner / super_admin only). The `mock` flag is
+true when bytes came from the deterministic placeholder
+fallback (no live API key configured / IMAGE_GENERATION_LIVE
+unset) so the UI can show a clear "MOCK" indicator.
+ */
+  generated_attachments?: GeneratedImageRef[];
 }
 
 export interface TaskDetail {

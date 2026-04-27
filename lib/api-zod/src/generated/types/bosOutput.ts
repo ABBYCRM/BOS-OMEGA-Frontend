@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { BosOutputState } from "./bosOutputState";
+import type { GeneratedImageRef } from "./generatedImageRef";
 import type { ParallelResponse } from "./parallelResponse";
 
 export interface BosOutput {
@@ -19,4 +20,13 @@ export interface BosOutput {
   recommended_next_action?: string;
   parallel_responses?: ParallelResponse[];
   merge_strategy?: string;
+  /** Task #83 — populated when the input was routed through the
+image-generation provider bridge. Each entry refers to an
+attachment row the chat UI can render via /api/uploads/{id}/raw
+(auth-checked: owner / super_admin only). The `mock` flag is
+true when bytes came from the deterministic placeholder
+fallback (no live API key configured / IMAGE_GENERATION_LIVE
+unset) so the UI can show a clear "MOCK" indicator.
+ */
+  generated_attachments?: GeneratedImageRef[];
 }

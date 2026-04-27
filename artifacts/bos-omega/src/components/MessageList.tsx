@@ -541,6 +541,50 @@ function AssistantBubble({ msg }: { msg: AssistantMessage }) {
                   <div className="text-[13px] text-muted-foreground italic">No answer text returned.</div>
                 )}
 
+                {/* Task #83 — render images produced by the image-generation
+                    provider bridge. Each ref carries an attachment_id served
+                    by /api/uploads/{id}/raw with the same auth-check as user
+                    uploads (owner / super_admin). The "MOCK" pill makes it
+                    impossible to confuse a deterministic mock-mode image
+                    with a real provider response. */}
+                {(msg.task.bos_output?.generated_attachments?.length ?? 0) > 0 && (
+                  <div className="mt-3 grid gap-3 grid-cols-1 sm:grid-cols-2">
+                    {msg.task.bos_output!.generated_attachments!.map((ref) => (
+                      <figure
+                        key={ref.id}
+                        className="rounded-md border border-border bg-muted/30 overflow-hidden"
+                      >
+                        <a
+                          href={`/api/uploads/${ref.id}/raw`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block bg-checker"
+                        >
+                          <img
+                            src={`/api/uploads/${ref.id}/raw`}
+                            alt={ref.original_name}
+                            width={ref.width ?? undefined}
+                            height={ref.height ?? undefined}
+                            loading="lazy"
+                            className="block w-full h-auto object-contain max-h-96 bg-white"
+                            style={{ imageRendering: ref.mock ? "pixelated" : "auto" }}
+                          />
+                        </a>
+                        <figcaption className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[10px] font-mono text-muted-foreground border-t border-border">
+                          <span className="truncate">
+                            {ref.provider}:{ref.model}
+                          </span>
+                          {ref.mock && (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-semibold tracking-wider">
+                              MOCK
+                            </span>
+                          )}
+                        </figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                )}
+
                 {has_details && (
                   <button
                     type="button"

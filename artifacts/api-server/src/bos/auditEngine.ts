@@ -135,7 +135,22 @@ type AuditEventType =
   | "LATTICE_EXPORTED"
   | "LATTICE_IMPORTED"
   | "CONVERSATION_CREATED"
-  | "CONVERSATION_ASSIGNED";
+  | "CONVERSATION_ASSIGNED"
+  // Task #83 — image generation provider bridge.
+  //   IMAGE_REQUESTED         — pipeline detected an image-generation
+  //     intent and is about to attempt provider dispatch. Metadata
+  //     records the selected provider/model order, the cleaned prompt
+  //     hash, the requested size, and whether mock mode is active.
+  //   IMAGE_GENERATED         — bytes returned, persisted via the
+  //     uploads pipeline. Metadata carries the resulting attachment_id,
+  //     provider, model, latency_ms, and bytes.
+  //   IMAGE_GENERATION_FAILED — every attempted provider failed (or
+  //     none were eligible). Metadata enumerates per-provider error
+  //     classes so the audit chain explains the HOLD verdict the user
+  //     sees.
+  | "IMAGE_REQUESTED"
+  | "IMAGE_GENERATED"
+  | "IMAGE_GENERATION_FAILED";
 
 const AUDIT_QUEUE_DIR = process.env["AUDIT_QUEUE_DIR"] || path.resolve(process.cwd(), ".local", "audit-queue");
 const AUDIT_QUEUE_FILE = path.join(AUDIT_QUEUE_DIR, "pending.jsonl");

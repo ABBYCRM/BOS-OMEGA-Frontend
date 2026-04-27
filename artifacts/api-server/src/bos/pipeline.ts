@@ -7,6 +7,8 @@ import { randomUUID, createHash } from "crypto";
 import type { BosOutput, ExecutionMode, TaskContext, TriState } from "./types.js";
 import { runInputGate } from "./inputGate.js";
 import { classifyFrontDoorInput } from "./frontDoorInterpreter.js";
+import { detectImageIntent } from "./imageIntent.js";
+import { runImageGeneration } from "./imageProviderBridge.js";
 import { safeInputPreview } from "./frontDoorResponses.js";
 import { classifyTask } from "./taskClassifier.js";
 import { buildTriStateMetadata, type TriStateDisplayMetadata, type TriStateResult } from "./triState.js";
@@ -292,6 +294,83 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   // model. Canon governs whether the model labels its own output HOLD
   // and asks the user for the missing context. Runtime never blocks
   // for "model uncertainty" or "missing context" reasons.
+
+  // Task #83 — image-generation routing.
+  //
+  // The detector is conservative (verb + image noun within a short
+  // window, no edit/describe negatives) so a prompt like
+  // "describe this image" is NOT intercepted. Only generation-style
+  // requests like "generate an image of a red sneaker" land here.
+  // We bypass the standard text classifier + execution engines and call
+  // the dedicated provider bridge, which handles mock-mode default,
+  // OpenAI → Gemini fallback, persistence via the uploads pipeline,
+  // and IMAGE_REQUESTED / IMAGE_GENERATED / IMAGE_GENERATION_FAILED
+  // audit events on its own.
+  const image_intent = detectImageIntent(gate.sanitized_input);
+  if (image_intent.is_image_generation) {
+    const outcome = await runImageGeneration({
+      prompt: image_intent.prompt,
+      size: image_intent.size,
+      user_id: pipelineInput.user_id ?? null,
+      task_id,
+      matched_phrase: image_intent.matched_phrase,
+    });
+
+    const tri_state: TriState = outcome.success ? "GO" : "HOLD";
+    const final_status = outcome.success ? "DONE" : "HELD";
+    const provenance = outcome.attempts.find((a) => a.success);
+    const provider = provenance?.provider ?? "image_bridge";
+    const model = provenance?.model ?? "image_bridge";
+
+    const base: BosOutput = {
+      state: tri_state,
+      task_type: "image_generation",
+      answer: outcome.summary,
+      assumptions: outcome.mocked
+        ? ["Mock mode active — no live image API was called. Set IMAGE_GENERATION_LIVE=1 to enable live providers."]
+        : [],
+      uncertainties: [],
+      missing_inputs: [],
+      failure_modes: outcome.success
+        ? []
+        : outcome.attempts.filter((a) => !a.success).map((a) => `${a.provider}:${a.error_type ?? "unknown"}`),
+      recommended_next_action: outcome.success
+        ? "View the generated image inline."
+        : "Configure an image provider (OpenAI gpt-image-1 or Gemini gemini-2.5-flash-image) and retry.",
+      generated_attachments: outcome.attachments,
+    };
+
+    const output = outcome.success ? base : attachDenial(base, "no_provider_available", outcome.summary);
+
+    await saveTask(
+      task_id,
+      pipelineInput.input,
+      "image_generation",
+      tri_state,
+      "single",
+      provider,
+      model,
+      final_status,
+      JSON.stringify(output),
+      pipelineInput.user_id ?? null,
+      pipelineInput.conversation_decision ?? null,
+    );
+
+    // Display-only tri-state row so /api/tri-state/by-task always has data,
+    // mirroring the no-provider-available branch below.
+    await persistTriStateDecision(
+      task_id,
+      buildTriStateMetadata({ state: tri_state, answer: outcome.summary }, 0),
+    );
+
+    return {
+      task_id,
+      tri_state,
+      task_type: "image_generation",
+      final_status,
+      bos_output: output,
+    };
+  }
 
   const classification = classifyTask(gate.sanitized_input, gate.intent);
   const task_type = pipelineInput.task_type_override || classification.task_type;

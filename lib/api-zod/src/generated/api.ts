@@ -219,6 +219,23 @@ export const GetTaskResponse = zod.object({
         )
         .optional(),
       merge_strategy: zod.string().optional(),
+      generated_attachments: zod
+        .array(
+          zod.object({
+            id: zod.string(),
+            mime: zod.string(),
+            width: zod.number().nullish(),
+            height: zod.number().nullish(),
+            provider: zod.string(),
+            model: zod.string(),
+            mock: zod.boolean(),
+            original_name: zod.string(),
+          }),
+        )
+        .optional()
+        .describe(
+          'Task #83 — populated when the input was routed through the\nimage-generation provider bridge. Each entry refers to an\nattachment row the chat UI can render via \/api\/uploads\/{id}\/raw\n(auth-checked: owner \/ super_admin only). The `mock` flag is\ntrue when bytes came from the deterministic placeholder\nfallback (no live API key configured \/ IMAGE_GENERATION_LIVE\nunset) so the UI can show a clear \"MOCK\" indicator.\n',
+        ),
     })
     .optional(),
   run_id: zod

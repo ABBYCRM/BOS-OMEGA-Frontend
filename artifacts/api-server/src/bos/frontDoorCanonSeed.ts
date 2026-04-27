@@ -239,6 +239,54 @@ const CANON_ROWS: CanonRow[] = [
       "--- END PREAMBLE TEXT ---",
     ].join("\n"),
   },
+  {
+    // Task #83 — image-generation capability declaration.
+    //
+    // The runtime now intercepts image-generation prompts BEFORE the
+    // task classifier (see pipeline.ts) and routes them to the image
+    // provider bridge instead of the text execution engines. This canon
+    // row teaches the model what triggers that route, what providers
+    // are wired in, and how mock mode behaves — so the model can
+    // explain the system to the user accurately when asked, and avoids
+    // promising image-editing/3D/video capabilities (which are
+    // explicitly out of scope for this iteration).
+    title: "Image Generation Capability",
+    authority_level: 9,
+    content: [
+      "BOS-OMEGA IMAGE GENERATION CAPABILITY",
+      "",
+      "BOS-OMEGA can generate static images on request. The pipeline",
+      "detects image-generation intent (creation verb + image noun, e.g.",
+      "'generate an image of a red sneaker', 'draw a logo for my app')",
+      "and routes the request to a dedicated provider bridge that calls",
+      "OpenAI gpt-image-1 first, then falls back to Gemini",
+      "gemini-2.5-flash-image (nano banana) if OpenAI fails.",
+      "",
+      "Mock mode is the default: when IMAGE_GENERATION_LIVE is not set",
+      "to '1', the bridge returns a deterministic 8x8 PNG derived from",
+      "the prompt's sha256 hash. The image is persisted via the same",
+      "uploads pipeline real generations use, audited identically, and",
+      "rendered inline — but the chat UI surfaces a 'MOCK' pill so",
+      "users never confuse a stub with a real generation.",
+      "",
+      "Audit chain for every image request:",
+      "  - IMAGE_REQUESTED: prompt hash, size, provider order, mock flag",
+      "  - IMAGE_GENERATED: attachment_id, provider, model, latency, bytes",
+      "  - IMAGE_GENERATION_FAILED: per-provider error_type list",
+      "",
+      "Out of scope for this iteration (do not promise these to users):",
+      "  - Image editing (modify or composite an existing image)",
+      "  - Image-to-3D / 3D model generation",
+      "  - Video generation",
+      "  - Anthropic image generation (Anthropic does not expose one)",
+      "  - Per-user spend caps for image generation",
+      "",
+      "If the user asks for any of the above, acknowledge the request,",
+      "explain it is not yet wired in, and offer the closest available",
+      "alternative (e.g. 'I can generate a fresh image describing the",
+      "edit you want, but I can't modify your existing upload yet').",
+    ].join("\n"),
+  },
 ];
 
 export async function seedFrontDoorCanon(): Promise<void> {

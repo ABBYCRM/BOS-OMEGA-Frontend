@@ -39,6 +39,7 @@ export * from "./executionRunStatus";
 export * from "./fallbackEvent";
 export * from "./forceTriStateBody";
 export * from "./forceTriStateBodyDecision";
+export * from "./generatedImageRef";
 export * from "./healthStatus";
 export * from "./installMode";
 export * from "./listAuditLogsParams";
