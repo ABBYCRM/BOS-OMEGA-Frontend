@@ -529,18 +529,22 @@ describe("MemoryUsedPanel", () => {
 
   // === Task #53: copy + download affordances on the full-context view ===
 
-  it("does NOT show copy/download buttons until the full context has been fetched", () => {
-    // No taskId / no fetch → buttons must not render even with the panel open.
+  it("does NOT show the FULL-scope copy/download buttons until the full context has been fetched", () => {
+    // The full-scope buttons only become visible once the lazy fetch
+    // has returned a body. Without a taskId the fetch never fires, so
+    // the FULL buttons must stay hidden. (The PREVIEW buttons added in
+    // Task #61 are covered separately below.)
     renderWithClient(<MemoryUsedPanel audit={[memoryInjectedEntry]} />);
     fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
     expect(screen.queryByTestId("memory-context-copy-full")).toBeNull();
     expect(screen.queryByTestId("memory-context-download-full")).toBeNull();
   });
 
-  it("does NOT show copy/download buttons while the user is still on the preview", async () => {
+  it("does NOT show the FULL-scope copy/download buttons while the user is still on the preview", async () => {
     // Stub the lazy fetch so the data is available, but don't click "View
-    // full context" — copying the preview would be misleading because it's
-    // capped at 8000 chars by the orchestrator.
+    // full context". The FULL-scope buttons must stay hidden until the
+    // user actually opens the FULL view (otherwise the buttons could be
+    // mistaken for FULL exports while the preview is on screen).
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
@@ -558,7 +562,7 @@ describe("MemoryUsedPanel", () => {
     );
     renderWithClient(<MemoryUsedPanel audit={[memoryInjectedEntry]} taskId="task-1" />);
     fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
-    // Preview is showing, fullText is null → no copy/download buttons.
+    // Preview is showing, fullText is null → no FULL-scope buttons.
     expect(screen.getByTestId("memory-context-preview")).toBeInTheDocument();
     expect(screen.queryByTestId("memory-context-copy-full")).toBeNull();
     expect(screen.queryByTestId("memory-context-download-full")).toBeNull();
@@ -679,6 +683,236 @@ describe("MemoryUsedPanel", () => {
     } finally {
       HTMLAnchorElement.prototype.click = originalClick;
     }
+  });
+
+  // === Task #61: copy + download affordances on the preview view ===
+  //
+  // Task #53 added Copy/Download to the FULL view only, which left users
+  // debugging legacy tasks (recorded before Task #48 — only the bounded
+  // preview was ever stored, no full text to fetch) with no way to pull
+  // the memory text out of the browser. Task #61 adds parallel preview-
+  // scope buttons so any audit row with a `memory_context_preview` can
+  // be exported, with copy/filename clearly labeled "preview" so the
+  // export is never mistaken for the full context.
+
+  it("renders preview-scope COPY/DOWNLOAD buttons whenever the panel has preview text (legacy task path)", () => {
+    // Legacy task: only `memory_context_preview` is stored, no
+    // `memory_context_chars`, so previewIsTruncated is false and the
+    // "VIEW FULL CONTEXT" affordance is hidden — but the user still
+    // needs a way to export what IS recorded. The preview-scope
+    // buttons must be visible here, even with no taskId.
+    const legacyEntry = {
+      id: "audit-legacy",
+      event_type: "MEMORY_INJECTED",
+      message: "Memory context built (legacy)",
+      metadata: {
+        canon_items: 1,
+        section_headers: ["=== CANON CONTEXT ==="],
+        memory_context_preview: "=== CANON CONTEXT ===\nlegacy preview body",
+        // No memory_context_chars, no memory_context_full — pre-Task #48 shape.
+      },
+      created_at: "2026-04-27T01:00:00.000Z",
+    };
+    renderWithClient(<MemoryUsedPanel audit={[legacyEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    // The full-scope buttons stay hidden (no full text to copy).
+    expect(screen.queryByTestId("memory-context-copy-full")).toBeNull();
+    expect(screen.queryByTestId("memory-context-download-full")).toBeNull();
+    // The "VIEW FULL CONTEXT" link is also hidden — chars <= preview.length.
+    expect(screen.queryByTestId("memory-context-view-full")).toBeNull();
+
+    // …but the preview-scope buttons ARE visible so the user can still export.
+    const copyBtn = screen.getByTestId("memory-context-copy-preview");
+    expect(copyBtn.textContent).toMatch(/COPY PREVIEW/);
+    expect(screen.getByTestId("memory-context-download-preview")).toBeInTheDocument();
+  });
+
+  it("hides the preview-scope buttons when the audit row carries no preview text", () => {
+    // Audit row with no memory_context_preview — there's nothing to copy
+    // or download, so the preview-scope buttons must NOT render (we
+    // never want a no-op button).
+    const noPreviewEntry = {
+      id: "audit-empty",
+      event_type: "MEMORY_INJECTED",
+      message: "Memory context built (0 chars)",
+      metadata: {
+        canon_items: 0,
+        section_headers: [],
+        // memory_context_preview intentionally absent.
+      },
+      created_at: "2026-04-27T01:00:00.000Z",
+    };
+    renderWithClient(<MemoryUsedPanel audit={[noPreviewEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+    expect(screen.queryByTestId("memory-context-copy-preview")).toBeNull();
+    expect(screen.queryByTestId("memory-context-download-preview")).toBeNull();
+  });
+
+  it("copies the preview text to the clipboard from the preview view", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+
+    renderWithClient(<MemoryUsedPanel audit={[memoryInjectedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    const copyBtn = screen.getByTestId("memory-context-copy-preview");
+    fireEvent.click(copyBtn);
+
+    // Clipboard receives EXACTLY the persisted preview body (the panel
+    // must not invent or re-stringify the text).
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(
+      memoryInjectedEntry.metadata.memory_context_preview,
+    );
+    // Visual confirmation flips to COPIED.
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("memory-context-copy-preview").textContent,
+      ).toMatch(/COPIED/);
+    });
+  });
+
+  it("downloads the preview as a .txt file with a -preview filename suffix", () => {
+    const createObjectURL = vi.fn((_b: Blob) => "blob:mock-url");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", {
+      value: createObjectURL,
+      configurable: true,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      value: revokeObjectURL,
+      configurable: true,
+    });
+
+    const clicks: { href: string; download: string }[] = [];
+    const originalClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+      clicks.push({ href: this.href, download: this.download });
+    };
+
+    const realisticTaskId = "550e8400-e29b-41d4-a716-446655440000";
+    try {
+      renderWithClient(
+        <MemoryUsedPanel audit={[memoryInjectedEntry]} taskId={realisticTaskId} />,
+      );
+      fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+      fireEvent.click(screen.getByTestId("memory-context-download-preview"));
+
+      expect(createObjectURL).toHaveBeenCalledTimes(1);
+      expect(createObjectURL.mock.calls[0][0]).toBeInstanceOf(Blob);
+      expect(clicks).toHaveLength(1);
+      // Filename carries the explicit -preview suffix so users (and
+      // their downloads folder) can never confuse a preview export
+      // with a full export of the same task.
+      expect(clicks[0].download).toBe(
+        `task-${realisticTaskId}-memory-context-preview.txt`,
+      );
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
+    } finally {
+      HTMLAnchorElement.prototype.click = originalClick;
+    }
+  });
+
+  it("falls back to a 'task-unknown' filename when no taskId is provided to the preview download", () => {
+    const createObjectURL = vi.fn((_b: Blob) => "blob:mock-url");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", {
+      value: createObjectURL,
+      configurable: true,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      value: revokeObjectURL,
+      configurable: true,
+    });
+    const clicks: { href: string; download: string }[] = [];
+    const originalClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+      clicks.push({ href: this.href, download: this.download });
+    };
+    try {
+      // No taskId — mirrors the legacy/embedded use case where the panel
+      // is rendered without a task context. The export must still produce
+      // a sensible filename instead of crashing or exporting "undefined".
+      renderWithClient(<MemoryUsedPanel audit={[memoryInjectedEntry]} />);
+      fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+      fireEvent.click(screen.getByTestId("memory-context-download-preview"));
+      expect(clicks).toHaveLength(1);
+      expect(clicks[0].download).toBe("task-unknown-memory-context-preview.txt");
+    } finally {
+      HTMLAnchorElement.prototype.click = originalClick;
+    }
+  });
+
+  it("labels the preview-scope buttons as 'preview only' when the preview is truncated", () => {
+    // memoryInjectedEntry.memory_context_chars (11654) > preview.length,
+    // so previewIsTruncated is true. The button tooltips must call out
+    // that this is a preview export and point users at VIEW FULL CONTEXT.
+    renderWithClient(
+      <MemoryUsedPanel audit={[memoryInjectedEntry]} taskId="task-1" />,
+    );
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    const copyBtn = screen.getByTestId("memory-context-copy-preview");
+    expect(copyBtn.getAttribute("aria-label")).toMatch(/preview only/);
+    expect(copyBtn.getAttribute("title")).toMatch(/full context is 11654 chars/);
+
+    const downloadBtn = screen.getByTestId("memory-context-download-preview");
+    expect(downloadBtn.getAttribute("aria-label")).toMatch(/preview only/);
+    expect(downloadBtn.getAttribute("title")).toMatch(/full context is 11654 chars/);
+
+    // The header truncation badge ("(truncated to N of M chars)") is
+    // already shown next to the section title — that visual cue plus the
+    // "PREVIEW" suffix in the button text means the user can never read
+    // the export as the full context.
+    expect(
+      screen.getByText(/truncated to .* of 11654 chars/),
+    ).toBeInTheDocument();
+  });
+
+  it("hides the preview-scope buttons once the user opens the FULL view (FULL buttons take over)", async () => {
+    // Once the user opens the FULL view, the FULL-scope buttons render
+    // instead — we don't want two pairs of buttons stacked on top of
+    // each other in the same header row.
+    const fullBody = "FULL CONTEXT BODY 0123456789".repeat(10);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              memory_context: fullBody,
+              chars: 11654,
+              truncated: false,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        ),
+      ),
+    );
+
+    renderWithClient(<MemoryUsedPanel audit={[memoryInjectedEntry]} taskId="task-1" />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    // Preview-scope buttons visible while preview is on screen.
+    expect(screen.getByTestId("memory-context-copy-preview")).toBeInTheDocument();
+    expect(screen.getByTestId("memory-context-download-preview")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("memory-context-view-full"));
+
+    // Once the FULL view loads, the FULL buttons appear and the PREVIEW
+    // buttons disappear.
+    await screen.findByTestId("memory-context-copy-full");
+    expect(screen.queryByTestId("memory-context-copy-preview")).toBeNull();
+    expect(screen.queryByTestId("memory-context-download-preview")).toBeNull();
+
+    // Switch back to the preview view — PREVIEW buttons reappear.
+    fireEvent.click(screen.getByTestId("memory-context-show-preview"));
+    expect(screen.getByTestId("memory-context-copy-preview")).toBeInTheDocument();
+    expect(screen.queryByTestId("memory-context-copy-full")).toBeNull();
   });
 
   it("surfaces a fallback error message when the full-context fetch fails", async () => {

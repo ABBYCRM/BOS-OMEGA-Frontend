@@ -263,14 +263,17 @@ export function MemoryUsedPanel({
   const fullChars = fullQuery.data?.chars ?? null;
   const fullTruncated = fullQuery.data?.truncated ?? false;
 
-  // Task #53: copy/download affordances for the fetched full context.
-  // Both are gated on `showFull && fullText` in the JSX so they only render
-  // once the lazy fetch from Task #49 has actually returned a body — copying
-  // or downloading the bounded preview would be misleading.
-  const onCopyFull = async () => {
-    if (!fullText) return;
+  // Task #53: copy/download affordances. Originally gated on the fetched
+  // full context only. Task #61 extends them to the preview view so users
+  // debugging legacy tasks (recorded before Task #48 — only the bounded
+  // preview was ever stored, so there's no full text to fetch) can still
+  // pull the memory text out of the browser. The preview-view buttons are
+  // labeled "COPY PREVIEW" / "DOWNLOAD PREVIEW" and use a `-preview.txt`
+  // filename suffix so the export is never mistaken for the full context.
+  const copyTextToClipboard = async (text: string) => {
+    if (!text) return;
     try {
-      await navigator.clipboard.writeText(fullText);
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -279,7 +282,7 @@ export function MemoryUsedPanel({
       // affordance still works for users on http://localhost or http
       // intranets where the clipboard is otherwise blocked.
       const ta = document.createElement("textarea");
-      ta.value = fullText;
+      ta.value = text;
       ta.style.position = "fixed";
       ta.style.opacity = "0";
       document.body.appendChild(ta);
@@ -295,19 +298,44 @@ export function MemoryUsedPanel({
     }
   };
 
-  const onDownloadFull = () => {
-    if (!fullText) return;
-    const blob = new Blob([fullText], { type: "text/plain;charset=utf-8" });
+  const downloadTextAsFile = (text: string, filename: string) => {
+    if (!text) return;
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    // Per the task spec: filename is the task id so multiple downloads
-    // from different tasks don't collide in the user's downloads folder.
-    a.download = `task-${taskId ?? "unknown"}-memory-context.txt`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const onCopyFull = () => {
+    if (fullText) void copyTextToClipboard(fullText);
+  };
+  const onDownloadFull = () => {
+    if (fullText) {
+      // Per the task spec: filename is the task id so multiple downloads
+      // from different tasks don't collide in the user's downloads folder.
+      downloadTextAsFile(fullText, `task-${taskId ?? "unknown"}-memory-context.txt`);
+    }
+  };
+  // Task #61: preview-scope helpers. Operate on `preview` (the bounded
+  // 8000-char snapshot the orchestrator persists on MEMORY_INJECTED), not
+  // on the full text. Filename carries an explicit `-preview` suffix so
+  // a downloaded preview can never be confused with a full export from
+  // the same task.
+  const onCopyPreview = () => {
+    if (preview) void copyTextToClipboard(preview);
+  };
+  const onDownloadPreview = () => {
+    if (preview) {
+      downloadTextAsFile(
+        preview,
+        `task-${taskId ?? "unknown"}-memory-context-preview.txt`,
+      );
+    }
   };
 
   return (
@@ -725,10 +753,11 @@ export function MemoryUsedPanel({
                   against AND the preview is actually shorter than the
                   recorded full size. */}
               <div className="flex items-center gap-3">
-                {/* Task #53: copy + download affordances. Only render once
-                    the full context has actually been fetched — copying or
-                    downloading the preview would be misleading because it's
-                    capped at 8000 chars by the orchestrator. */}
+                {/* Task #53: copy + download affordances on the FULL view.
+                    Only render once the full context has actually been
+                    fetched. Task #61 added a parallel pair below for the
+                    preview view so legacy tasks (which never had a full
+                    text to fetch) can still export the memory text. */}
                 {showFull && fullText && (
                   <>
                     <button
@@ -756,6 +785,61 @@ export function MemoryUsedPanel({
                     >
                       <Download className="w-3 h-3" />
                       DOWNLOAD
+                    </button>
+                  </>
+                )}
+                {/* Task #61: preview-scope copy + download. Renders whenever
+                    the user is on the preview view AND the audit row has
+                    preview text to export. The button copy and filename
+                    suffix both say "preview" so users debugging a legacy
+                    task don't mistake the export for the full context.
+                    Hidden on the full-context view to avoid two pairs of
+                    overlapping buttons. */}
+                {!showFull && preview && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={onCopyPreview}
+                      className="text-[10px] font-mono text-primary hover:underline inline-flex items-center gap-1"
+                      data-testid="memory-context-copy-preview"
+                      aria-label={
+                        copied
+                          ? "Copied"
+                          : `Copy memory context preview to clipboard${
+                              previewIsTruncated ? " (preview only)" : ""
+                            }`
+                      }
+                      title={
+                        copied
+                          ? "Copied"
+                          : previewIsTruncated
+                            ? `Copy the ${preview.length}-char preview (full context is ${chars} chars). Open VIEW FULL CONTEXT to copy the un-truncated text.`
+                            : "Copy the memory context preview to the clipboard."
+                      }
+                    >
+                      {copied ? (
+                        <Check className="w-3 h-3 text-green-700" />
+                      ) : (
+                        <Copy className="w-3 h-3" />
+                      )}
+                      {copied ? "COPIED" : "COPY PREVIEW"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onDownloadPreview}
+                      className="text-[10px] font-mono text-primary hover:underline inline-flex items-center gap-1"
+                      data-testid="memory-context-download-preview"
+                      aria-label={`Download memory context preview as a .txt file${
+                        previewIsTruncated ? " (preview only)" : ""
+                      }`}
+                      title={
+                        previewIsTruncated
+                          ? `Download the ${preview.length}-char preview as a .txt file (full context is ${chars} chars). Open VIEW FULL CONTEXT to download the un-truncated text.`
+                          : "Download the memory context preview as a .txt file."
+                      }
+                    >
+                      <Download className="w-3 h-3" />
+                      DOWNLOAD PREVIEW
                     </button>
                   </>
                 )}
