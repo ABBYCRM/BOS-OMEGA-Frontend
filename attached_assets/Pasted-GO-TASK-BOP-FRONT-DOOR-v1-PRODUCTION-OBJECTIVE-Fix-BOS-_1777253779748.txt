@@ -1,0 +1,484 @@
+GO.
+
+TASK:
+BOP.FRONT_DOOR.v1_PRODUCTION
+
+OBJECTIVE:
+Fix BOS-OMEGA first-user UX by adding a Front Door Interpreter before the Tri-State reasoning engine.
+
+PRINCIPLE:
+BOS-OMEGA must feel usable before it becomes powerful.
+
+======================================================================
+PROBLEM
+======================================================================
+
+Current behavior:
+- All input goes directly into BOS decision pipeline
+- Greeting / empty / trivial input receives verdict-style HOLD
+- New user thinks system is broken
+
+Root cause:
+- No preflight intent classification
+- No onboarding response layer
+- HOLD is used for both bad input and real decision uncertainty
+
+Required correction:
+- Separate UX routing from BOS reasoning
+- Only task-shaped inputs enter Tri-State engine
+- Non-task inputs receive helpful guidance
+
+======================================================================
+INPUT FLOW
+======================================================================
+
+USER_INPUT
+│
+├── FrontDoorInterpreter
+│   ├── classify input
+│   ├── assign route
+│   ├── assign confidence
+│   └── explain routing rationale
+│
+├── UXResponseLayer
+│   ├── greeting response
+│   ├── empty response
+│   ├── under-specified response
+│   ├── non-task guidance response
+│   └── real HOLD explanation
+│
+└── BOS_REASONING_ENGINE
+    └── receives only VALID_TASK or low-confidence ambiguous input
+
+======================================================================
+CLASSIFICATION CONTRACT
+======================================================================
+
+type FrontDoorRoute =
+  | "GREETING"
+  | "EMPTY"
+  | "UNDER_SPECIFIED"
+  | "LIKELY_NON_TASK"
+  | "VALID_TASK";
+
+type FrontDoorClassification = {
+  route: FrontDoorRoute;
+  confidence: number; // 0.0 - 1.0
+  rationale: string;
+  shouldInvokeBosEngine: boolean;
+};
+
+======================================================================
+ROUTING RULES
+======================================================================
+
+1. EMPTY
+- Input is blank / whitespace only
+- shouldInvokeBosEngine = false
+
+2. GREETING
+- Pure greeting / small talk starter
+- Examples: hello, hi, hey, good morning
+- shouldInvokeBosEngine = false
+
+3. UNDER_SPECIFIED
+- Input appears task-related but lacks enough context
+- Examples:
+  - "review"
+  - "fix this"
+  - "analyze it"
+  - "thoughts?"
+- shouldInvokeBosEngine = false
+- Return examples and request context
+
+4. LIKELY_NON_TASK
+- Input is conversational or not suitable for BOS decision engine
+- shouldInvokeBosEngine = false
+- Return BOS usage guidance
+
+5. VALID_TASK
+- Input is decision / review / risk / build / compare / debug / plan / analyze shaped
+- shouldInvokeBosEngine = true
+
+6. LOW_CONFIDENCE SAFETY RULE
+- If classification confidence < 0.70:
+  shouldInvokeBosEngine = true
+
+Reason:
+False blocking is worse than imperfect routing.
+Ambiguous real work must not be trapped at the front door.
+
+======================================================================
+CLASSIFIER DESIGN
+======================================================================
+
+Implement hybrid deterministic classifier.
+
+Use signals, not one brittle keyword list.
+
+Signals:
+- empty_input
+- exact_greeting
+- short_but_valid_task
+- imperative_task_phrase
+- interrogative_decision_phrase
+- attached_context_present
+- domain_terms_present
+- action_verbs_present
+- object_present
+- vague_pronoun_without_context
+- non_task_smalltalk
+
+Valid task signals include:
+- review
+- analyze
+- evaluate
+- compare
+- decide
+- determine
+- approve
+- reject
+- assess
+- risk
+- safe
+- unsafe
+- fix
+- debug
+- build
+- plan
+- design
+- implement
+- summarize
+- explain
+- audit
+- test
+- validate
+- contract
+- vendor
+- PR
+- code
+- architecture
+- workflow
+- document
+- proposal
+
+Do NOT reject valid short commands:
+- "Review contract"
+- "Analyze PR"
+- "Debug this"
+- "Plan migration"
+- "Fix bug"
+
+======================================================================
+REFERENCE PSEUDOCODE
+======================================================================
+
+function classifyFrontDoorInput(input, context): FrontDoorClassification {
+  const raw = input ?? "";
+  const text = raw.trim();
+  const lower = text.toLowerCase();
+
+  if (text.length === 0) {
+    return {
+      route: "EMPTY",
+      confidence: 1.0,
+      rationale: "Input is empty.",
+      shouldInvokeBosEngine: false
+    };
+  }
+
+  if (isExactGreeting(lower)) {
+    return {
+      route: "GREETING",
+      confidence: 0.98,
+      rationale: "Input is a pure greeting.",
+      shouldInvokeBosEngine: false
+    };
+  }
+
+  const score = scoreTaskShape(lower, context);
+
+  if (score.validTaskScore >= 0.75) {
+    return {
+      route: "VALID_TASK",
+      confidence: score.validTaskScore,
+      rationale: score.rationale,
+      shouldInvokeBosEngine: true
+    };
+  }
+
+  if (score.underSpecifiedScore >= 0.75) {
+    return {
+      route: "UNDER_SPECIFIED",
+      confidence: score.underSpecifiedScore,
+      rationale: "Input appears task-related but lacks sufficient object/context.",
+      shouldInvokeBosEngine: false
+    };
+  }
+
+  if (score.nonTaskScore >= 0.75) {
+    return {
+      route: "LIKELY_NON_TASK",
+      confidence: score.nonTaskScore,
+      rationale: "Input does not appear to request a BOS decision/review/build task.",
+      shouldInvokeBosEngine: false
+    };
+  }
+
+  return {
+    route: "VALID_TASK",
+    confidence: 0.50,
+    rationale: "Ambiguous input; routing to BOS engine to avoid false blocking.",
+    shouldInvokeBosEngine: true
+  };
+}
+
+======================================================================
+UX RESPONSES
+======================================================================
+
+GREETING:
+Hello. BOS-OMEGA is ready.
+
+Give me a decision, review, risk check, build request, or analysis task.
+
+Examples:
+- Should we approve this vendor?
+- Is this contract safe to sign?
+- Review this PR for risk.
+- Build a plan to fix this workflow.
+
+EMPTY:
+No task received.
+
+Enter a decision, review, risk, build, or analysis request for BOS-OMEGA to process.
+
+UNDER_SPECIFIED:
+I need more context before BOS-OMEGA can run this properly.
+
+Try one of these:
+- Review this contract for risk.
+- Should we approve this vendor?
+- Analyze this code change before merge.
+- Build a step-by-step fix plan for this workflow.
+
+LIKELY_NON_TASK:
+BOS-OMEGA is designed for structured decisions, reviews, risk checks, and build plans.
+
+Try:
+- Should we approve this?
+- What are the risks here?
+- Review this document.
+- Create an implementation plan.
+
+REAL HOLD:
+HOLD.
+
+Reason:
+BOS-OMEGA cannot decide because required decision context is missing.
+
+Needed:
+- Objective
+- Relevant facts
+- Decision criteria
+- Constraints
+- Risk target
+- Desired output
+
+======================================================================
+UI REQUIREMENTS
+======================================================================
+
+Input placeholder:
+Ask BOS-OMEGA a decision, review, risk, or build task...
+
+Example:
+“Should we approve this vendor based on the attached contract?”
+
+Example prompt cards:
+[ Vendor Risk ]
+Should we approve this vendor?
+
+[ Contract Review ]
+Find risks in this agreement.
+
+[ Code Review ]
+Is this PR safe to merge?
+
+[ Build Plan ]
+Create a step-by-step implementation plan.
+
+First-run empty state:
+- Explain BOS-OMEGA is a decision/review/build/risk engine
+- Show example cards
+- Add “Try Example” action
+- Do not present as generic chatbot
+
+======================================================================
+ENGINE INTEGRATION RULES
+======================================================================
+
+- Front Door Interpreter runs before BOS Tri-State engine
+- Front Door responses are not Tri-State decisions
+- Front Door must not create misleading GO/HOLD/ABORT verdicts
+- Real HOLD only comes from BOS engine after valid task routing
+- Front Door classification should be audit logged
+- Audit log must include:
+  - original input hash
+  - route
+  - confidence
+  - rationale
+  - shouldInvokeBosEngine
+  - timestamp
+
+======================================================================
+TEST MATRIX
+======================================================================
+
+INPUT: ""
+EXPECTED:
+- route EMPTY
+- no BOS engine call
+
+INPUT: "hello"
+EXPECTED:
+- route GREETING
+- no BOS engine call
+
+INPUT: "hi"
+EXPECTED:
+- route GREETING
+- no BOS engine call
+
+INPUT: "test"
+EXPECTED:
+- route UNDER_SPECIFIED or LIKELY_NON_TASK
+- no BOS engine call
+
+INPUT: "review"
+EXPECTED:
+- route UNDER_SPECIFIED
+- no BOS engine call
+
+INPUT: "fix this"
+EXPECTED:
+- route UNDER_SPECIFIED unless attachment/context exists
+
+INPUT: "Review contract"
+EXPECTED:
+- route VALID_TASK
+- BOS engine call
+
+INPUT: "Analyze PR"
+EXPECTED:
+- route VALID_TASK
+- BOS engine call
+
+INPUT: "Debug this"
+EXPECTED:
+- route VALID_TASK if context/attachment exists
+- otherwise UNDER_SPECIFIED
+
+INPUT: "Plan migration"
+EXPECTED:
+- route VALID_TASK
+- BOS engine call
+
+INPUT: "should we approve this vendor?"
+EXPECTED:
+- route VALID_TASK
+- BOS engine call
+
+INPUT: "review this contract for risk"
+EXPECTED:
+- route VALID_TASK
+- BOS engine call
+
+INPUT: "is this PR safe to merge?"
+EXPECTED:
+- route VALID_TASK
+- BOS engine call
+
+INPUT: "build me a sandwich"
+EXPECTED:
+- route LIKELY_NON_TASK or VALID_TASK depending existing app policy
+- must not crash
+- must return useful guidance if not supported
+
+INPUT: "thoughts?"
+EXPECTED:
+- route UNDER_SPECIFIED
+- no BOS engine call
+
+INPUT: "what are the risks?"
+EXPECTED:
+- route UNDER_SPECIFIED unless prior context exists
+
+INPUT: "what are the risks in this contract?"
+EXPECTED:
+- route VALID_TASK
+- BOS engine call
+
+======================================================================
+ACCEPTANCE CRITERIA
+======================================================================
+
+PASS if:
+- Greeting no longer returns raw HOLD
+- Empty input no longer enters BOS engine
+- Trivial/vague input receives guidance
+- Valid short task prompts still reach BOS engine
+- Real HOLD messages explain missing information
+- UI gives examples before first use
+- Classification decisions are auditable
+- Tests cover greetings, empty input, vague input, valid short tasks, and real BOS tasks
+
+FAIL if:
+- “hello” returns HOLD
+- classifier blocks obvious valid task prompts
+- BOS engine receives empty/greeting input
+- HOLD remains generic
+- no example prompts exist
+- audit trail cannot show why input was routed
+
+======================================================================
+MEMORY PATCH
+======================================================================
+
+BOS-OMEGA must not route greetings, empty input, trivial input, or vague non-task input directly into Tri-State decision logic.
+
+A Front Door Interpreter must classify input before the BOS reasoning engine.
+
+Only valid decision/review/build/risk/analysis tasks should normally reach BOS.
+
+Ambiguous low-confidence input must fall through to BOS rather than be falsely blocked.
+
+Greetings receive onboarding guidance.
+Short/vague input receives example prompts.
+True HOLD states must explain exactly what information is missing.
+
+======================================================================
+FINAL BUILD ORDER
+======================================================================
+
+1. Add FrontDoorClassification types
+2. Implement deterministic classifier
+3. Add UX response templates
+4. Integrate preflight route before BOS engine call
+5. Add audit event for front-door classification
+6. Add input placeholder
+7. Add example prompt cards
+8. Add first-run empty state
+9. Replace generic HOLD copy
+10. Add test matrix
+11. Run regression tests against valid BOS prompts
+
+======================================================================
+FINAL DECISION
+======================================================================
+
+GO.
+
+Build BOP.FRONT_DOOR.v1_PRODUCTION.
+Do not ship the naive keyword-only classifier.
+Ship the confidence-based hybrid Front Door Interpreter.
