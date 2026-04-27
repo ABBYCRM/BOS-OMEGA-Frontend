@@ -54,6 +54,72 @@
  */
 
 import { createHash } from "crypto";
+import { z } from "zod";
+
+// Strict structural validation for the parsed JSON envelope. Catches
+// hash-valid-but-malformed payloads (e.g. `canon: null`, missing
+// `budgets`, scratchpad row without `id`) BEFORE the import/preview
+// routes start dereferencing nested fields. Without this guard a
+// malformed bundle could pass `parseContinuityBundle` and crash the
+// route with a 500, instead of returning a structured 400. We keep
+// the schema permissive on optional fields (it accepts arbitrary
+// extra keys) but strict on required nesting.
+const BundleCanonSchema = z.object({
+  hash: z.string().min(1),
+  summary: z.string(),
+  items_count: z.number().int().nonnegative(),
+});
+const BundlePersonaSlotSchema = z.object({
+  slot: z.union([z.literal("A"), z.literal("B"), z.literal("C")]),
+  title: z.string(),
+  content: z.string(),
+});
+const BundleBudgetsSchema = z.object({
+  canon: z.number().int().nonnegative(),
+  continuity: z.number().int().nonnegative(),
+  patches: z.number().int().nonnegative(),
+  scratchpad: z.number().int().nonnegative(),
+});
+const BundleScratchpadItemSchema = z.object({
+  id: z.string().min(1),
+  title: z.string(),
+  content: z.string(),
+  authority_level: z.number().int(),
+  source: z.string(),
+  source_task_id: z.string().nullable(),
+  created_at: z.string(),
+});
+const BundleContinuityItemSchema = z.object({
+  id: z.string().min(1),
+  title: z.string(),
+  content: z.string(),
+  authority_level: z.number().int(),
+});
+const BundleTurnSchema = z.object({
+  task_id: z.string().min(1),
+  created_at: z.string(),
+  user_input: z.string(),
+  assistant_output: z.string(),
+  tri_state: z.string(),
+  task_type: z.string(),
+  mode: z.string(),
+});
+const ContinuityBundlePayloadSchema = z.object({
+  format_version: z.string(),
+  exported_at: z.string(),
+  source_session_id: z.string(),
+  scope: z.union([z.literal("task"), z.literal("conversation")]),
+  task_id: z.string().nullable().optional(),
+  conversation_id: z.string().nullable().optional(),
+  conversation_title: z.string().nullable().optional(),
+  canon: BundleCanonSchema,
+  persona_slot: BundlePersonaSlotSchema.nullable(),
+  budgets: BundleBudgetsSchema,
+  scratchpad: z.array(BundleScratchpadItemSchema),
+  continuity: z.array(BundleContinuityItemSchema),
+  turns: z.array(BundleTurnSchema),
+  fidelity_hash: z.string(),
+}).passthrough();
 
 /**
  * Recursive deterministic JSON serialization. Object keys are sorted at
@@ -491,15 +557,29 @@ export function parseContinuityBundle(input: string): ParsedContinuityBundle {
     }
   }
 
+  // Strict structural validation. The earlier presence/array checks
+  // are deliberately retained for stable error codes on the most
+  // common malformations, but they don't cover nested object shape
+  // (e.g. `canon: null`, `budgets: { canon: "x" }`, scratchpad row
+  // missing `id`). Without this Zod pass, a hash-valid-but-malformed
+  // bundle would slip through to preview/import where the routes
+  // dereference `payload.canon.hash` etc and 500. Refuse loudly with
+  // a structured 400 instead.
+  const validated = ContinuityBundlePayloadSchema.safeParse(obj);
+  if (!validated.success) {
+    const issues = validated.error.issues.slice(0, 3).map((i) => {
+      const path = i.path.length > 0 ? i.path.join(".") : "(root)";
+      return `${path}: ${i.message}`;
+    }).join("; ");
+    throw new BundleParseError(
+      "BUNDLE_BAD_SHAPE",
+      `JSON envelope failed structural validation: ${issues}`,
+    );
+  }
+
   const recomputed = computeFidelityHash(obj);
   return {
-    // Cast through `unknown` because we have just structurally
-    // validated every field the type contract requires above (format,
-    // version, scope, fidelity_hash, scratchpad/continuity/turns
-    // arrays). TS's structural-overlap heuristic doesn't know about
-    // those runtime checks, so a direct cast is rejected — going
-    // through `unknown` is the documented escape hatch.
-    payload: obj as unknown as ContinuityBundlePayload,
+    payload: validated.data as ContinuityBundlePayload,
     recomputed_hash: recomputed,
     hash_ok: recomputed === fidelity_hash,
   };
