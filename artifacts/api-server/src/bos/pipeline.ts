@@ -1,9 +1,11 @@
 import { db } from "@workspace/db";
 import { tasksTable, triStateDecisionsTable, modelAttemptsTable } from "@workspace/db";
 import { eq, sql, inArray } from "drizzle-orm";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 import type { BosOutput, ExecutionMode, TaskContext, TriState } from "./types.js";
 import { runInputGate } from "./inputGate.js";
+import { classifyFrontDoorInput } from "./frontDoorInterpreter.js";
+import { buildFrontDoorBosOutput, safeInputPreview } from "./frontDoorResponses.js";
 import { classifyTask } from "./taskClassifier.js";
 import { evaluateTriState, type TriStateResult } from "./triState.js";
 import { selectModel } from "./modelRouter.js";
@@ -23,6 +25,12 @@ import { logger } from "../lib/logger.js";
 import { loadAttachmentBundle } from "../lib/uploads/loader.js";
 import { budgetForMode, checkBudget, type BudgetUsage } from "./budgets.js";
 import { attachmentsTable } from "@workspace/db";
+
+// BOP.FRONT_DOOR.v1 — sha-256 hash of the raw input so two audit events
+// for the same prompt can be correlated without re-storing the full text.
+function hashInput(s: string): string {
+  return "sha256:" + createHash("sha256").update(s ?? "", "utf8").digest("hex").slice(0, 16);
+}
 
 // v1.1 hardening: must mirror requiredConfidenceForTaskType() in triState.ts
 // so a task that demands 0.85 confidence is also flagged as high_stakes_domain
@@ -192,6 +200,57 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
       .update(attachmentsTable)
       .set({ task_id })
       .where(inArray(attachmentsTable.id, attachment_ids));
+  }
+
+  // === BOP.FRONT_DOOR.v1 — preflight classification ===
+  // Run BEFORE the input gate / Tri-State engine. Greetings, empty input,
+  // vague stubs, and obvious non-tasks get friendly UX guidance instead of
+  // a HOLD verdict. Low-confidence ambiguous input falls through to BOS to
+  // avoid false-blocking real work.
+  const fd = classifyFrontDoorInput(pipelineInput.input, {
+    has_attachments: attachment_ids.length > 0,
+  });
+  const fd_preview = safeInputPreview(pipelineInput.input);
+  const fd_input_hash = hashInput(pipelineInput.input);
+  await auditLog(task_id, "FRONT_DOOR_CLASSIFIED", `Front door: ${fd.route}`, {
+    route: fd.route,
+    confidence: fd.confidence,
+    rationale: fd.rationale,
+    signals: fd.signals,
+    should_invoke_bos_engine: fd.shouldInvokeBosEngine,
+    has_attachments: attachment_ids.length > 0,
+    input_hash: fd_input_hash,
+    input_preview: fd_preview.preview,
+    input_truncated: fd_preview.truncated,
+    input_length: fd_preview.original_length,
+    classified_at: new Date().toISOString(),
+  });
+
+  if (!fd.shouldInvokeBosEngine) {
+    const output = buildFrontDoorBosOutput(fd);
+    await saveTask(
+      task_id,
+      pipelineInput.input,
+      "front_door_guidance",
+      "HOLD",
+      requested_mode,
+      undefined,
+      undefined,
+      "HELD",
+      JSON.stringify(output),
+      pipelineInput.user_id ?? null,
+    );
+    await auditLog(task_id, "TASK_HELD", `Front door routed: ${fd.route}`, {
+      front_door_route: fd.route,
+      front_door_confidence: fd.confidence,
+    });
+    return {
+      task_id,
+      tri_state: "HOLD",
+      task_type: "front_door_guidance",
+      final_status: "HELD",
+      bos_output: output,
+    };
   }
 
   const gate = runInputGate(pipelineInput.input);

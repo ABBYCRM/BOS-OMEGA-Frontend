@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { BosOutput } from "@workspace/api-client-react";
 import { useGetRunSeriesPasses, useGetRunParallelAgents, useGetRunSynthesis, useGetRun } from "@workspace/api-client-react";
 import type { UploadedAttachment } from "@/lib/uploads";
-import { TriStateBadge } from "@/components/StatusBadge";
+import { TriStateBadge, FrontDoorGuidanceBadge } from "@/components/StatusBadge";
 import { TriStateVector } from "@/components/TriStateVector";
 import { formatMs } from "@/lib/utils";
 import {
@@ -370,7 +370,11 @@ function AssistantBubble({ msg }: { msg: AssistantMessage }) {
           <div className="flex items-center gap-2 px-4 py-2 border-b border-card-border bg-secondary/40 flex-wrap">
             <span className="text-[10px] font-mono font-bold text-primary tracking-wider">BOS-OMEGA</span>
             <span className="text-[10px] font-mono text-muted-foreground uppercase">{msg.mode.replace("_", " ")}</span>
-            {msg.task?.tri_state && <TriStateBadge state={msg.task.tri_state} />}
+            {msg.task?.bos_output?.front_door_route ? (
+              <FrontDoorGuidanceBadge route={msg.task.bos_output.front_door_route} />
+            ) : (
+              msg.task?.tri_state && <TriStateBadge state={msg.task.tri_state} />
+            )}
             {msg.task?.selected_provider && (
               <span className="text-[10px] font-mono text-muted-foreground">
                 {msg.task.selected_provider}/{msg.task.selected_model}

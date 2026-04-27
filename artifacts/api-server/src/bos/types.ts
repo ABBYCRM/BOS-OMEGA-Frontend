@@ -71,6 +71,16 @@ export interface BosOutput {
   why_decision_was_made?: string;
   /** Allowed alternative path the user can take when blocked or held. */
   safe_alternative?: string;
+  /**
+   * BOP.FRONT_DOOR.v1 — set when the BOS engine was NOT invoked because
+   * the Front Door Interpreter routed the input to UX guidance.
+   * One of: "GREETING" | "EMPTY" | "UNDER_SPECIFIED" | "LIKELY_NON_TASK".
+   * The frontend renders a friendly "GUIDANCE" pill instead of "HOLD"
+   * when this is set.
+   */
+  front_door_route?: string;
+  /** Example prompts surfaced alongside the front-door guidance. */
+  front_door_examples?: string[];
 }
 
 export interface ParallelResponse {

@@ -90,7 +90,12 @@ type AuditEventType =
   // audit trail shows exactly what memory_context was injected into the
   // model prompt in every execution mode.
   | "MEMORY_INJECTED"
-  | "LLM_INPUT_PREPARED";
+  | "LLM_INPUT_PREPARED"
+  // BOP.FRONT_DOOR.v1 — preflight classification fires on every task,
+  // before the BOS Tri-State engine sees the input. Tells the audit
+  // chain whether the engine was invoked or whether the front door
+  // returned guidance directly.
+  | "FRONT_DOOR_CLASSIFIED";
 
 const AUDIT_QUEUE_DIR = process.env["AUDIT_QUEUE_DIR"] || path.resolve(process.cwd(), ".local", "audit-queue");
 const AUDIT_QUEUE_FILE = path.join(AUDIT_QUEUE_DIR, "pending.jsonl");

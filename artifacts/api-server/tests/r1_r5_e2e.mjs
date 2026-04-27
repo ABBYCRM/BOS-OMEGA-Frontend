@@ -127,6 +127,104 @@ async function main() {
   await login();
   console.log("  ok  authenticated");
 
+  // ============================================================
+  // BOP.FRONT_DOOR.v1_PRODUCTION — preflight classifier in pipeline
+  // ============================================================
+  await test("front door: greeting → FRONT_DOOR_CLASSIFIED, engine NOT invoked, friendly answer", async () => {
+    const { detail } = await submitTask({ input: "hello", mode: "single" });
+    const { audit, bos_output } = detail;
+    const types = eventTypes(audit);
+
+    // FRONT_DOOR_CLASSIFIED fires exactly once with route=GREETING.
+    const fdRows = audit.filter((a) => a.event_type === "FRONT_DOOR_CLASSIFIED");
+    assert.equal(fdRows.length, 1, `expected 1 FRONT_DOOR_CLASSIFIED, got ${fdRows.length}`);
+    const fdMeta = parseMetadata(fdRows[0].metadata);
+    assert.equal(fdMeta.route, "GREETING", `expected route=GREETING, got ${fdMeta.route}`);
+    assert.equal(fdMeta.should_invoke_bos_engine, false);
+    assert.ok(fdMeta.confidence >= 0.95, `confidence too low: ${fdMeta.confidence}`);
+    assert.ok(typeof fdMeta.input_hash === "string" && fdMeta.input_hash.startsWith("sha256:"));
+    assert.ok(typeof fdMeta.input_preview === "string" && fdMeta.input_preview.length > 0);
+    assert.ok(Array.isArray(fdMeta.signals));
+
+    // Engine bypassed: no INPUT_GATE_RESULT, no TRI_STATE_EVALUATED, no
+    // MEMORY_INJECTED, no LLM_CALL_*. Only TASK_RECEIVED + FRONT_DOOR + TASK_HELD.
+    for (const banned of [
+      "INPUT_GATE_RESULT",
+      "TRI_STATE_EVALUATED",
+      "MEMORY_INJECTED",
+      "LLM_CALL_STARTED",
+      "MODEL_SELECTED",
+      "MODE_SELECTED",
+    ]) {
+      assert.ok(!types.includes(banned), `engine event ${banned} should not fire on greeting; got: ${types.join(",")}`);
+    }
+
+    // BosOutput is the friendly greeting, NOT the raw "Insufficient information" HOLD.
+    assert.equal(bos_output.front_door_route, "GREETING");
+    assert.equal(bos_output.task_type, "front_door_guidance");
+    assert.ok(/Hello\. BOS-OMEGA is ready/.test(bos_output.answer), `friendly answer missing; got: ${bos_output.answer}`);
+    assert.ok(!/Insufficient information/i.test(bos_output.answer), "regression: raw HOLD copy leaked through");
+    assert.ok(/Examples:/.test(bos_output.answer), "examples block missing from greeting answer");
+  });
+
+  await test("front door: empty input → FRONT_DOOR_CLASSIFIED EMPTY, engine NOT invoked", async () => {
+    const { detail } = await submitTask({ input: "", mode: "single" });
+    const { audit, bos_output } = detail;
+    const fdRows = audit.filter((a) => a.event_type === "FRONT_DOOR_CLASSIFIED");
+    assert.equal(fdRows.length, 1);
+    const fdMeta = parseMetadata(fdRows[0].metadata);
+    assert.equal(fdMeta.route, "EMPTY");
+    assert.equal(fdMeta.should_invoke_bos_engine, false);
+    assert.equal(bos_output.front_door_route, "EMPTY");
+    assert.ok(/No task received/.test(bos_output.answer));
+  });
+
+  await test("front door: under-specified ('this') → FRONT_DOOR_CLASSIFIED, engine NOT invoked", async () => {
+    const { detail } = await submitTask({ input: "this", mode: "single" });
+    const { audit, bos_output } = detail;
+    const fdMeta = parseMetadata(
+      audit.find((a) => a.event_type === "FRONT_DOOR_CLASSIFIED").metadata,
+    );
+    assert.equal(fdMeta.route, "UNDER_SPECIFIED");
+    assert.equal(bos_output.front_door_route, "UNDER_SPECIFIED");
+  });
+
+  await test("front door: VALID_TASK input ('Should we approve this vendor?') reaches engine", async () => {
+    const { detail } = await submitTask({
+      input: "Should we approve this vendor? Vendor: Acme Corp. Service: payment processing.",
+      mode: "single",
+    });
+    const { audit, bos_output } = detail;
+    const types = eventTypes(audit);
+
+    const fdRows = audit.filter((a) => a.event_type === "FRONT_DOOR_CLASSIFIED");
+    assert.equal(fdRows.length, 1);
+    const fdMeta = parseMetadata(fdRows[0].metadata);
+    assert.equal(fdMeta.route, "VALID_TASK");
+    assert.equal(fdMeta.should_invoke_bos_engine, true);
+    assert.ok(fdMeta.confidence >= 0.7);
+
+    // Engine WAS invoked: the standard chain follows.
+    assert.ok(types.includes("INPUT_GATE_RESULT"), "engine path must fire INPUT_GATE_RESULT");
+    assert.ok(types.includes("TRI_STATE_EVALUATED"), "engine path must fire TRI_STATE_EVALUATED");
+
+    // bos_output must NOT carry a front_door_route marker (engine produced it).
+    assert.ok(!bos_output.front_door_route, `engine output must not carry front_door_route, got ${bos_output.front_door_route}`);
+  });
+
+  await test("front door audit metadata: input_hash + truncated preview present and bounded", async () => {
+    const longInput = "Should we approve " + "x".repeat(500);
+    const { detail } = await submitTask({ input: longInput, mode: "single" });
+    const fdRows = detail.audit.filter((a) => a.event_type === "FRONT_DOOR_CLASSIFIED");
+    assert.equal(fdRows.length, 1);
+    const meta = parseMetadata(fdRows[0].metadata);
+    assert.ok(typeof meta.input_hash === "string" && /^sha256:[0-9a-f]{16}$/.test(meta.input_hash));
+    assert.ok(typeof meta.input_preview === "string");
+    assert.ok(meta.input_preview.length <= 250, `preview too long: ${meta.input_preview.length}`);
+    assert.equal(meta.input_truncated, true, "long input should be flagged truncated");
+    assert.ok(meta.input_length >= 500);
+  });
+
   // ---------------- Configuration A: parallel with N>=2 ----------------
   await test("parallel N>=2: role suffix + per-response audit + KEY_RESOLVED + MERGE_COMPLETED", async () => {
     const REQUESTED_PARALLEL = 3;

@@ -25,6 +25,34 @@ export function TriStateBadge({ state }: { state: TriState | string }) {
   );
 }
 
+/**
+ * BOP.FRONT_DOOR.v1 — friendly "GUIDANCE" pill rendered when the BOS
+ * engine was NOT invoked because the Front Door Interpreter routed the
+ * input to UX guidance. Replaces the scary HOLD pill on greetings/empty/
+ * under-specified/non-task input.
+ */
+export function FrontDoorGuidanceBadge({ route }: { route: string }) {
+  const label =
+    route === "GREETING"
+      ? "Greeting"
+      : route === "EMPTY"
+      ? "Empty input"
+      : route === "UNDER_SPECIFIED"
+      ? "Needs context"
+      : route === "LIKELY_NON_TASK"
+      ? "Out of scope"
+      : "Guidance";
+  return (
+    <span
+      className={cn(baseBadge, "bg-blue-50 text-blue-800 border-blue-200")}
+      data-testid={`badge-front-door-${route.toLowerCase()}`}
+    >
+      <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+      {label}
+    </span>
+  );
+}
+
 export function ProviderStatusBadge({ status }: { status: ProviderStatus | string }) {
   const classes: Record<string, string> = {
     HEALTHY: "bg-green-50 text-green-800 border-green-200",

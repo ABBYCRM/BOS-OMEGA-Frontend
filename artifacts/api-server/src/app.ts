@@ -11,6 +11,7 @@ import {
   startOwnerReconcileHeartbeat,
 } from "./lib/security/auth.js";
 import { auditLog } from "./bos/auditEngine.js";
+import { seedFrontDoorCanon } from "./bos/frontDoorCanonSeed.js";
 import { errorHandler, notFoundHandler } from "./lib/security/errors.js";
 
 const app: Express = express();
@@ -102,6 +103,14 @@ export async function bootstrap(): Promise<void> {
   } catch (err) {
     logger.fatal({ err }, "Super-admin seed failed");
     process.exit(1);
+  }
+  // BOP.FRONT_DOOR.v1 — atomic canon governance patch. Idempotent.
+  // Non-fatal on failure: the front door still works at the pipeline
+  // layer; the canon row is for model-visible authority.
+  try {
+    await seedFrontDoorCanon();
+  } catch (err) {
+    logger.error({ err }, "Front-door canon seed failed (non-fatal)");
   }
   // Owner break-glass account: reconciled on every boot so the owner can
   // never be locked out, regardless of what's in the users table. Failures

@@ -42,6 +42,9 @@ import {
   buildContextFromMemory,
   approxTokenCount,
 } from "../src/bos/memoryHelpers.ts";
+// BOP.FRONT_DOOR.v1 — pure, no-deps classifier + UX response builder.
+import { classifyFrontDoorInput } from "../src/bos/frontDoorInterpreter.ts";
+import { buildFrontDoorBosOutput, safeInputPreview } from "../src/bos/frontDoorResponses.ts";
 
 let pass = 0;
 let fail = 0;
@@ -470,6 +473,206 @@ test("approxTokenCount uses ~4-chars-per-token heuristic", () => {
   assert.equal(approxTokenCount(""), 0);
   assert.equal(approxTokenCount("abcd"), 1);
   assert.equal(approxTokenCount("abcde"), 2);
+});
+
+// =============================================================================
+// BOP.FRONT_DOOR.v1_PRODUCTION — classifier test matrix
+// =============================================================================
+
+// --- GREETING ---
+test("front door: 'hello' → GREETING, no engine", () => {
+  const c = classifyFrontDoorInput("hello");
+  assert.equal(c.route, "GREETING");
+  assert.equal(c.shouldInvokeBosEngine, false);
+  assert.ok(c.confidence >= 0.95);
+});
+test("front door: 'Hi!' → GREETING (case + punctuation tolerant)", () => {
+  const c = classifyFrontDoorInput("Hi!");
+  assert.equal(c.route, "GREETING");
+});
+test("front door: 'good morning' → GREETING (multi-word)", () => {
+  assert.equal(classifyFrontDoorInput("good morning").route, "GREETING");
+});
+test("front door: 'thanks.' → GREETING (acknowledgement)", () => {
+  assert.equal(classifyFrontDoorInput("thanks.").route, "GREETING");
+});
+
+// --- EMPTY ---
+test("front door: '' → EMPTY, no engine", () => {
+  const c = classifyFrontDoorInput("");
+  assert.equal(c.route, "EMPTY");
+  assert.equal(c.shouldInvokeBosEngine, false);
+  assert.equal(c.confidence, 1.0);
+});
+test("front door: '   \\n  ' (whitespace) → EMPTY", () => {
+  assert.equal(classifyFrontDoorInput("   \n  ").route, "EMPTY");
+});
+test("front door: null/undefined → EMPTY", () => {
+  assert.equal(classifyFrontDoorInput(null).route, "EMPTY");
+  assert.equal(classifyFrontDoorInput(undefined).route, "EMPTY");
+});
+
+// --- UNDER_SPECIFIED ---
+test("front door: 'this' → UNDER_SPECIFIED, no engine", () => {
+  const c = classifyFrontDoorInput("this");
+  assert.equal(c.route, "UNDER_SPECIFIED");
+  assert.equal(c.shouldInvokeBosEngine, false);
+});
+test("front door: 'fix this' (no attachments) → UNDER_SPECIFIED", () => {
+  assert.equal(classifyFrontDoorInput("fix this").route, "UNDER_SPECIFIED");
+});
+test("front door: 'review' (verb only, no object) → UNDER_SPECIFIED", () => {
+  assert.equal(classifyFrontDoorInput("review").route, "UNDER_SPECIFIED");
+});
+test("front door: 'thoughts?' → UNDER_SPECIFIED", () => {
+  assert.equal(classifyFrontDoorInput("thoughts?").route, "UNDER_SPECIFIED");
+});
+
+// --- Attachments rescue UNDER_SPECIFIED → VALID_TASK ---
+test("front door: 'fix this' WITH attachments → VALID_TASK, engine invoked", () => {
+  const c = classifyFrontDoorInput("fix this", { has_attachments: true });
+  assert.equal(c.route, "VALID_TASK");
+  assert.equal(c.shouldInvokeBosEngine, true);
+});
+
+// --- LIKELY_NON_TASK ---
+test("front door: 'how is it going?' → LIKELY_NON_TASK", () => {
+  assert.equal(classifyFrontDoorInput("how is it going?").route, "LIKELY_NON_TASK");
+});
+test("front door: 'tell me a joke' → LIKELY_NON_TASK", () => {
+  assert.equal(classifyFrontDoorInput("tell me a joke").route, "LIKELY_NON_TASK");
+});
+test("front door: 'who are you?' → LIKELY_NON_TASK", () => {
+  assert.equal(classifyFrontDoorInput("who are you?").route, "LIKELY_NON_TASK");
+});
+
+// --- VALID_TASK ---
+test("front door: 'Should we approve this vendor?' → VALID_TASK", () => {
+  const c = classifyFrontDoorInput("Should we approve this vendor?");
+  assert.equal(c.route, "VALID_TASK");
+  assert.equal(c.shouldInvokeBosEngine, true);
+  assert.ok(c.confidence >= 0.7);
+});
+test("front door: 'Review this contract for risk before we sign' → VALID_TASK", () => {
+  assert.equal(
+    classifyFrontDoorInput("Review this contract for risk before we sign").route,
+    "VALID_TASK",
+  );
+});
+test("front door: 'Build a step-by-step plan to fix this workflow' → VALID_TASK", () => {
+  assert.equal(
+    classifyFrontDoorInput("Build a step-by-step plan to fix this workflow").route,
+    "VALID_TASK",
+  );
+});
+test("front door: 'What are the risks of merging this PR?' → VALID_TASK", () => {
+  assert.equal(
+    classifyFrontDoorInput("What are the risks of merging this PR?").route,
+    "VALID_TASK",
+  );
+});
+test("front door: 'Review contract' (imperative short task) → VALID_TASK", () => {
+  assert.equal(classifyFrontDoorInput("Review contract").route, "VALID_TASK");
+});
+test("front door: 'Plan migration' (imperative short task) → VALID_TASK", () => {
+  assert.equal(classifyFrontDoorInput("Plan migration").route, "VALID_TASK");
+});
+
+// --- Mixed-intent regression: smalltalk preface + real task → must NOT block ---
+test("front door: 'who are you and review this contract' → VALID_TASK (mixed intent task wins)", () => {
+  const c = classifyFrontDoorInput("who are you and review this contract");
+  assert.equal(c.route, "VALID_TASK");
+  assert.equal(c.shouldInvokeBosEngine, true);
+});
+test("front door: 'tell me a joke then analyze this PR for risk' → VALID_TASK (mixed intent task wins)", () => {
+  const c = classifyFrontDoorInput("tell me a joke then analyze this PR for risk");
+  assert.equal(c.route, "VALID_TASK");
+  assert.equal(c.shouldInvokeBosEngine, true);
+});
+test("front door: 'how is it going, can we approve this vendor?' → VALID_TASK (mixed intent task wins)", () => {
+  const c = classifyFrontDoorInput("how is it going, can we approve this vendor?");
+  assert.equal(c.route, "VALID_TASK");
+  assert.equal(c.shouldInvokeBosEngine, true);
+});
+
+// --- Low-confidence safety rule (fallthrough → engine) ---
+test("front door: ambiguous unknown text → low-confidence VALID_TASK fallthrough", () => {
+  const c = classifyFrontDoorInput("the quick brown fox jumps over the lazy dog");
+  assert.equal(c.route, "VALID_TASK");
+  assert.equal(c.shouldInvokeBosEngine, true);
+  assert.ok(c.confidence < 0.7, `expected confidence < 0.7, got ${c.confidence}`);
+  assert.ok(c.signals.includes("low_confidence_fallthrough"));
+});
+
+// --- Always emits required fields ---
+test("front door: always returns route + confidence + rationale + signals", () => {
+  for (const input of ["hello", "", "fix this", "Should we approve this?", "blah blah blah"]) {
+    const c = classifyFrontDoorInput(input);
+    assert.ok(typeof c.route === "string");
+    assert.ok(typeof c.confidence === "number" && c.confidence >= 0 && c.confidence <= 1);
+    assert.ok(typeof c.rationale === "string" && c.rationale.length > 0);
+    assert.ok(Array.isArray(c.signals));
+    assert.ok(typeof c.shouldInvokeBosEngine === "boolean");
+  }
+});
+
+// --- UX response builder ---
+test("front door response: GREETING → friendly answer + examples + front_door_route marker", () => {
+  const c = classifyFrontDoorInput("hello");
+  const out = buildFrontDoorBosOutput(c);
+  assert.equal(out.front_door_route, "GREETING");
+  assert.equal(out.task_type, "front_door_guidance");
+  assert.equal(out.state, "HOLD"); // internal db state, but UI keys off front_door_route
+  assert.ok(/Hello\. BOS-OMEGA is ready/.test(out.answer));
+  assert.ok(/Examples:/.test(out.answer));
+  assert.ok(Array.isArray(out.front_door_examples) && out.front_door_examples.length >= 3);
+  assert.ok(out.recommended_next_action.length > 0);
+  assert.ok(typeof out.why_decision_was_made === "string");
+  assert.ok(typeof out.safe_alternative === "string");
+});
+
+test("front door response: EMPTY → 'No task received' answer", () => {
+  const out = buildFrontDoorBosOutput(classifyFrontDoorInput(""));
+  assert.equal(out.front_door_route, "EMPTY");
+  assert.ok(/No task received/.test(out.answer));
+  assert.ok(out.missing_inputs.includes("task_text"));
+});
+
+test("front door response: UNDER_SPECIFIED → asks for object/context", () => {
+  const out = buildFrontDoorBosOutput(classifyFrontDoorInput("fix this"));
+  assert.equal(out.front_door_route, "UNDER_SPECIFIED");
+  assert.ok(/need more context/i.test(out.answer));
+  assert.ok(out.missing_inputs.length > 0);
+});
+
+test("front door response: LIKELY_NON_TASK → explains BOS scope", () => {
+  const out = buildFrontDoorBosOutput(classifyFrontDoorInput("tell me a joke"));
+  assert.equal(out.front_door_route, "LIKELY_NON_TASK");
+  assert.ok(/structured decisions/i.test(out.answer));
+});
+
+test("front door response: throws on VALID_TASK (must call engine instead)", () => {
+  const c = classifyFrontDoorInput("Should we approve this vendor?");
+  assert.throws(() => buildFrontDoorBosOutput(c), /VALID_TASK/);
+});
+
+// --- safeInputPreview ---
+test("safeInputPreview: short input passes through, no truncation", () => {
+  const r = safeInputPreview("hello world");
+  assert.equal(r.preview, "hello world");
+  assert.equal(r.truncated, false);
+  assert.equal(r.original_length, 11);
+});
+test("safeInputPreview: long input truncated to 200 chars by default", () => {
+  const long = "a".repeat(500);
+  const r = safeInputPreview(long);
+  assert.equal(r.truncated, true);
+  assert.equal(r.preview.length, 201); // 200 + ellipsis
+  assert.equal(r.original_length, 500);
+});
+test("safeInputPreview: strips control chars", () => {
+  const r = safeInputPreview("hello\x00\x07world");
+  assert.equal(r.preview, "helloworld");
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

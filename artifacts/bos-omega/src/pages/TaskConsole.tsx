@@ -9,7 +9,57 @@ import { buildLocalMemoryInjection } from "@/lib/localMemory";
 import {
   Send, Loader2, Layers, GitMerge, Vote, Zap, Flame, AlertTriangle,
   CheckCircle2, ChevronRight, MessageSquarePlus, Scale, Code2, ShieldAlert, X,
+  ShieldCheck, FileSearch, GitPullRequest, Wrench,
 } from "lucide-react";
+
+// BOP.FRONT_DOOR.v1 — first-run prompt cards. These mirror the four
+// canonical task shapes BOS-OMEGA handles best (vendor risk, contract
+// review, code review, build plan) and seed the input on click.
+const FRONT_DOOR_PROMPTS: Array<{
+  key: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  desc: string;
+  prompt: string;
+  accent: string;
+}> = [
+  {
+    key: "vendor-risk",
+    icon: ShieldCheck,
+    label: "Vendor risk",
+    desc: "Should we approve this vendor?",
+    prompt:
+      "Should we approve this vendor? Vendor: [name]. Service: [what they do]. Scope: [what data/access]. Constraints: [budget, timeline, regulatory]. Give a GO/HOLD/ABORT with risk drivers and mitigations.",
+    accent: "border-emerald-200 bg-emerald-50/40 hover:bg-emerald-50",
+  },
+  {
+    key: "contract-review",
+    icon: FileSearch,
+    label: "Contract review",
+    desc: "Is this contract safe to sign?",
+    prompt:
+      "Review this contract for risk before we sign. Counterparty: [name]. Term length: [duration]. Key clauses to watch: liability cap, IP assignment, termination, indemnity, data handling. Flag every clause that's worse than market and propose a redline.",
+    accent: "border-amber-200 bg-amber-50/40 hover:bg-amber-50",
+  },
+  {
+    key: "code-review",
+    icon: GitPullRequest,
+    label: "Code review",
+    desc: "Review this PR for risk.",
+    prompt:
+      "Review this pull request before merge. Goal of the change: [what it does]. Risk surface: [auth/data/payments/etc]. Check for: correctness, security, performance, observability, test coverage, and rollback safety. Give a GO/HOLD/ABORT with concrete blocking items.",
+    accent: "border-blue-200 bg-blue-50/40 hover:bg-blue-50",
+  },
+  {
+    key: "build-plan",
+    icon: Wrench,
+    label: "Build plan",
+    desc: "Plan a step-by-step fix.",
+    prompt:
+      "Build a step-by-step plan to fix this workflow. Symptom: [what is broken]. Last working state: [when]. Recent changes: [what changed]. Constraints: [downtime tolerance, blast radius]. Produce a sequenced plan with diagnostics, fix steps, validation, and rollback.",
+    accent: "border-violet-200 bg-violet-50/40 hover:bg-violet-50",
+  },
+];
 
 type Mode = "auto" | "single" | "parallel" | "consensus" | "series_pass" | "boil_the_ocean";
 type Persona = "legal" | "engineering" | "cyber";
@@ -486,6 +536,43 @@ export function TaskConsole() {
           </div>
         )}
 
+        {/* BOP.FRONT_DOOR.v1 — first-run prompt cards. Shown only on the
+            empty conversation, so the user immediately understands what
+            kind of work BOS-OMEGA was built for. */}
+        {messages.length === 0 && (
+          <div className="mb-5" data-testid="front-door-empty-state">
+            <div className="mb-2 flex items-baseline justify-between">
+              <label className="block text-[12.5px] font-medium text-foreground">
+                Try a task
+              </label>
+              <span className="text-[11px] text-muted-foreground">
+                BOS-OMEGA is a structured decision engine — not a chat companion.
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2.5">
+              {FRONT_DOOR_PROMPTS.map((p) => {
+                const Icon = p.icon;
+                return (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => setInput(p.prompt)}
+                    className={`flex flex-col items-start gap-1.5 p-3 rounded-lg border text-left transition-all ${p.accent}`}
+                    data-testid={`button-front-door-prompt-${p.key}`}
+                  >
+                    <div className="flex items-center gap-2 w-full">
+                      <Icon className="w-4 h-4 shrink-0 text-muted-foreground" />
+                      <span className="text-[13px] font-medium text-foreground">{p.label}</span>
+                      <span className="ml-auto text-[10px] text-muted-foreground font-mono uppercase">Try</span>
+                    </div>
+                    <span className="text-[11.5px] leading-snug text-muted-foreground">{p.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="space-y-2">
           <label className="block text-[12.5px] font-medium text-foreground">
             {messages.length === 0 ? "Task description" : "Send another message"}
@@ -498,12 +585,12 @@ export function TaskConsole() {
             resetSignal={resetSignal}
             placeholder={
               mode === "series_pass"
-                ? "Enter a task that benefits from iterative refinement. Drag in files, paste images, or attach video for vision-capable models…"
+                ? "Ask BOS-OMEGA a decision, review, risk check, or build task that benefits from iterative refinement…"
                 : mode === "boil_the_ocean"
-                ? "Enter a high-stakes task. Attach reference docs, screenshots, audio, or video — they'll be fed to every model…"
+                ? "Ask BOS-OMEGA a high-stakes decision, review, risk check, or build task. Attach reference docs as needed…"
                 : mode === "auto"
-                ? "Describe what you'd like BOS-Omega to do. Drag, paste, or attach files — text is extracted, images go to vision models…"
-                : "Enter your task…"
+                ? "Ask BOS-OMEGA a decision, review, risk check, or build task. Examples: \"Should we approve this vendor?\", \"Review this PR for risk.\", \"Build a step-by-step fix plan.\""
+                : "Ask BOS-OMEGA a decision, review, risk check, or build task…"
             }
             submitLabel={
               createTask.isPending ? (
