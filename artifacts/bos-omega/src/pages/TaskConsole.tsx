@@ -379,6 +379,27 @@ export function TaskConsole() {
     return () => window.removeEventListener("bos:edit-image", handler as EventListener);
   }, []);
 
+  // Task #86 — "Regenerate" affordance on a generated image fires
+  // `bos:regenerate-image` with the original prompt. We submit it as a
+  // brand-new task (idempotent — no mutation of the prior assistant
+  // message's bos_output) so the user gets a fresh roll of the dice
+  // with the same intent. The submit goes through the standard
+  // submitTask path so all the conversation-routing, persona-slot, and
+  // local-memory injection logic stays consistent with a hand-typed
+  // submit. We use a ref-bound latest-handler pattern so the listener
+  // doesn't have to re-bind on every state change of submitTask's
+  // closure dependencies.
+  const regenerateHandlerRef = useRef<(prompt: string) => void>(() => {});
+  useEffect(() => {
+    function handler(e: Event) {
+      const detail = (e as CustomEvent<{ prompt: string }>).detail;
+      if (!detail?.prompt) return;
+      regenerateHandlerRef.current(detail.prompt);
+    }
+    window.addEventListener("bos:regenerate-image", handler as EventListener);
+    return () => window.removeEventListener("bos:regenerate-image", handler as EventListener);
+  }, []);
+
   // Re-derive the active conversation id whenever EITHER the pathname
   // or the search string changes (sidebar nav rewrites only the search
   // string, "+ New" rewrites both). The memo keys off both so we don't
@@ -772,6 +793,15 @@ export function TaskConsole() {
       );
     });
   }
+
+  // Wire the always-current submitTask closure into the regenerate
+  // event handler set up earlier. Done here (after submitTask is in
+  // scope) so the handler always sees the latest mode / parallelCount /
+  // persona_slot / etc. — without this, a stale closure from first
+  // render would freeze those values.
+  regenerateHandlerRef.current = (prompt: string) => {
+    submitTask(prompt, [], []);
+  };
 
   const selected_mode_info = MODE_OPTIONS.find((m) => m.value === mode)!;
 

@@ -8,10 +8,11 @@ import { formatMs } from "@/lib/utils";
 import {
   Copy, Check, ChevronDown, ChevronUp, Loader2, Bot, User, Award,
   AlertTriangle, FileText, Image as ImageIcon, FileCode, FileSpreadsheet, Music, Video, File as FileIcon,
-  Pin, Wand2,
+  Pin, Wand2, Download, RotateCcw, Maximize2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
+import { ImageLightbox, downloadLightboxImage, type LightboxImage } from "@/components/ImageLightbox";
 
 const SERIES_ROLE_COLORS: Record<string, string> = {
   DRAFTER: "text-sky-700",
@@ -469,9 +470,14 @@ function UserBubble({ msg }: { msg: UserMessage }) {
   );
 }
 
-function AssistantBubble({ msg }: { msg: AssistantMessage }) {
+function AssistantBubble({ msg, prevUserText }: { msg: AssistantMessage; prevUserText?: string }) {
   const [showDetails, setShowDetails] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
+  // Task #86 — lightbox state. `lightboxIdx` indexes into the
+  // `lightboxImages` array assembled below (which interleaves the
+  // before/after pair when an edit ref carries a parent_attachment_id)
+  // so left/right arrow nav walks every visible image in this bubble.
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
 
   const answer_text = msg.task?.bos_output?.answer ?? "";
   const has_details = !!msg.task?.bos_output && (
@@ -546,109 +552,200 @@ function AssistantBubble({ msg }: { msg: AssistantMessage }) {
                     by /api/uploads/{id}/raw with the same auth-check as user
                     uploads (owner / super_admin). The "MOCK" pill makes it
                     impossible to confuse a deterministic mock-mode image
-                    with a real provider response. */}
-                {(msg.task.bos_output?.generated_attachments?.length ?? 0) > 0 && (
-                  <div className="mt-3 space-y-3">
-                    {msg.task.bos_output!.generated_attachments!.map((ref) => {
-                      // Task #84 — when this image was produced by the
-                      // image-edit bridge, the ref carries the source
-                      // attachment id so we can render the original →
-                      // edited pair side-by-side. The "Edit this"
-                      // affordance always renders so the user can
-                      // request a follow-up refinement on either the
-                      // edited result or a vanilla generation.
-                      const parent_id = ref.parent_attachment_id;
-                      const has_parent = Boolean(parent_id);
-                      return (
-                        <div key={ref.id} className="space-y-2">
-                          <div className={`grid gap-3 ${has_parent ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-2"}`}>
-                            {has_parent && parent_id && (
+                    with a real provider response.
+
+                    Task #86 — clicking any image now opens an in-page
+                    lightbox (full-screen overlay) instead of opening the
+                    raw URL in a new tab. Download and Regenerate
+                    affordances live both inline (under the figure) and
+                    inside the lightbox so the user gets the same set of
+                    actions whichever entry point they reach for. */}
+                {(() => {
+                  const refs = msg.task.bos_output?.generated_attachments ?? [];
+                  if (refs.length === 0) return null;
+                  // Build the flat list once so the lightbox arrow keys
+                  // can walk every image visible in this bubble (incl.
+                  // any BEFORE thumbnails) in display order. Dedupe
+                  // parent ids in case the same source image was edited
+                  // twice and surfaced as two refs in the same answer.
+                  const lightboxImages: LightboxImage[] = [];
+                  const seenParents = new Set<string>();
+                  for (const ref of refs) {
+                    if (ref.parent_attachment_id && !seenParents.has(ref.parent_attachment_id)) {
+                      seenParents.add(ref.parent_attachment_id);
+                      lightboxImages.push({
+                        id: ref.parent_attachment_id,
+                        alt: "Original image (before edit)",
+                        original_name: "original",
+                        caption: "BEFORE",
+                        // No prompt for the original — Regenerate would
+                        // mean re-running the prior generation, which we
+                        // don't have the prompt for from this ref alone.
+                      });
+                    }
+                    lightboxImages.push({
+                      id: ref.id,
+                      alt: ref.original_name,
+                      original_name: ref.original_name,
+                      caption: ref.parent_attachment_id ? "EDITED" : `${ref.provider}:${ref.model}`,
+                      // The most recent user message in this conversation
+                      // is the prompt that produced this image. Empty
+                      // strings collapse to undefined so the Regenerate
+                      // button stays hidden when we don't actually have
+                      // a prompt to resubmit.
+                      prompt: prevUserText && prevUserText.trim().length > 0 ? prevUserText : undefined,
+                    });
+                  }
+                  const indexOfRef = (id: string) => lightboxImages.findIndex((x) => x.id === id);
+
+                  return (
+                    <div className="mt-3 space-y-3">
+                      {refs.map((ref) => {
+                        const parent_id = ref.parent_attachment_id;
+                        const has_parent = Boolean(parent_id);
+                        const lightboxImg = lightboxImages[indexOfRef(ref.id)];
+                        return (
+                          <div key={ref.id} className="space-y-2">
+                            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
+                              {has_parent && parent_id && (
+                                <figure className="rounded-md border border-border bg-muted/30 overflow-hidden">
+                                  <button
+                                    type="button"
+                                    onClick={() => setLightboxIdx(indexOfRef(parent_id))}
+                                    className="block w-full bg-checker focus:outline-none focus:ring-2 focus:ring-primary"
+                                    aria-label="Open original image full-screen"
+                                    data-testid={`button-zoom-image-${parent_id}`}
+                                  >
+                                    <img
+                                      src={`/api/uploads/${parent_id}/raw`}
+                                      alt="Original image (before edit)"
+                                      loading="lazy"
+                                      className="block w-full h-auto object-contain max-h-96 bg-white cursor-zoom-in"
+                                    />
+                                  </button>
+                                  <figcaption className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[10px] font-mono text-muted-foreground border-t border-border">
+                                    <span className="truncate">original</span>
+                                    <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 font-semibold tracking-wider">
+                                      BEFORE
+                                    </span>
+                                  </figcaption>
+                                </figure>
+                              )}
                               <figure className="rounded-md border border-border bg-muted/30 overflow-hidden">
-                                <a
-                                  href={`/api/uploads/${parent_id}/raw`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="block bg-checker"
+                                <button
+                                  type="button"
+                                  onClick={() => setLightboxIdx(indexOfRef(ref.id))}
+                                  className="block w-full bg-checker focus:outline-none focus:ring-2 focus:ring-primary"
+                                  aria-label={`Open ${ref.original_name} full-screen`}
+                                  data-testid={`button-zoom-image-${ref.id}`}
                                 >
                                   <img
-                                    src={`/api/uploads/${parent_id}/raw`}
-                                    alt="Original image (before edit)"
+                                    src={`/api/uploads/${ref.id}/raw`}
+                                    alt={ref.original_name}
+                                    width={ref.width ?? undefined}
+                                    height={ref.height ?? undefined}
                                     loading="lazy"
-                                    className="block w-full h-auto object-contain max-h-96 bg-white"
+                                    className="block w-full h-auto object-contain max-h-96 bg-white cursor-zoom-in"
+                                    style={{ imageRendering: ref.mock ? "pixelated" : "auto" }}
                                   />
-                                </a>
+                                </button>
                                 <figcaption className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[10px] font-mono text-muted-foreground border-t border-border">
-                                  <span className="truncate">original</span>
-                                  <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 font-semibold tracking-wider">
-                                    BEFORE
+                                  <span className="truncate">
+                                    {ref.provider}:{ref.model}
                                   </span>
+                                  <div className="flex items-center gap-1.5">
+                                    {has_parent && (
+                                      <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-semibold tracking-wider">
+                                        EDITED
+                                      </span>
+                                    )}
+                                    {ref.mock && (
+                                      <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-semibold tracking-wider">
+                                        MOCK
+                                      </span>
+                                    )}
+                                  </div>
                                 </figcaption>
                               </figure>
-                            )}
-                            <figure className="rounded-md border border-border bg-muted/30 overflow-hidden">
-                              <a
-                                href={`/api/uploads/${ref.id}/raw`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="block bg-checker"
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setLightboxIdx(indexOfRef(ref.id))}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-border text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                                data-testid={`button-zoom-image-action-${ref.id}`}
+                                title="Open this image full-screen"
                               >
-                                <img
-                                  src={`/api/uploads/${ref.id}/raw`}
-                                  alt={ref.original_name}
-                                  width={ref.width ?? undefined}
-                                  height={ref.height ?? undefined}
-                                  loading="lazy"
-                                  className="block w-full h-auto object-contain max-h-96 bg-white"
-                                  style={{ imageRendering: ref.mock ? "pixelated" : "auto" }}
-                                />
-                              </a>
-                              <figcaption className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[10px] font-mono text-muted-foreground border-t border-border">
-                                <span className="truncate">
-                                  {ref.provider}:{ref.model}
-                                </span>
-                                <div className="flex items-center gap-1.5">
-                                  {has_parent && (
-                                    <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-semibold tracking-wider">
-                                      EDITED
-                                    </span>
-                                  )}
-                                  {ref.mock && (
-                                    <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-semibold tracking-wider">
-                                      MOCK
-                                    </span>
-                                  )}
-                                </div>
-                              </figcaption>
-                            </figure>
+                                <Maximize2 className="w-3 h-3" />
+                                Zoom
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { void downloadLightboxImage(lightboxImg); }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-border text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                                data-testid={`button-download-image-${ref.id}`}
+                                title="Download this image as PNG"
+                              >
+                                <Download className="w-3 h-3" />
+                                Download
+                              </button>
+                              {prevUserText && prevUserText.trim().length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    // Idempotent — fires the regenerate
+                                    // event with the original prompt;
+                                    // the parent page submits a fresh
+                                    // task and never mutates this
+                                    // assistant message's bos_output.
+                                    window.dispatchEvent(
+                                      new CustomEvent("bos:regenerate-image", {
+                                        detail: { prompt: prevUserText },
+                                      }),
+                                    );
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-border text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                                  data-testid={`button-regenerate-image-${ref.id}`}
+                                  title="Re-submit the original prompt as a fresh task"
+                                >
+                                  <RotateCcw className="w-3 h-3" />
+                                  Regenerate
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  // Custom DOM event the parent page wires to
+                                  // its composer. Keeps MessageList free of
+                                  // tight coupling to the create-task hook
+                                  // while still letting us prefill the prompt
+                                  // for an edit follow-up.
+                                  window.dispatchEvent(
+                                    new CustomEvent("bos:edit-image", {
+                                      detail: { attachment_id: ref.id, original_name: ref.original_name },
+                                    }),
+                                  );
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-border text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                                data-testid={`button-edit-image-${ref.id}`}
+                                title="Refine this image with a follow-up prompt"
+                              >
+                                <Wand2 className="w-3 h-3" />
+                                Edit this
+                              </button>
+                            </div>
                           </div>
-                          <div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                // Custom DOM event the parent page wires to
-                                // its composer. Keeps MessageList free of
-                                // tight coupling to the create-task hook
-                                // while still letting us prefill the prompt
-                                // for an edit follow-up.
-                                window.dispatchEvent(
-                                  new CustomEvent("bos:edit-image", {
-                                    detail: { attachment_id: ref.id, original_name: ref.original_name },
-                                  }),
-                                );
-                              }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-border text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                              data-testid={`button-edit-image-${ref.id}`}
-                              title="Refine this image with a follow-up prompt"
-                            >
-                              <Wand2 className="w-3 h-3" />
-                              Edit this
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                        );
+                      })}
+                      <ImageLightbox
+                        images={lightboxImages}
+                        index={lightboxIdx}
+                        onIndexChange={setLightboxIdx}
+                        onClose={() => setLightboxIdx(null)}
+                      />
+                    </div>
+                  );
+                })()}
 
                 {has_details && (
                   <button
@@ -811,13 +908,36 @@ export function MessageList({ messages }: { messages: ChatMessage[] }) {
       aria-relevant="additions text"
       aria-label="BOS-Omega conversation"
     >
-      {messages.map((m) =>
-        m.role === "user" ? (
-          <UserBubble key={m.id} msg={m} />
-        ) : (
-          <AssistantBubble key={m.id} msg={m} />
-        ),
-      )}
+      {messages.map((m, idx) => {
+        if (m.role === "user") return <UserBubble key={m.id} msg={m} />;
+        // Walk backwards from the assistant message to find the user
+        // turn that prompted it. Used by Task #86 to power both the
+        // download filename derivation and the Regenerate affordance.
+        let prevUserText: string | undefined;
+        for (let i = idx - 1; i >= 0; i--) {
+          const candidate = messages[i];
+          if (candidate.role === "user") {
+            prevUserText = candidate.text;
+            break;
+          }
+        }
+        // For rehydrated conversations the user bubble text comes from
+        // the persisted `tasks.input_text`, which is the memory-injection-
+        // wrapped string built by submitTask (see TaskConsole.tsx around
+        // the `=== USER REQUEST ===` marker). Strip that wrapper so the
+        // download filename and the Regenerate prompt match what the
+        // user actually typed — otherwise Regenerate would re-send the
+        // injected memory block as the prompt and the filename would
+        // be derived from injection metadata.
+        if (prevUserText) {
+          const marker = "=== USER REQUEST ===\n";
+          const cut = prevUserText.lastIndexOf(marker);
+          if (cut >= 0) {
+            prevUserText = prevUserText.slice(cut + marker.length);
+          }
+        }
+        return <AssistantBubble key={m.id} msg={m} prevUserText={prevUserText} />;
+      })}
       <div ref={endRef} />
     </div>
   );
