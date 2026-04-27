@@ -94,7 +94,7 @@ async function login() {
 async function findAuditEvent(event_type, predicate, limit = 100) {
   const r = await request("GET", `/api/audit?limit=${limit}`);
   assert.equal(r.status, 200, `audit list failed: ${r.status}`);
-  const rows = Array.isArray(r.data) ? r.data : (r.data?.items ?? []);
+  const rows = Array.isArray(r.data) ? r.data : (r.data?.entries ?? r.data?.items ?? []);
   return rows.find((row) => row.event_type === event_type && predicate(row));
 }
 
@@ -162,7 +162,7 @@ async function submitTask(input, extras = {}) {
     assert.ok(created, "expected CONVERSATION_CREATED audit row for new thread");
 
     const r = await request("GET", "/api/audit?limit=200");
-    const rows = Array.isArray(r.data) ? r.data : (r.data?.items ?? []);
+    const rows = Array.isArray(r.data) ? r.data : (r.data?.entries ?? r.data?.items ?? []);
     const auto = rows.find(
       (row) =>
         row.event_type === "CONVERSATION_ASSIGNED"

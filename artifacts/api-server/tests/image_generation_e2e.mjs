@@ -173,7 +173,10 @@ await test("GET /api/uploads/{id}/raw returns valid PNG bytes", async () => {
 await test("audit chain records IMAGE_REQUESTED + IMAGE_GENERATED with full metadata", async () => {
   const r = await request(jar, "GET", `/api/audit?task_id=${encodeURIComponent(firstResult.task_id)}&limit=200`);
   assert.equal(r.status, 200, `expected 200, got ${r.status}`);
-  const events = Array.isArray(r.data) ? r.data : [];
+  // Task #72: /api/audit now returns the paginated envelope
+  // { entries, total, limit, offset }; pre-Task-#72 builds returned a
+  // bare array. Accept either shape.
+  const events = Array.isArray(r.data) ? r.data : (r.data?.entries ?? []);
   const requested = events.find((e) => e.event_type === "IMAGE_REQUESTED");
   const generated = events.find((e) => e.event_type === "IMAGE_GENERATED");
   assert.ok(requested, "IMAGE_REQUESTED event recorded");

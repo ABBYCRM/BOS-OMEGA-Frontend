@@ -264,6 +264,20 @@ export interface TaskListResponse {
   offset: number;
 }
 
+/**
+ * Paginated audit-log window. `entries` holds the rows for the
+current page; `total` is the count of matching rows across the
+whole filtered table so the UI can show "Showing X of N" and
+decide whether older rows are still available.
+
+ */
+export interface AuditLogListResponse {
+  entries: AuditLog[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export type TaskStatsTasksByType = { [key: string]: number };
 
 export type TaskStatsTasksByProvider = { [key: string]: number };
@@ -1089,6 +1103,7 @@ export type ListFallbackEventsParams = {
 
 export type ListAuditLogsParams = {
   limit?: number;
+  offset?: number;
   task_id?: string;
 };
 

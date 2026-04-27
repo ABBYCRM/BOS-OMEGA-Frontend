@@ -77,7 +77,7 @@ async function login() {
 async function findAuditEvent(event_type, predicate, limit = 50) {
   const r = await request("GET", `/api/audit?limit=${limit}`);
   assert.equal(r.status, 200, `audit list failed: ${r.status}`);
-  const rows = Array.isArray(r.data) ? r.data : (r.data?.items ?? []);
+  const rows = Array.isArray(r.data) ? r.data : (r.data?.entries ?? r.data?.items ?? []);
   return rows.find((row) => row.event_type === event_type && (!predicate || predicate(row)));
 }
 

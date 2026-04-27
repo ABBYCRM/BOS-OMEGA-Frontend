@@ -18,7 +18,7 @@ import type {
 
 import type {
   Attachment,
-  AuditLog,
+  AuditLogListResponse,
   AuthLogout200,
   AuthMeResponse,
   CreateMemoryBody,
@@ -1602,6 +1602,16 @@ export function useListFallbackEvents<
 }
 
 /**
+ * Returns a paginated window over the audit log, newest first. The
+`entries` field carries the rows for the requested window; `total`
+reports the matching row count across the whole table (after the
+same audience + `task_id` filters), so the UI can show a
+"Showing X of N" counter and decide whether more rows can be
+loaded. Set `offset` to skip rows already shown to fetch the next
+page; combine with a stable `limit` for offset pagination, or
+keep `offset=0` and grow `limit` to fetch a larger window in
+place.
+
  * @summary List audit logs
  */
 export const getListAuditLogsUrl = (params?: ListAuditLogsParams) => {
@@ -1623,8 +1633,8 @@ export const getListAuditLogsUrl = (params?: ListAuditLogsParams) => {
 export const listAuditLogs = async (
   params?: ListAuditLogsParams,
   options?: RequestInit,
-): Promise<AuditLog[]> => {
-  return customFetch<AuditLog[]>(getListAuditLogsUrl(params), {
+): Promise<AuditLogListResponse> => {
+  return customFetch<AuditLogListResponse>(getListAuditLogsUrl(params), {
     ...options,
     method: "GET",
   });

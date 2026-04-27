@@ -10,6 +10,7 @@ export * from "./attachment";
 export * from "./attachmentExtractionStatus";
 export * from "./attachmentKind";
 export * from "./auditLog";
+export * from "./auditLogListResponse";
 export * from "./auditLogMetadata";
 export * from "./authLogout200";
 export * from "./authMeResponse";

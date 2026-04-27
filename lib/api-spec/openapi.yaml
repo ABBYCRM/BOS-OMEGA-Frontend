@@ -399,12 +399,27 @@ paths:
       operationId: listAuditLogs
       tags: [audit]
       summary: List audit logs
+      description: |
+        Returns a paginated window over the audit log, newest first. The
+        `entries` field carries the rows for the requested window; `total`
+        reports the matching row count across the whole table (after the
+        same audience + `task_id` filters), so the UI can show a
+        "Showing X of N" counter and decide whether more rows can be
+        loaded. Set `offset` to skip rows already shown to fetch the next
+        page; combine with a stable `limit` for offset pagination, or
+        keep `offset=0` and grow `limit` to fetch a larger window in
+        place.
       parameters:
         - name: limit
           in: query
           schema:
             type: integer
             default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
         - name: task_id
           in: query
           schema:
@@ -415,9 +430,7 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/AuditLog"
+                $ref: "#/components/schemas/AuditLogListResponse"
 
   /memory:
     get:
@@ -1427,6 +1440,26 @@ components:
         offset:
           type: integer
       required: [tasks, total, limit, offset]
+
+    AuditLogListResponse:
+      type: object
+      description: |
+        Paginated audit-log window. `entries` holds the rows for the
+        current page; `total` is the count of matching rows across the
+        whole filtered table so the UI can show "Showing X of N" and
+        decide whether older rows are still available.
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLog"
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+      required: [entries, total, limit, offset]
 
     TaskStats:
       type: object

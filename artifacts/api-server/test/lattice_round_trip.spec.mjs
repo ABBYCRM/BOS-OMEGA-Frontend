@@ -387,7 +387,7 @@ await test("Audit chain records all lattice + scratchpad + conversation events",
   // which is what we need to count cross-user events from this run.
   const r = await request(adminJar, "GET", "/api/audit?limit=500");
   assert.equal(r.status, 200);
-  const rows = Array.isArray(r.data) ? r.data : (r.data?.items ?? []);
+  const rows = Array.isArray(r.data) ? r.data : (r.data?.entries ?? r.data?.items ?? []);
 
   // Scope to events touching the test users / blob hash so other
   // concurrent activity in the install doesn't pollute the counts.

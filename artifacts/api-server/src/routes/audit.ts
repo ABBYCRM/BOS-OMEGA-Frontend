@@ -37,6 +37,12 @@ async function audienceFilter(req: { user?: { id: string; role: string } }) {
 router.get("/", async (req, res) => {
   const parsed = ListAuditLogsQueryParams.safeParse(req.query);
   const limit = parsed.success ? (parsed.data.limit ?? 100) : 100;
+  // Task #72: pagination contract — `offset` lets the UI fetch older
+  // pages without raising `limit` to absurd values. Defaults to 0 so
+  // existing single-page callers (and the e2e test suite) keep their
+  // current behaviour. Negative values are clamped to 0.
+  const rawOffset = parsed.success ? (parsed.data.offset ?? 0) : 0;
+  const offset = Math.max(0, rawOffset);
   const task_id = parsed.success ? parsed.data.task_id : undefined;
 
   const audience = await audienceFilter(req);
@@ -45,9 +51,20 @@ router.get("/", async (req, res) => {
     audience && taskClause ? and(taskClause, audience)
       : audience ?? taskClause;
 
-  const logs = where
-    ? await db.select().from(auditLogsTable).where(where).orderBy(desc(auditLogsTable.created_at)).limit(limit)
-    : await db.select().from(auditLogsTable).orderBy(desc(auditLogsTable.created_at)).limit(limit);
+  // Task #72: count the matching rows in a single round-trip alongside
+  // the page query so the client can show "Showing X of N" and know
+  // when no older entries remain. We reuse the exact same WHERE clause
+  // (audience + task filter) to keep the count consistent with what
+  // the user is actually allowed to see.
+  const countQuery = where
+    ? db.select({ count: sql<number>`count(*)::int` }).from(auditLogsTable).where(where)
+    : db.select({ count: sql<number>`count(*)::int` }).from(auditLogsTable);
+  const pageQuery = where
+    ? db.select().from(auditLogsTable).where(where).orderBy(desc(auditLogsTable.created_at)).limit(limit).offset(offset)
+    : db.select().from(auditLogsTable).orderBy(desc(auditLogsTable.created_at)).limit(limit).offset(offset);
+
+  const [countRows, logs] = await Promise.all([countQuery, pageQuery]);
+  const total = countRows[0]?.count ?? 0;
 
   // Task #49: scrub the un-truncated memory_context_full out of generic
   // audit-list responses too. The full payload is intentionally retrievable
@@ -64,7 +81,14 @@ router.get("/", async (req, res) => {
     return { ...row, metadata: rest };
   });
 
-  res.json(sanitized);
+  // Task #72: response is now an envelope so the UI can paginate. The
+  // `entries` field carries the page rows; `total`/`limit`/`offset`
+  // describe the window so the front-end can render
+  // "Showing N of TOTAL" and disable the "Load older entries" button
+  // once the end is reached. Existing e2e tests already use the
+  // defensive `Array.isArray(r.data) ? r.data : (r.data?.entries ?? [])`
+  // pattern (see continuity_bundle_e2e, lattice_e2e, etc.).
+  res.json({ entries: sanitized, total, limit, offset });
 });
 
 export default router;

@@ -139,8 +139,13 @@ async function main() {
   await test("TASK_RECEIVED audit metadata records persona_slot=B and the edited title", async () => {
     const r = await request("GET", `/api/audit?task_id=${encodeURIComponent(task_id)}&limit=200`);
     assert.equal(r.status, 200);
-    assert.ok(Array.isArray(r.data), "audit response is not an array");
-    const received = r.data.find((e) => e.event_type === "TASK_RECEIVED");
+    // Task #72: /api/audit now returns the paginated envelope
+    // { entries, total, limit, offset }; older builds returned a bare
+    // array. Accept either shape so this test stays green across the
+    // upgrade.
+    const events = Array.isArray(r.data) ? r.data : (r.data?.entries ?? []);
+    assert.ok(Array.isArray(events), "audit entries missing");
+    const received = events.find((e) => e.event_type === "TASK_RECEIVED");
     assert.ok(received, "TASK_RECEIVED event missing");
     const meta = received.metadata || {};
     assert.equal(meta.persona_slot, "B", `persona_slot=${meta.persona_slot}`);
@@ -150,7 +155,8 @@ async function main() {
   await test("CTX_BUILT audit metadata shows persona_prompt_chars > 0 for persona_slot tasks", async () => {
     const r = await request("GET", `/api/audit?task_id=${encodeURIComponent(task_id)}&limit=200`);
     assert.equal(r.status, 200);
-    const ctx_built = r.data.find((e) => e.event_type === "CTX_BUILT");
+    const events = Array.isArray(r.data) ? r.data : (r.data?.entries ?? []);
+    const ctx_built = events.find((e) => e.event_type === "CTX_BUILT");
     // CTX_BUILT only fires once execution begins; if the task short-circuited
     // we skip rather than fail (this guards against front-door redirects).
     if (!ctx_built) {

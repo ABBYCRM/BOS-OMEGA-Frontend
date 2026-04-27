@@ -8,5 +8,6 @@
 
 export type ListAuditLogsParams = {
   limit?: number;
+  offset?: number;
   task_id?: string;
 };

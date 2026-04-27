@@ -587,24 +587,46 @@ export const ListFallbackEventsResponse = zod.array(
 );
 
 /**
+ * Returns a paginated window over the audit log, newest first. The
+`entries` field carries the rows for the requested window; `total`
+reports the matching row count across the whole table (after the
+same audience + `task_id` filters), so the UI can show a
+"Showing X of N" counter and decide whether more rows can be
+loaded. Set `offset` to skip rows already shown to fetch the next
+page; combine with a stable `limit` for offset pagination, or
+keep `offset=0` and grow `limit` to fetch a larger window in
+place.
+
  * @summary List audit logs
  */
 export const listAuditLogsQueryLimitDefault = 100;
+export const listAuditLogsQueryOffsetDefault = 0;
 
 export const ListAuditLogsQueryParams = zod.object({
   limit: zod.coerce.number().default(listAuditLogsQueryLimitDefault),
+  offset: zod.coerce.number().default(listAuditLogsQueryOffsetDefault),
   task_id: zod.coerce.string().optional(),
 });
 
-export const ListAuditLogsResponseItem = zod.object({
-  id: zod.string(),
-  task_id: zod.string().optional(),
-  event_type: zod.string(),
-  message: zod.string(),
-  metadata: zod.object({}).passthrough().optional(),
-  created_at: zod.string(),
-});
-export const ListAuditLogsResponse = zod.array(ListAuditLogsResponseItem);
+export const ListAuditLogsResponse = zod
+  .object({
+    entries: zod.array(
+      zod.object({
+        id: zod.string(),
+        task_id: zod.string().optional(),
+        event_type: zod.string(),
+        message: zod.string(),
+        metadata: zod.object({}).passthrough().optional(),
+        created_at: zod.string(),
+      }),
+    ),
+    total: zod.number(),
+    limit: zod.number(),
+    offset: zod.number(),
+  })
+  .describe(
+    'Paginated audit-log window. `entries` holds the rows for the\ncurrent page; `total` is the count of matching rows across the\nwhole filtered table so the UI can show \"Showing X of N\" and\ndecide whether older rows are still available.\n',
+  );
 
 /**
  * @summary List memory items

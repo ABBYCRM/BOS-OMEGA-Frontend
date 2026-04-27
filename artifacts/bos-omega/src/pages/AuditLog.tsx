@@ -30,8 +30,25 @@ const eventTypeColors: Record<string, string> = {
   MEMORY_INJECTED: "text-primary",
 };
 
+// Task #72: page size for the "Load older entries" button. Each click
+// grows the in-place window by this many rows (rather than appending
+// pages) so any scroll position / expand state is preserved by react-
+// query's normal cache and re-render. 200 matches the legacy hard-coded
+// cap so the first paint is unchanged for users who never click
+// "Load older entries".
+const PAGE_SIZE = 200;
+
 export function AuditLog() {
-  const { data = [], isLoading } = useListAuditLogs({ limit: 200 });
+  // Task #72: track the current window size. We keep `offset=0` and
+  // grow `limit` so the UI always shows a single contiguous window
+  // newest-first. This keeps per-row expand state stable across
+  // "Load older entries" clicks.
+  const [limit, setLimit] = useState(PAGE_SIZE);
+  const { data, isLoading, isFetching } = useListAuditLogs({ limit });
+  const entries = data?.entries ?? [];
+  const total = data?.total ?? 0;
+  const hasMore = entries.length < total;
+
   // Task #56: track which audit rows the user has expanded so we can show
   // human-readable detail (per-item provenance for MEMORY_INJECTED, raw
   // JSON metadata otherwise) without forcing every row open by default.
@@ -45,7 +62,18 @@ export function AuditLog() {
       <div className="flex items-center gap-2">
         <ScrollText className="w-4 h-4 text-primary" />
         <h1 className="text-xl font-serif font-semibold text-foreground tracking-tight">Audit log</h1>
-        <span className="text-[11px] font-mono text-muted-foreground">({data.length} entries)</span>
+        {/* Task #72: surface page size and total range so users know
+            whether they're looking at the whole audit log or only a
+            recent window. Falls back to the loaded count while the
+            first request is in flight. */}
+        <span
+          className="text-[11px] font-mono text-muted-foreground"
+          data-testid="audit-count"
+        >
+          {data
+            ? `(showing ${entries.length} of ${total} ${total === 1 ? "entry" : "entries"})`
+            : `(${entries.length} entries)`}
+        </span>
       </div>
 
       <div className="bg-card border border-card-border rounded-lg overflow-hidden">
@@ -61,10 +89,10 @@ export function AuditLog() {
         <div className="max-h-[600px] overflow-y-auto">
           {isLoading ? (
             <div className="p-4 text-xs font-mono text-muted-foreground">Loading audit logs...</div>
-          ) : data.length === 0 ? (
+          ) : entries.length === 0 ? (
             <div className="p-8 text-center text-xs font-mono text-muted-foreground">No audit entries yet.</div>
           ) : (
-            data.map((log, i) => {
+            entries.map((log, i) => {
               // Task #56: every row with metadata can be expanded to see the
               // raw payload; MEMORY_INJECTED rows additionally render the
               // same per-item provenance UI (clickable layer chips +
@@ -160,6 +188,35 @@ export function AuditLog() {
             })
           )}
         </div>
+        {/* Task #72: "Load older entries" button. Sits at the bottom of
+            the list — hidden when there is nothing more to load (so the
+            UI doesn't suggest false promises) and disabled while the
+            larger window is being fetched. The first paint never
+            renders this section so the no-history empty state stays
+            clean. */}
+        {!isLoading && entries.length > 0 && (
+          <div className="px-4 py-3 border-t border-border bg-secondary flex items-center justify-between gap-3">
+            <span
+              className="text-[10px] font-mono text-muted-foreground"
+              data-testid="audit-pagination-status"
+            >
+              {hasMore
+                ? `${total - entries.length} older entries available`
+                : "Showing all entries"}
+            </span>
+            {hasMore && (
+              <button
+                type="button"
+                onClick={() => setLimit((l) => l + PAGE_SIZE)}
+                disabled={isFetching}
+                className="text-[11px] font-mono px-3 py-1 rounded border border-border bg-card hover:bg-muted/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                data-testid="audit-load-more"
+              >
+                {isFetching ? "Loading..." : `Load ${Math.min(PAGE_SIZE, total - entries.length)} older entries`}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
