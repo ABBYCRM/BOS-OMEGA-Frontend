@@ -66,6 +66,23 @@ router.get("/", async (req, res) => {
     res.status(401).json({ error: "Authentication required", code: "UNAUTHENTICATED" });
     return;
   }
+  // Task #64: optional `?source_task_id=<id>` narrows the list to
+  // scratchpad rows produced by (or pinned during) one specific task.
+  // The Scratchpad panel on TaskConsole / TaskDetail uses this to show
+  // only the rows tied to the current thread instead of the user's
+  // entire scratchpad history. Bare `GET /api/scratchpad` retains the
+  // existing "everything for this user" behaviour for the Settings card.
+  const sourceTaskId = typeof req.query.source_task_id === "string" ? req.query.source_task_id : null;
+  const where = sourceTaskId
+    ? and(
+        eq(memoryItemsTable.user_id, req.user.id),
+        eq(memoryItemsTable.layer, "scratchpad"),
+        eq(memoryItemsTable.source_task_id, sourceTaskId),
+      )
+    : and(
+        eq(memoryItemsTable.user_id, req.user.id),
+        eq(memoryItemsTable.layer, "scratchpad"),
+      );
   // Order by created_at desc so the most recent pin/auto-summary lines up
   // at the top of the Settings card. We expose created_at in the response
   // (it's part of the row) so the UI can show "when did this enter the
@@ -73,12 +90,7 @@ router.get("/", async (req, res) => {
   const items = await db
     .select()
     .from(memoryItemsTable)
-    .where(
-      and(
-        eq(memoryItemsTable.user_id, req.user.id),
-        eq(memoryItemsTable.layer, "scratchpad"),
-      ),
-    )
+    .where(where)
     .orderBy(desc(memoryItemsTable.created_at));
   res.json(items);
 });

@@ -4,9 +4,11 @@ import { TriStateBadge, TaskStatusBadge } from "@/components/StatusBadge";
 import { OverrideActions } from "@/components/OverrideActions";
 import { MemoryUsedPanel } from "@/components/MemoryUsedPanel";
 import { ActivePersonaPanel } from "@/components/ActivePersonaPanel";
+import { ScratchpadPanel } from "@/components/ScratchpadPanel";
+import { CopyContinuityBundle } from "@/components/ContinuityBundleControls";
 import { formatDate, formatMs, formatCost } from "@/lib/utils";
 import { Link } from "wouter";
-import { ArrowLeft, CheckCircle, XCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, Play } from "lucide-react";
 
 export function TaskDetail() {
   const [, params] = useRoute("/tasks/:id");
@@ -56,6 +58,40 @@ export function TaskDetail() {
         </Link>
         <div className="w-px h-4 bg-border" />
         <div className="font-mono text-xs text-muted-foreground">TASK_ID: <span className="text-foreground">{id}</span></div>
+        {/* Task #64: continuity bundle export + Resume in console.
+            Resume routes to the conversation when the task was pinned to
+            one (the post-Lattice-conversation case for almost every
+            task), and falls back to ?task=<id> for legacy orphans so the
+            link always lands somewhere useful. */}
+        <div className="ml-auto flex items-center gap-2">
+          <CopyContinuityBundle
+            taskId={id}
+            conversationId={(task as { conversation_id?: string | null }).conversation_id ?? null}
+            compact
+            label="Copy bundle"
+          />
+          {(task as { conversation_id?: string | null }).conversation_id ? (
+            <Link href={`/console?conversation=${(task as { conversation_id?: string }).conversation_id}`}>
+              <span
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-[12px] font-medium text-foreground hover:bg-secondary cursor-pointer"
+                data-testid="link-resume-in-console"
+              >
+                <Play className="w-3.5 h-3.5" />
+                Resume in console
+              </span>
+            </Link>
+          ) : (
+            <Link href={`/console?task=${id}`}>
+              <span
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-[12px] font-medium text-muted-foreground hover:bg-secondary cursor-pointer"
+                data-testid="link-resume-task"
+              >
+                <Play className="w-3.5 h-3.5" />
+                Open in console
+              </span>
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Task summary */}
@@ -93,6 +129,17 @@ export function TaskDetail() {
           after the task ran. Renders nothing for tasks that didn't use a
           persona. */}
       <ActivePersonaPanel audit={audit} />
+
+      {/* Task #64: read-only scratchpad scoped to this task. Surfaces
+          the auto-summary the orchestrator wrote at completion plus any
+          manually pinned notes that target this task. Read-only here —
+          the live console is the surface for write actions. */}
+      <ScratchpadPanel
+        taskId={id}
+        readOnly
+        heading="Scratchpad for this task"
+        subtitle="Pins and the auto-summary written when this task completed."
+      />
 
       {/* Pipeline trace */}
       <div className="bg-card border border-card-border rounded-lg p-5">

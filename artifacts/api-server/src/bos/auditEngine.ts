@@ -136,6 +136,18 @@ type AuditEventType =
   | "LATTICE_IMPORTED"
   | "CONVERSATION_CREATED"
   | "CONVERSATION_ASSIGNED"
+  // Task #64 — Cross-AI Continuity Bundle.
+  //   CONTINUITY_BUNDLE_EXPORTED — a bos-omega.continuity-bundle.v1 blob
+  //     was generated for a task or conversation. Metadata carries the
+  //     scope, source ids, fidelity hash, byte_size, and item counts so
+  //     "what did this user just hand to another AI" is fully greppable.
+  //   CONTINUITY_BUNDLE_IMPORTED — a pasted bundle was committed.
+  //     Metadata carries verified (bool), declared_hash, recomputed_hash,
+  //     source_session_id, the new "Imported …" conversation_id, and
+  //     per-layer apply counts so a forensic reviewer can prove which
+  //     bytes were trusted and which rows were upserted.
+  | "CONTINUITY_BUNDLE_EXPORTED"
+  | "CONTINUITY_BUNDLE_IMPORTED"
   // Task #83 — image generation provider bridge.
   //   IMAGE_REQUESTED         — pipeline detected an image-generation
   //     intent and is about to attempt provider dispatch. Metadata

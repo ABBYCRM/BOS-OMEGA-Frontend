@@ -36,6 +36,10 @@ Three one-tap quick-launch personas (Legal Counsel, Engineer/Coder, Cyber Analys
 
 Browser-stored memory (IndexedDB/localStorage) mirrors server memory items and is layered below server canon. Top-ranked items are prepended to task inputs, capped at a 500-token equivalent budget. A full CRUD UI for local memory is available.
 
+### Cross-AI Continuity Bundle (Task #64)
+
+Server-side, hash-verified text format (`bos-omega.continuity-bundle.v1`) for moving a single task or whole conversation between AIs or BOS-OMEGA workspaces. The bundle is a human-readable header (canon hash + summary, persona slot, layer budgets, scratchpad, continuity, turns) with a fenced JSON trailer carrying a SHA-256 fidelity hash over the canonicalised payload. The serializer/parser lives in `artifacts/api-server/src/bos/continuityBundle.ts`; its helpers (`canonicalJSON`, `sha256Hex`, `computeFidelityHash`) are intentionally inlined so the unit-test runner can exercise the module without dragging the `@workspace/db` resolver chain. HTTP endpoints (`/api/continuity-bundle`, `/preview`, `/import`) are in `routes/continuityBundle.ts`. Imports are user-scoped and transactional: scratchpad/continuity rows upsert under the importer's user_id (canon is never touched), and rehydrated turns are inserted as new tasks under a freshly created "Imported …" conversation. UI surfaces: TaskConsole header (Copy bundle + Rehydrate), TaskDetail header (Copy + Resume in console), TaskLogs (Resume column), Local Memory page (Rehydrate card + docs blurb). A live `ScratchpadPanel` on TaskConsole/TaskDetail lists task-scoped scratchpad rows and supports pin/edit/delete; the panel auto-refreshes when a task completes. Round-trip coverage: `tests/continuity_bundle_unit.mjs` (20 cases) and `tests/continuity_bundle_e2e.mjs` (14 cases against a live server).
+
 ### UI/UX Design
 
 The UI offers two themes:

@@ -6,6 +6,11 @@ import type { BosOutput } from "@workspace/api-client-react";
 import { Composer } from "@/components/Composer";
 import { MessageList, type ChatMessage, type AssistantMessage } from "@/components/MessageList";
 import { PersonaEditor } from "@/components/PersonaEditor";
+import { ScratchpadPanel } from "@/components/ScratchpadPanel";
+import {
+  CopyContinuityBundle,
+  RehydrateBundleModal,
+} from "@/components/ContinuityBundleControls";
 import type { UploadedAttachment } from "@/lib/uploads";
 import { formatMs } from "@/lib/utils";
 import { buildLocalMemoryInjection } from "@/lib/localMemory";
@@ -14,6 +19,7 @@ import {
   Send, Loader2, Layers, GitMerge, Vote, Zap, Flame, AlertTriangle,
   CheckCircle2, ChevronRight, MessageSquarePlus, Scale, Code2, ShieldAlert, X,
   ShieldCheck, FileSearch, GitPullRequest, Wrench, Settings2,
+  ClipboardPaste,
 } from "lucide-react";
 
 // BOP.FRONT_DOOR.v1 — first-run prompt cards. These mirror the four
@@ -322,6 +328,24 @@ export function TaskConsole() {
   // when the auto-clusterer puts something in the wrong place.
   const [forceNewConversation, setForceNewConversation] = useState(false);
 
+  // Task #64: continuity bundle state. `rehydrateOpen` controls the
+  // paste-and-import modal. `currentTaskId` tracks the most recent
+  // assistant turn whose task succeeded — that's the natural scope
+  // for the "Copy bundle" button when there is no active conversation
+  // (e.g. user just ran a one-off task without picking a thread). A
+  // monotonically increasing `scratchpadRefetchKey` is bumped each
+  // time a task completes so the live ScratchpadPanel below the
+  // thread re-fetches and shows the freshly written auto-summary.
+  const [rehydrateOpen, setRehydrateOpen] = useState(false);
+  const [scratchpadRefetchKey, setScratchpadRefetchKey] = useState(0);
+  const currentTaskId = useMemo<string | null>(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m && m.role === "assistant" && m.task?.task_id) return m.task.task_id;
+    }
+    return null;
+  }, [messages]);
+
   // The sidebar's "+ New" link routes to /console?new=1 to arm the
   // override from outside this component. Consume that flag once the
   // page mounts (or the search string changes), then strip it from
@@ -510,6 +534,11 @@ export function TaskConsole() {
                 queryKey: ["conversation-detail", activeConversationId],
               });
             }
+            // Task #64: bump the scratchpad refetch counter so the
+            // live ScratchpadPanel re-queries and the new
+            // auto-summary row written by the orchestrator at task
+            // completion appears without a manual reload.
+            setScratchpadRefetchKey((n) => n + 1);
           },
           onError: (err: unknown) => {
             const message = err instanceof Error ? err.message : "Pipeline request failed";
@@ -544,34 +573,68 @@ export function TaskConsole() {
               : "Submit a task and let BOS-Omega orchestrate the optimal multi-model execution strategy."}
           </p>
         </div>
-        {messages.length > 0 && (
+        <div className="flex items-center gap-2">
+          {/* Task #64: Cross-AI continuity bundle controls. Copy is
+              enabled once we have a current task or active conversation
+              to scope the bundle to. Rehydrate is always available so
+              the user can paste a bundle from another session anytime. */}
+          {(currentTaskId || activeConversationId) && (
+            <CopyContinuityBundle
+              taskId={currentTaskId}
+              conversationId={activeConversationId}
+              compact
+              label="Copy bundle"
+            />
+          )}
           <button
             type="button"
-            onClick={() => {
-              setMessages([]);
-              // Arm the one-shot manual override so the next submit is
-              // forced into a brand-new conversation, regardless of
-              // whether the input would have Jaccard-matched something
-              // that already exists. Clearing activeConversationId
-              // (via the URL param) PLUS arming the override is what
-              // makes "+ New chat" actually mean "new", not "maybe
-              // new, depends on similarity".
-              setForceNewConversation(true);
-              if (activeConversationId) {
-                window.history.pushState({}, "", "/console");
-                void qc.invalidateQueries({ queryKey: ["conversations", "sidebar"] });
-                void qc.invalidateQueries({ queryKey: ["conversation-detail"] });
-              }
-            }}
+            onClick={() => setRehydrateOpen(true)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-            title="Start a new conversation"
-            data-testid="button-new-chat"
+            title="Paste a continuity bundle to rehydrate a thread"
+            data-testid="button-open-rehydrate"
           >
-            <MessageSquarePlus className="w-3.5 h-3.5" />
-            New chat
+            <ClipboardPaste className="w-3.5 h-3.5" />
+            Rehydrate
           </button>
-        )}
+          {messages.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setMessages([]);
+                // Arm the one-shot manual override so the next submit is
+                // forced into a brand-new conversation, regardless of
+                // whether the input would have Jaccard-matched something
+                // that already exists. Clearing activeConversationId
+                // (via the URL param) PLUS arming the override is what
+                // makes "+ New chat" actually mean "new", not "maybe
+                // new, depends on similarity".
+                setForceNewConversation(true);
+                if (activeConversationId) {
+                  window.history.pushState({}, "", "/console");
+                  void qc.invalidateQueries({ queryKey: ["conversations", "sidebar"] });
+                  void qc.invalidateQueries({ queryKey: ["conversation-detail"] });
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              title="Start a new conversation"
+              data-testid="button-new-chat"
+            >
+              <MessageSquarePlus className="w-3.5 h-3.5" />
+              New chat
+            </button>
+          )}
+        </div>
       </header>
+
+      {/* Task #64: Rehydrate-from-bundle modal. The modal navigates the
+          user into the new conversation on success (navigateOnImport=true)
+          and busts the conversations sidebar cache so the new thread
+          shows up immediately. */}
+      <RehydrateBundleModal
+        open={rehydrateOpen}
+        onClose={() => setRehydrateOpen(false)}
+        navigateOnImport
+      />
 
       {/* Stats bar */}
       {stats && (
@@ -595,6 +658,19 @@ export function TaskConsole() {
       {/* Conversation thread */}
       {messages.length > 0 && (
         <MessageList messages={messages} />
+      )}
+
+      {/* Task #64: live scratchpad — task-scoped when we have a
+          current task, conversation-scoped fallback otherwise. The
+          panel exposes pin/edit/delete so the user can curate what
+          rides into the next prompt. The refetchKey bump above forces
+          a re-fetch right after a task completes so the
+          orchestrator-written auto-summary appears immediately. */}
+      {(currentTaskId || activeConversationId) && (
+        <ScratchpadPanel
+          taskId={currentTaskId}
+          refetchKey={scratchpadRefetchKey}
+        />
       )}
 
       {/* Input form */}

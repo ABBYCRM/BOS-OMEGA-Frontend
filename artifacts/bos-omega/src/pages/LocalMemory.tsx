@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Brain, Plus, Save, X, Trash2, Download, Upload, AlertTriangle, HardDrive,
+  ClipboardPaste, ArrowDownToLine,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { RehydrateBundleModal } from "@/components/ContinuityBundleControls";
 import {
   listLocalMemory,
   createLocalMemory,
@@ -42,6 +44,12 @@ export function LocalMemoryPage() {
   const [editDraft, setEditDraft] = useState({ title: "", content: "", layer: "scratchpad" as LocalMemoryLayer });
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Task #64: cross-AI continuity bundle paste-in. Distinct from
+  // local-memory JSON import above (which is a per-browser snapshot of
+  // IndexedDB rows); a continuity bundle is a portable, hash-verified
+  // text blob that seeds a NEW server-side conversation. Modal opens
+  // when the user clicks the Rehydrate card.
+  const [rehydrateOpen, setRehydrateOpen] = useState(false);
 
   async function refresh() {
     setLoading(true);
@@ -182,6 +190,46 @@ export function LocalMemoryPage() {
           {importMessage}
         </div>
       )}
+
+      {/* Task #64: cross-AI continuity bundle docs + entry point.
+          Lives on the Local Memory page because that's where users
+          come to understand "what does the model remember?" — the
+          bundle answers "how do I move that memory between AIs?". */}
+      <div className="bg-card border border-card-border rounded-xl p-5 shadow-card space-y-3" data-testid="card-rehydrate">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h3 className="text-[14px] font-serif font-semibold text-foreground tracking-tight flex items-center gap-2">
+              <ArrowDownToLine className="w-4 h-4 text-blue-600" />
+              Continuity bundle (cross-AI rehydrate)
+            </h3>
+            <p className="text-[12.5px] text-muted-foreground max-w-2xl">
+              Paste a <code className="px-1 py-0.5 bg-muted rounded text-[11px] font-mono">bos-omega.continuity-bundle.v1</code>
+              {" "}block from another AI session (or another BOS-OMEGA workspace) to recreate a conversation here. The bundle
+              ships a fenced JSON trailer with a SHA-256 fidelity hash; we verify it before importing, show you exactly what
+              would land where, and only then create a new conversation seeded with the prior turns plus the rehydrated
+              scratchpad and continuity rows. Nothing is overwritten without your confirmation.
+            </p>
+            <p className="text-[12px] text-muted-foreground max-w-2xl">
+              To export, use <span className="font-medium text-foreground">Copy bundle</span> from the Task Console header
+              (per-conversation) or any task trace (per-task).
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRehydrateOpen(true)}
+            className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-[12px] font-medium text-foreground hover:bg-secondary"
+            data-testid="button-open-rehydrate-localmemory"
+          >
+            <ClipboardPaste className="w-3.5 h-3.5" />
+            Rehydrate from bundle
+          </button>
+        </div>
+      </div>
+      <RehydrateBundleModal
+        open={rehydrateOpen}
+        onClose={() => setRehydrateOpen(false)}
+        navigateOnImport
+      />
 
       {/* Layer filter pills */}
       <div className="flex flex-wrap gap-2">
