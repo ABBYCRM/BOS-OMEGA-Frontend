@@ -191,6 +191,49 @@ function readActiveConversationId(): string | null {
   }
 }
 
+// Task #64 — Resume support for orphan and pre-cluster tasks. The
+// TaskLogs / TaskDetail Resume buttons emit `/console?task=<id>` for
+// any row that lacks a conversation_id, OR as a defensive fallback
+// for rows the sidebar can't yet group. We accept the param here,
+// fetch the task once, and either: (a) rewrite the URL to
+// `?conversation=<task.conversation_id>` so the existing rehydrate
+// flow takes over (the common case — the clusterer almost always
+// pins tasks to a conversation eventually), or (b) hydrate the
+// solitary task as a single-turn "imported" message so the user
+// can continue from it even when no conversation exists.
+function readResumeTaskId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const sp = new URLSearchParams(window.location.search);
+    const v = sp.get("task");
+    return v && v.length > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+interface ResumeTaskRow {
+  id: string;
+  conversation_id: string | null;
+  input_text: string;
+  final_output: string | null;
+  task_type: string | null;
+  tri_state: string | null;
+  final_status: string | null;
+  created_at: string;
+}
+
+async function fetchResumeTask(id: string): Promise<ResumeTaskRow> {
+  const r = await fetch(`/api/tasks/${encodeURIComponent(id)}`, { credentials: "include" });
+  if (!r.ok) throw new Error(`fetchResumeTask failed: ${r.status}`);
+  const data = await r.json();
+  // The /api/tasks/:id endpoint returns either { task: {...} } or the
+  // task row directly depending on which version the artifact runs.
+  // Accept both shapes so this resume path is resilient to either.
+  const t = (data?.task ?? data) as ResumeTaskRow;
+  return t;
+}
+
 type ConversationDetail = {
   conversation: {
     id: string;
@@ -274,6 +317,85 @@ export function TaskConsole() {
     () => readActiveConversationId(),
     [location, search],
   );
+
+  // Resume-by-task: when /console?task=<id> is in the URL but
+  // /console?conversation=<id> is not, look up the task once and
+  // either rewrite the URL to ?conversation=<id> (so the existing
+  // rehydrate flow takes over) or fall back to seeding the input
+  // box with the task's prompt for true orphan tasks.
+  const resumeTaskId = useMemo<string | null>(
+    () => (activeConversationId ? null : readResumeTaskId()),
+    [activeConversationId, location, search],
+  );
+  const resumeHandled = useRef<string | null>(null);
+  useEffect(() => {
+    if (!resumeTaskId || resumeHandled.current === resumeTaskId) return;
+    resumeHandled.current = resumeTaskId;
+    let cancelled = false;
+    (async () => {
+      try {
+        const t = await fetchResumeTask(resumeTaskId);
+        if (cancelled) return;
+        if (t.conversation_id) {
+          // Common case: the task is part of a conversation. Hand off
+          // to the existing conversation rehydrate flow by rewriting
+          // the URL — replaceState so the user's back button still
+          // returns to TaskLogs.
+          const next = `/console?conversation=${encodeURIComponent(t.conversation_id)}`;
+          window.history.replaceState(null, "", next);
+          // Force the wouter location to recompute.
+          window.dispatchEvent(new PopStateEvent("popstate"));
+        } else {
+          // Orphan task — seed the chat with the prior turn so the
+          // user can continue the thread inline. We render the prior
+          // user input as a user bubble and the prior task as an
+          // assistant bubble, then leave the input box empty so the
+          // user can type the next message.
+          const seedTs = new Date(t.created_at).getTime();
+          const seeded: ChatMessage[] = [
+            {
+              id: `u-${t.id}`,
+              role: "user",
+              text: t.input_text,
+              attachments: [],
+              ts: seedTs,
+            },
+            {
+              id: `a-${t.id}`,
+              role: "assistant",
+              status: "done",
+              mode: "auto",
+              task: {
+                task_id: t.id,
+                task_type: t.task_type ?? "general",
+                tri_state: t.tri_state ?? "GO",
+                final_status: t.final_status ?? "COMPLETED",
+                final_output: t.final_output ?? undefined,
+              },
+              ts: seedTs + 1,
+            },
+          ];
+          setMessages(seeded);
+        }
+      } catch (err) {
+        // Surface the error as a synthetic assistant bubble so the
+        // user sees why Resume didn't open the task.
+        const msg = err instanceof Error ? err.message : String(err);
+        const ts = Date.now();
+        setMessages([
+          {
+            id: `a-resume-error-${resumeTaskId}`,
+            role: "assistant",
+            status: "error",
+            mode: "auto",
+            error: `Could not resume task ${resumeTaskId}: ${msg}`,
+            ts,
+          },
+        ]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [resumeTaskId]);
 
   const { data: conversationDetail } = useQuery({
     queryKey: ["conversation-detail", activeConversationId],

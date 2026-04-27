@@ -57,8 +57,8 @@ import {
   tasksTable,
   auditLogsTable,
 } from "@workspace/db";
-import { and, desc, eq, sql } from "drizzle-orm";
-import { randomUUID, createHash } from "crypto";
+import { and, desc, eq } from "drizzle-orm";
+import { randomUUID } from "crypto";
 import { z } from "zod";
 import { auditLog } from "../bos/auditEngine.js";
 import { getEffectiveBudgets } from "../bos/userBudgets.js";
@@ -76,6 +76,7 @@ import {
   CONTINUITY_BUNDLE_VERSION,
   MAX_BUNDLE_BYTES,
   type BundlePersonaSlot,
+  type BundleBudgets,
   type BundleScratchpadItem,
   type BundleContinuityItem,
   type BundleTurn,
@@ -326,11 +327,35 @@ router.get("/", async (req, res) => {
     if (!t) { res.status(404).json({ error: "Task not found", code: "NOT_FOUND" }); return; }
     conversation_id = t.conversation_id ?? null;
     primary_input = t.input_text;
-    turns = [turnFromTask(t as TaskRow)];
     persona_slot = await loadPersonaSlotForTask(task_id);
     if (conversation_id) {
+      // Cross-AI continuation needs surrounding context so the
+      // receiving AI sees the recent thread, not a single naked turn.
+      // Pull the last `max_turns` tasks from the same conversation in
+      // chronological order; the seed task is part of that window by
+      // definition. If the seed task is older than the budget allows,
+      // we explicitly include it at the end so it cannot be elided.
       const [c] = await db.select().from(conversationsTable).where(eq(conversationsTable.id, conversation_id)).limit(1);
       conversation_title = c?.title ?? null;
+      const recentRows = await db
+        .select()
+        .from(tasksTable)
+        .where(eq(tasksTable.conversation_id, conversation_id))
+        .orderBy(desc(tasksTable.created_at))
+        .limit(max_turns);
+      const ordered = recentRows.slice().reverse();
+      const haveSeed = ordered.some((r) => r.id === task_id);
+      if (!haveSeed) {
+        // Seed task fell off the recency window — append it so the
+        // receiving AI always sees the turn the user actually clicked
+        // Resume on, even if older than the rest of the window.
+        ordered.push(t);
+      }
+      turns = ordered.map((r) => turnFromTask(r as TaskRow));
+    } else {
+      // Orphan task (no conversation_id). Single-turn export is the
+      // best we can do — there is no surrounding thread to include.
+      turns = [turnFromTask(t as TaskRow)];
     }
   } else {
     scope = "conversation";
@@ -563,6 +588,18 @@ router.post("/import", async (req, res) => {
   const payload: ContinuityBundlePayload = result.payload;
   const new_conv_id = randomUUID();
   const new_task_ids: string[] = [];
+  // Per-turn audit metadata, accumulated inside the transaction so
+  // we can emit one CONTINUITY_BUNDLE_IMPORTED row per rehydrated
+  // task AFTER the transaction commits — avoids holding the audit
+  // writer inside a long transaction and means a stalled audit
+  // queue can't block the user's import.
+  const auditRows: Array<{
+    new_task_id: string;
+    source_task_id: string;
+    persona_slot: BundlePersonaSlot | null;
+    budgets: BundleBudgets;
+    canon_hash: string;
+  }> = [];
 
   // Run as one transaction so a partial failure never leaves a half-
   // imported thread visible to the user. Memory upserts are idempotent
@@ -664,8 +701,40 @@ router.post("/import", async (req, res) => {
         final_status: "COMPLETED",
         final_output,
       });
+      // Per-turn audit row so a forensic reviewer can prove WHICH bundle
+      // produced WHICH rehydrated task, and reconstruct the persona /
+      // budget governance the source bundle declared (the runtime did
+      // not actually execute these turns — they were imported — so this
+      // is an audit-parity event, not a real TASK_RECEIVED). The
+      // metadata mirrors the fields the auditor expects from a normal
+      // TASK_RECEIVED so dashboards rendering "what governed this run"
+      // do not blow up on null persona / budget fields.
+      auditRows.push({
+        new_task_id: new_id,
+        source_task_id: t.task_id,
+        persona_slot: payload.persona_slot,
+        budgets: payload.budgets,
+        canon_hash: payload.canon.hash,
+      });
     }
   });
+
+  // Emit the per-turn audit rows OUTSIDE the transaction so an audit
+  // backlog (durable queue) cannot stall the user-visible import. If
+  // the audit writer is down the import still succeeds; the backlog
+  // catches up later.
+  for (const row of auditRows) {
+    await auditLog(row.new_task_id, "CONTINUITY_BUNDLE_IMPORTED", `Rehydrated turn from source task ${row.source_task_id}`, {
+      user_id: userId,
+      verified: result.hash_ok,
+      source_session_id: payload.source_session_id,
+      source_task_id: row.source_task_id,
+      persona_slot: row.persona_slot,
+      budgets: row.budgets,
+      canon_hash: row.canon_hash,
+      kind: "per_turn",
+    });
+  }
 
   await auditLog(undefined, "CONTINUITY_BUNDLE_IMPORTED", `Continuity bundle imported into conversation ${new_conv_id}`, {
     user_id: userId,
@@ -695,6 +764,3 @@ router.post("/import", async (req, res) => {
 });
 
 export default router;
-// Reference unused import to keep the lint clean while leaving the
-// `sql` helper available for future query expansion.
-void sql; void createHash;
