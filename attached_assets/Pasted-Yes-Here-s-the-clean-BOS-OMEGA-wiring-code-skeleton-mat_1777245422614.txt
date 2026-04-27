@@ -1,0 +1,363 @@
+Yes. Here’s the **clean BOS-OMEGA wiring code skeleton** matching:
+
+```ascii
+LLMs → BOS-OMEGA → Canon + Memory → Output to User
+BOS-OMEGA → Canon + Memory → Tool Gate → PowerShell/CMD/DOS when approved
+```
+
+Your current audit already confirms the real backend path is roughly `runBosPipeline → executePipeline | runBoilTheOcean | runSeriesPass → callProviderDirect → adapter → resolveProviderKey`, and the missing memory issue is that continuity/patches were not globally injected across engines. 
+
+---
+
+```ts
+// bosOmegaRuntime.ts
+
+type TriState = "GO" | "HOLD" | "ABORT";
+
+type UserRequest = {
+  userId: string;
+  input: string;
+  mode?: "single" | "parallel" | "consensus" | "series_pass" | "boil_the_ocean";
+  wantsToolExecution?: boolean;
+  requestedTool?: "powershell" | "cmd" | "dos" | "bash";
+};
+
+type MemoryBundle = {
+  canon: string[];
+  continuity: string[];
+  patches: string[];
+  scratchpad: string[];
+};
+
+type RuntimeDecision = {
+  state: TriState;
+  reason: string;
+  riskLevel: 0 | 1 | 2 | 3 | 4;
+};
+
+type LLMResult = {
+  provider: string;
+  model: string;
+  role?: string;
+  text: string;
+  success: boolean;
+};
+
+export async function runBosOmega(req: UserRequest) {
+  const runId = crypto.randomUUID();
+
+  // 1. Load governing memory before reasoning
+  const memory = await retrieveBosMemory(req.input);
+
+  // 2. Build system context
+  const systemContext = buildBosSystemContext(memory);
+
+  // 3. Safety + Tri-State pre-gate
+  const pre = await evaluatePreGate(req, memory);
+
+  if (pre.state === "ABORT") {
+    return userOutput({
+      runId,
+      state: "ABORT",
+      answer: `ABORT: ${pre.reason}`,
+    });
+  }
+
+  if (pre.state === "HOLD") {
+    return userOutput({
+      runId,
+      state: "HOLD",
+      answer: `HOLD: ${pre.reason}`,
+    });
+  }
+
+  // 4. Route to LLM/agent execution
+  const llmResults = await executeLlmLayer({
+    input: req.input,
+    mode: req.mode ?? "single",
+    systemContext,
+  });
+
+  // 5. BOS final synthesis / validation
+  const finalAnswer = await bosFinalSynthesis({
+    input: req.input,
+    memory,
+    llmResults,
+  });
+
+  const post = await evaluatePostGate({
+    input: req.input,
+    memory,
+    llmResults,
+    finalAnswer,
+  });
+
+  if (post.state !== "GO") {
+    return userOutput({
+      runId,
+      state: post.state,
+      answer: `${post.state}: ${post.reason}`,
+    });
+  }
+
+  // 6. If user wants shell/tool execution, route through tool gate
+  if (req.wantsToolExecution) {
+    const toolDecision = await evaluateToolGate(req, finalAnswer);
+
+    if (toolDecision.state !== "GO") {
+      return userOutput({
+        runId,
+        state: toolDecision.state,
+        answer: `${toolDecision.state}: ${toolDecision.reason}`,
+      });
+    }
+
+    const toolResult = await executeSandboxedTool({
+      tool: req.requestedTool!,
+      commandPlan: finalAnswer,
+      runId,
+    });
+
+    return userOutput({
+      runId,
+      state: "GO",
+      answer: finalAnswer,
+      toolResult,
+    });
+  }
+
+  // 7. Normal user-facing answer
+  return userOutput({
+    runId,
+    state: "GO",
+    answer: finalAnswer,
+  });
+}
+```
+
+---
+
+```ts
+// memory.ts
+
+export async function retrieveBosMemory(input: string): Promise<MemoryBundle> {
+  const [canon, continuity, patches, scratchpad] = await Promise.all([
+    searchMemoryLayer("canon", input),
+    searchMemoryLayer("continuity", input),
+    searchMemoryLayer("patches", input),
+    searchMemoryLayer("scratchpad", input),
+  ]);
+
+  return { canon, continuity, patches, scratchpad };
+}
+
+export function buildBosSystemContext(memory: MemoryBundle): string {
+  return [
+    "=== BOS-OMEGA CANON ===",
+    ...memory.canon,
+
+    "=== BOS-OMEGA CONTINUITY ===",
+    ...memory.continuity,
+
+    "=== BOS-OMEGA PATCHES ===",
+    ...memory.patches,
+
+    "=== BOS-OMEGA SCRATCHPAD ===",
+    ...memory.scratchpad,
+  ].join("\n\n");
+}
+```
+
+---
+
+```ts
+// llmLayer.ts
+
+export async function executeLlmLayer(opts: {
+  input: string;
+  mode: string;
+  systemContext: string;
+}): Promise<LLMResult[]> {
+  const models = await selectModels(opts.mode);
+
+  switch (opts.mode) {
+    case "single":
+      return [await callModel(models[0], "EXECUTOR", opts)];
+
+    case "parallel":
+      return Promise.all([
+        callModel(models[0], "ARCHITECT", opts),
+        callModel(models[1], "CRITIC", opts),
+        callModel(models[2], "RESEARCHER", opts),
+        callModel(models[3], "BUILDER", opts),
+        callModel(models[4], "VALIDATOR", opts),
+      ]);
+
+    case "series_pass":
+      return runSeriesPass(models, opts);
+
+    case "boil_the_ocean":
+      return runBoilTheOcean(models, opts);
+
+    default:
+      throw new Error(`Unsupported mode: ${opts.mode}`);
+  }
+}
+
+async function callModel(model: any, role: string, opts: any): Promise<LLMResult> {
+  const prompt = `
+${opts.systemContext}
+
+=== ROLE ===
+${role}
+
+=== USER REQUEST ===
+${opts.input}
+`;
+
+  return callProviderDirect({
+    provider: model.provider,
+    model: model.model,
+    role,
+    prompt,
+  });
+}
+```
+
+---
+
+```ts
+// toolGate.ts
+
+export async function evaluateToolGate(
+  req: UserRequest,
+  commandPlan: string,
+): Promise<RuntimeDecision> {
+  const risk = classifyCommandRisk(commandPlan);
+
+  if (!req.requestedTool) {
+    return { state: "HOLD", reason: "No tool selected.", riskLevel: 1 };
+  }
+
+  if (risk >= 4) {
+    return {
+      state: "ABORT",
+      reason: "Forbidden/destructive command risk.",
+      riskLevel: 4,
+    };
+  }
+
+  if (risk >= 3) {
+    return {
+      state: "HOLD",
+      reason: "Host-impacting action requires explicit super-admin confirmation.",
+      riskLevel: 3,
+    };
+  }
+
+  return {
+    state: "GO",
+    reason: "Tool execution approved inside sandbox.",
+    riskLevel: risk,
+  };
+}
+
+function classifyCommandRisk(command: string): 0 | 1 | 2 | 3 | 4 {
+  const lower = command.toLowerCase();
+
+  if (
+    lower.includes("format ") ||
+    lower.includes("del /s") ||
+    lower.includes("rm -rf") ||
+    lower.includes("disable firewall") ||
+    lower.includes("dump credentials")
+  ) return 4;
+
+  if (
+    lower.includes("restart-service") ||
+    lower.includes("set-executionpolicy") ||
+    lower.includes("netsh") ||
+    lower.includes("diskpart")
+  ) return 3;
+
+  if (
+    lower.includes("install") ||
+    lower.includes("npm i") ||
+    lower.includes("pip install")
+  ) return 2;
+
+  if (
+    lower.includes("echo") ||
+    lower.includes("mkdir") ||
+    lower.includes("touch")
+  ) return 1;
+
+  return 0;
+}
+```
+
+---
+
+```ts
+// toolExecutor.ts
+
+export async function executeSandboxedTool(opts: {
+  tool: "powershell" | "cmd" | "dos" | "bash";
+  commandPlan: string;
+  runId: string;
+}) {
+  await auditLog(opts.runId, "TOOL_EXECUTION_STARTED", {
+    tool: opts.tool,
+    sandboxed: true,
+  });
+
+  // IMPORTANT:
+  // Real implementation should execute inside VM/container,
+  // not directly on host.
+  const result = await sandboxRun({
+    shell: opts.tool,
+    command: extractCommand(opts.commandPlan),
+    timeoutMs: 30_000,
+    network: false,
+    readOnlyHostMount: true,
+  });
+
+  await auditLog(opts.runId, "TOOL_EXECUTION_COMPLETED", {
+    exitCode: result.exitCode,
+  });
+
+  return result;
+}
+```
+
+---
+
+```ascii
+FINAL WIRING
+LLM PROVIDERS
+│
+└── callProviderDirect()
+    │
+    ▼
+BOS-OMEGA RUNTIME
+│
+├── input gate
+├── memory retrieval
+│   ├── canon
+│   ├── continuity
+│   ├── patches
+│   └── scratchpad
+├── model router
+├── agent executor
+├── synthesis
+├── tri-state final gate
+└── audit logger
+    │
+    ├── USER OUTPUT
+    │
+    └── TOOL OUTPUT
+        ├── PowerShell sandbox
+        ├── CMD sandbox
+        ├── DOS sandbox
+        └── Bash sandbox
+```
