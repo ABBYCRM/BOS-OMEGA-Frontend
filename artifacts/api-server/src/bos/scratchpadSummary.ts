@@ -7,15 +7,16 @@
  * unit tests in tests/scratchpad_unit.mjs can import and exercise it
  * without the @workspace/db package being in the resolver path.
  *
- * The output respects the **2–3 sentence summary contract** documented
- * in the canon row "BOS-OMEGA Scratchpad Summary Contract":
+ * The output respects the **strict 2–3 sentence summary contract**
+ * defined in the canon row "BOS-OMEGA Scratchpad Summary Contract":
  *
- *   1) Sentence one identifies the task (id + type) and its tri-state.
- *   2) Sentence two is what the user asked (truncated).
- *   3) Sentence three is the answer head (truncated).
- *   4) Optional fourth sentence appends Uncertainties / Assumptions when
- *      the underlying BosOutput surfaced any — this keeps the row useful
- *      to the next task without breaking the constrained-summary shape.
+ *   1) Sentence one identifies the task (id, type, tri-state) and the
+ *      head of the user's request.
+ *   2) Sentence two is the head of the answer.
+ *   3) Sentence three (OPTIONAL) folds the top uncertainty / assumption
+ *      into a single trailing clause. The writer NEVER emits a fourth
+ *      sentence — exceeding three sentences is a contract violation
+ *      enforced by tests/scratchpad_unit.mjs.
  *
  * The deterministic format below IS the writer in mock-mode and as the
  * non-fatal fallback in production. An LLM-driven summariser layered on
@@ -35,9 +36,9 @@ export interface SummaryInputs {
 }
 
 const TITLE_HEAD_MAX = 80;
-const INPUT_PREVIEW_MAX = 180;
-const ANSWER_PREVIEW_MAX = 280;
-const LIST_MAX = 3;
+const INPUT_PREVIEW_MAX = 140;
+const ANSWER_PREVIEW_MAX = 240;
+const NOTE_PREVIEW_MAX = 140;
 
 function truncate(s: string, n: number): string {
   if (!s) return "";
@@ -58,35 +59,73 @@ function inline(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Strip sentence-terminating punctuation from interpolated user text so
+ * the writer's structural sentence count is preserved regardless of the
+ * punctuation in the request, answer, or notes. Without this, an input
+ * like "A. B." would produce two extra sentence boundaries inside the
+ * "request" clause and silently breach the 2–3 sentence ceiling.
+ *
+ * We replace `.`, `!`, `?` (and the unicode `…`) with spaces, then
+ * collapse runs of whitespace. The ellipsis we ourselves add via
+ * `truncate()` is re-applied AFTER this pass at the call site, so its
+ * sentinel character is never interpolated into prose by mistake.
+ */
+function stripTerminators(s: string): string {
+  return s.replace(/[.!?…]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Apply both transforms (`inline` then `stripTerminators`) and then
+ * truncate. Keeping the order strict here matters: truncating first
+ * could place an ellipsis inside the prose that `stripTerminators`
+ * would then erase.
+ */
+function preview(s: string, n: number): string {
+  return truncate(stripTerminators(inline(s)), n);
+}
+
 export function buildAutoSummary(inputs: SummaryInputs): { title: string; content: string } {
   const answer = (inputs.answer ?? "").trim();
   const input = (inputs.input_text ?? "").trim();
   const head = firstLine(answer);
 
-  // Sentence 1 — identify the task.
-  const s1 = `Task ${inputs.task_id} (${inputs.task_type}) completed with state ${inputs.state}.`;
-  // Sentence 2 — what the user asked.
-  const s2 = input
-    ? `User asked: ${truncate(inline(input), INPUT_PREVIEW_MAX)}.`
-    : "User input was empty.";
-  // Sentence 3 — the answer head.
-  const s3 = answer
-    ? `Answer: ${truncate(inline(answer), ANSWER_PREVIEW_MAX)}.`
+  // Sentence 1 — identify the task AND fold in the user's request head.
+  // Combining task identity with the request keeps the summary at 2–3
+  // sentences while still surfacing the prompt entity for downstream
+  // relevance scoring. Embedded user text is run through `preview()`
+  // which strips sentence terminators (`.!?…`) so the structural
+  // sentence count cannot be inflated by punctuation in the request.
+  const request_clause = input
+    ? ` for request "${preview(input, INPUT_PREVIEW_MAX)}"`
+    : ` (no input text)`;
+  const s1 = `Task ${inputs.task_id} (${inputs.task_type}) completed with state ${inputs.state}${request_clause}.`;
+
+  // Sentence 2 — the answer head. Same terminator-stripping rationale
+  // as sentence 1: a multi-sentence answer must not turn into multiple
+  // structural sentences inside the summary.
+  const s2 = answer
+    ? `Answer: ${preview(answer, ANSWER_PREVIEW_MAX)}.`
     : "Answer was empty.";
 
-  const sentences = [s1, s2, s3];
+  // Sentence 3 (OPTIONAL) — fold the single most-relevant note. We
+  // deliberately pick ONE item (uncertainty wins over assumption) so the
+  // summary stays at most three sentences. Multiple notes are dropped
+  // here on purpose; the canon row tells the model that auto-summaries
+  // are lossy by design and that full task detail lives in /api/tasks.
+  const top_uncertainty = inputs.uncertainties?.find((u) => u && u.trim().length > 0);
+  const top_assumption = inputs.assumptions?.find((a) => a && a.trim().length > 0);
+  const top_note = top_uncertainty
+    ? { label: "uncertainty", text: top_uncertainty }
+    : top_assumption
+      ? { label: "assumption", text: top_assumption }
+      : null;
 
-  // Sentence 4 (optional) — collapse uncertainties/assumptions onto a
-  // single trailing clause so we never exceed four sentences.
-  const tail_parts: string[] = [];
-  if (inputs.uncertainties && inputs.uncertainties.length > 0) {
-    tail_parts.push(`uncertainties — ${inputs.uncertainties.slice(0, LIST_MAX).join("; ")}`);
-  }
-  if (inputs.assumptions && inputs.assumptions.length > 0) {
-    tail_parts.push(`assumptions — ${inputs.assumptions.slice(0, LIST_MAX).join("; ")}`);
-  }
-  if (tail_parts.length > 0) {
-    sentences.push(`Notes: ${tail_parts.join(" | ")}.`);
+  const sentences = [s1, s2];
+  if (top_note) {
+    sentences.push(
+      `Top ${top_note.label}: ${preview(top_note.text, NOTE_PREVIEW_MAX)}.`,
+    );
   }
 
   const content = sentences.join(" ");

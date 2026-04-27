@@ -301,7 +301,7 @@ function MODE_LABEL(mode: string, max_models?: number, agents_per_model?: number
 //   - Stale timers → a single resetTimer ref is cleared on every state
 //     transition and on unmount so an old "back to idle" timeout cannot
 //     re-enable the button mid-request.
-function PinButton({ task_id, answer }: { task_id?: string; answer: string }) {
+export function PinButton({ task_id, answer }: { task_id?: string; answer: string }) {
   const [state, setState] = useState<"idle" | "pinning" | "pinned" | "error">("idle");
   const inFlightRef = useRef(false);
   const resetTimerRef = useRef<number | null>(null);
