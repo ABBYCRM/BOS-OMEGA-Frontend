@@ -47,3 +47,7 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Runtime upload data should never be committed.
+artifacts/*/.data/
+.data/
