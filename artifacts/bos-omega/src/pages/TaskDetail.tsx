@@ -2,6 +2,7 @@ import { useRoute } from "wouter";
 import { useGetTask } from "@workspace/api-client-react";
 import { TriStateBadge, TaskStatusBadge } from "@/components/StatusBadge";
 import { OverrideActions } from "@/components/OverrideActions";
+import { MemoryUsedPanel } from "@/components/MemoryUsedPanel";
 import { formatDate, formatMs, formatCost } from "@/lib/utils";
 import { Link } from "wouter";
 import { ArrowLeft, CheckCircle, XCircle } from "lucide-react";
@@ -77,6 +78,12 @@ export function TaskDetail() {
 
       {/* Super-admin overrides */}
       <OverrideActions taskId={id} runId={runId} />
+
+      {/* Memory used (Task #47): per-layer counts, rendered section list,
+          and the bounded preview the orchestrator persisted on the
+          MEMORY_INJECTED audit event. Collapsed by default to keep the
+          trace compact. */}
+      <MemoryUsedPanel audit={audit} />
 
       {/* Pipeline trace */}
       <div className="bg-card border border-card-border rounded-lg p-5">

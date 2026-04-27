@@ -736,6 +736,89 @@ async function main() {
     }
   });
 
+  // ---------------- Task #47: "Memory used" panel renderable payload ----------------
+  // The TaskDetail "Memory used" panel renders directly off the
+  // MEMORY_INJECTED audit metadata returned by GET /api/tasks/:id. To
+  // guard against silent server-side regressions that would render the
+  // panel blank (e.g. someone dropping a metadata field, or returning a
+  // stringified blob instead of a structured object), this test asserts
+  // that for at least one execution mode the API response contains every
+  // field the panel reads. Per task spec it covers "at least one of the
+  // five execution modes" — single is the cheapest and most stable.
+  await test("#47 Memory used panel: GET /api/tasks/:id exposes per-layer counts, section list, and preview", async () => {
+    const seedTitle = `task47-panel-${Date.now()}`;
+    const seeded = await request("POST", "/api/memory", {
+      layer: "continuity",
+      title: seedTitle,
+      content: "Field log: we counted twelve elephants at the watering hole this morning.",
+      authority_level: 9,
+    });
+    assert.ok(seeded?.id, `seed POST /api/memory must return an id; got ${JSON.stringify(seeded)}`);
+
+    try {
+      const { detail } = await submitTask({
+        input: "How many elephants did we see today?",
+        mode: "single",
+      });
+      const { audit } = detail;
+
+      const injectEvents = audit.filter((a) => a.event_type === "MEMORY_INJECTED");
+      assert.equal(
+        injectEvents.length,
+        1,
+        `expected exactly 1 MEMORY_INJECTED event; got ${injectEvents.length}`,
+      );
+      const meta = parseMetadata(injectEvents[0].metadata);
+      assert.ok(
+        meta && typeof meta === "object" && !Array.isArray(meta),
+        `MEMORY_INJECTED.metadata must be a structured object the panel can read`,
+      );
+
+      // Per-layer counters — the panel renders one tile per layer.
+      for (const key of [
+        "canon_items",
+        "continuity_items",
+        "patches_items",
+        "scratchpad_items",
+      ]) {
+        assert.ok(
+          typeof meta[key] === "number" && meta[key] >= 0,
+          `MEMORY_INJECTED.metadata.${key} must be a non-negative number for the panel; got ${typeof meta[key]} ${meta[key]}`,
+        );
+      }
+
+      // Total chars badge in the panel header.
+      assert.ok(
+        typeof meta.memory_context_chars === "number" && meta.memory_context_chars > 0,
+        `memory_context_chars must be a positive number; got ${meta.memory_context_chars}`,
+      );
+
+      // Section header chips — array of "=== NAME ===" strings.
+      assert.ok(
+        Array.isArray(meta.section_headers) && meta.section_headers.length > 0,
+        `section_headers must be a non-empty array; got ${JSON.stringify(meta.section_headers)}`,
+      );
+      for (const h of meta.section_headers) {
+        assert.ok(
+          typeof h === "string" && /^=== [A-Z ]+ ===$/.test(h),
+          `each section_headers entry must look like '=== NAME ==='; got ${JSON.stringify(h)}`,
+        );
+      }
+
+      // Preview block — bounded string the panel renders verbatim.
+      assert.ok(
+        typeof meta.memory_context_preview === "string" && meta.memory_context_preview.length > 0,
+        `memory_context_preview must be a non-empty string; got ${typeof meta.memory_context_preview}`,
+      );
+    } finally {
+      try {
+        await request("DELETE", `/api/memory/${seeded.id}`, undefined);
+      } catch (err) {
+        console.log(`       (warn: failed to delete seeded memory ${seeded.id}: ${err.message})`);
+      }
+    }
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);
 }
