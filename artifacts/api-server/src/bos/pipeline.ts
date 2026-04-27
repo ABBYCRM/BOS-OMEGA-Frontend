@@ -70,7 +70,8 @@ type DenialCause =
   | "model_self_held"
   | "model_self_aborted"
   | "budget_exceeded"
-  | "compliance_audit_failure";
+  | "compliance_audit_failure"
+  | "image_quota_exceeded";
 
 function denialExplanation(cause: DenialCause, reason: string): {
   why_decision_was_made: string;
@@ -113,6 +114,12 @@ function denialExplanation(cause: DenialCause, reason: string): {
         why_decision_was_made: "Audit-log durability failed and the system is running in compliance mode, which requires every task to be fully auditable. Continuing without durable audit would violate compliance posture.",
         safe_alternative: "Investigate the audit-log datastore (DB connectivity, disk space, queue health) and retry once it is healthy.",
         recommended_next_action: "Restore audit durability before retrying this task.",
+      };
+    case "image_quota_exceeded":
+      return {
+        why_decision_was_made: "Your daily image-generation spend cap was reached (count or USD). BOS-OMEGA refuses to call a paid image provider once a per-user ceiling is crossed so a runaway loop cannot drain the budget unattended.",
+        safe_alternative: "Wait for the cap to reset at UTC midnight, or ask an admin to raise your daily image quota.",
+        recommended_next_action: reason || "Wait for the daily window to reset, or raise your image quota in Settings.",
       };
   }
 }
@@ -407,7 +414,13 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
 
       const output = outcome.success
         ? base
-        : attachDenial(base, "no_provider_available", outcome.summary);
+        : attachDenial(
+            base,
+            outcome.failure_reason === "quota_exceeded"
+              ? "image_quota_exceeded"
+              : "no_provider_available",
+            outcome.summary,
+          );
 
       await saveTask(
         task_id,
@@ -518,7 +531,15 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
       generated_attachments: outcome.attachments,
     };
 
-    const output = outcome.success ? base : attachDenial(base, "no_provider_available", outcome.summary);
+    const output = outcome.success
+      ? base
+      : attachDenial(
+          base,
+          outcome.failure_reason === "quota_exceeded"
+            ? "image_quota_exceeded"
+            : "no_provider_available",
+          outcome.summary,
+        );
 
     await saveTask(
       task_id,

@@ -179,7 +179,15 @@ type AuditEventType =
   //     can be reproduced.
   | "IMAGE_EDIT_REQUESTED"
   | "IMAGE_EDIT_COMPLETED"
-  | "IMAGE_EDIT_FAILED";
+  | "IMAGE_EDIT_FAILED"
+  // Task #85 — per-user image-generation spend caps.
+  //   IMAGE_QUOTA_BLOCKED — pre-flight quota check tripped before any
+  //     provider was called. Metadata records which cap tripped
+  //     ("count" or "usd"), the user_id, the daily count + USD usage
+  //     just observed, and the effective caps in force at the time
+  //     (so the audit chain alone explains the HOLD verdict the user
+  //     sees, without the operator having to re-derive the cap).
+  | "IMAGE_QUOTA_BLOCKED";
 
 const AUDIT_QUEUE_DIR = process.env["AUDIT_QUEUE_DIR"] || path.resolve(process.cwd(), ".local", "audit-queue");
 const AUDIT_QUEUE_FILE = path.join(AUDIT_QUEUE_DIR, "pending.jsonl");

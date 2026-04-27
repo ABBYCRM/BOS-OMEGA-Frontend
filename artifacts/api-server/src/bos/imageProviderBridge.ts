@@ -28,6 +28,7 @@ import type { GenerationSize } from "./imageIntent.js";
 import type { GeneratedImageRef } from "./types.js";
 import { generateMockPng, MOCK_PNG_DIMENSIONS } from "./imageMockPng.js";
 import { validateImageBytes } from "./imageBytesValidator.js";
+import { costCentsFor, enforceImageQuota } from "./imageQuotas.js";
 
 export interface ImageGenerationOptions {
   prompt: string;
@@ -60,7 +61,8 @@ export interface ImageGenerationOutcome {
     | "provider_does_not_support_images"
     | "no_image_provider_configured"
     | "all_providers_failed"
-    | "persistence_failed";
+    | "persistence_failed"
+    | "quota_exceeded";
 }
 
 const PROMPT_HASH_PREVIEW_BYTES = 8;
@@ -290,6 +292,34 @@ export async function runImageGeneration(
     };
   }
 
+  // Task #85 — pre-flight spend cap. Estimate the upcoming charge using
+  // the FIRST planned provider (priority order). In live mode that's the
+  // adapter we'd actually call; in mock mode the cost is zero (mock
+  // generation is intentionally free). If the user is over either cap,
+  // emit IMAGE_QUOTA_BLOCKED and return a HOLD outcome BEFORE any
+  // provider call is made.
+  const estimated_cost_cents = !live
+    ? 0
+    : planned[0]
+      ? costCentsFor(planned[0].provider_name, planned[0].adapter.model)
+      : 0;
+  const quota = await enforceImageQuota({
+    user_id: options.user_id,
+    task_id: options.task_id,
+    estimated_cost_usd_cents: estimated_cost_cents,
+    operation: "generation",
+  });
+  if (!quota.allowed) {
+    return {
+      success: false,
+      attachments: [],
+      summary: quota.summary,
+      attempts: [],
+      mocked: false,
+      failure_reason: "quota_exceeded",
+    };
+  }
+
   if (!live) {
     return await persistAndAudit({
       bytes: generateMockPng(options.prompt),
@@ -489,6 +519,9 @@ async function persistAndAudit(input: PersistInput): Promise<ImageGenerationOutc
     storage_path,
   };
 
+  // Task #85 — record per-image cost so getTodayUsage() can sum directly
+  // from the audit chain. Mock provider intentionally costs $0.
+  const cost_usd_cents = input.mocked ? 0 : costCentsFor(input.provider, input.model);
   await auditLog(
     input.options.task_id,
     "IMAGE_GENERATED",
@@ -507,6 +540,7 @@ async function persistAndAudit(input: PersistInput): Promise<ImageGenerationOutc
       mime: attachment.mime,
       prompt: input.options.prompt,
       prompt_sha256_prefix: input.prompt_sha.slice(0, PROMPT_HASH_PREVIEW_BYTES * 2),
+      cost_usd_cents,
     },
   );
 
@@ -571,7 +605,8 @@ export interface ImageEditOutcome {
     | "all_providers_failed"
     | "persistence_failed"
     | "source_attachment_missing"
-    | "source_bytes_unreadable";
+    | "source_bytes_unreadable"
+    | "quota_exceeded";
 }
 
 interface SourceAttachment {
@@ -684,6 +719,32 @@ export async function runImageEdit(options: ImageEditOptions): Promise<ImageEdit
       attempts: [],
       mocked: false,
       failure_reason: "provider_does_not_support_images",
+    };
+  }
+
+  // Task #85 — pre-flight spend cap also applies to edits. An edit is one
+  // billable image (same per-call charge as a fresh generation), so it
+  // must consume from the same daily count + USD budget. Mock mode is
+  // free so estimated cost is 0.
+  const estimated_cost_cents_edit = !live
+    ? 0
+    : planned[0]
+      ? costCentsFor(planned[0].provider_name, planned[0].adapter.model)
+      : 0;
+  const quota_edit = await enforceImageQuota({
+    user_id: options.user_id,
+    task_id: options.task_id,
+    estimated_cost_usd_cents: estimated_cost_cents_edit,
+    operation: "edit",
+  });
+  if (!quota_edit.allowed) {
+    return {
+      success: false,
+      attachments: [],
+      summary: quota_edit.summary,
+      attempts: [],
+      mocked: false,
+      failure_reason: "quota_exceeded",
     };
   }
 
@@ -878,6 +939,9 @@ async function persistEditAndAudit(input: PersistEditInput): Promise<ImageEditOu
     parent_mime: input.src.mime,
   };
 
+  // Task #85 — record per-edit cost. An edit consumes the same daily
+  // budget as a fresh generation (same provider call type).
+  const cost_usd_cents_edit = input.mocked ? 0 : costCentsFor(input.provider, input.model);
   await auditLog(
     input.options.task_id,
     "IMAGE_EDIT_COMPLETED",
@@ -898,6 +962,7 @@ async function persistEditAndAudit(input: PersistEditInput): Promise<ImageEditOu
       mime: attachment.mime,
       prompt: input.options.prompt,
       prompt_sha256_prefix: input.prompt_sha.slice(0, PROMPT_HASH_PREVIEW_BYTES * 2),
+      cost_usd_cents: cost_usd_cents_edit,
     },
   );
 

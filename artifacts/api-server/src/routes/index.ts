@@ -17,6 +17,7 @@ import authRouter from "./auth.js";
 import uploadsRouter from "./uploads.js";
 import usersRouter from "./users.js";
 import overridesRouter from "./overrides.js";
+import imageQuotaRouter from "./imageQuota.js";
 import v1Router from "./v1/index.js";
 import { requireAuth } from "../lib/security/auth.js";
 import { readLimiter, writeLimiter } from "../lib/security/rateLimit.js";
@@ -70,5 +71,6 @@ router.use("/tri-state", triStateRouter);
 router.use("/uploads", uploadsRouter);
 router.use("/users", usersRouter);
 router.use("/overrides", overridesRouter);
+router.use("/image-quota", imageQuotaRouter);
 
 export default router;

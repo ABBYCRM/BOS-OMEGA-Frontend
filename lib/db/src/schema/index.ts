@@ -18,3 +18,4 @@ export * from "./localAgent";
 export * from "./userMemoryBudgets";
 export * from "./conversations";
 export * from "./latticeExports";
+export * from "./imageQuotas";

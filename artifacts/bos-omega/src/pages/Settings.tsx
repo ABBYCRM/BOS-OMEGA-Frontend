@@ -12,6 +12,7 @@ import {
   Eye, EyeOff, AlertCircle, Sparkles, Zap, ShieldCheck, Lock, Database,
   Palette, Monitor, Brain, RotateCcw, Save, Pin,
   MonitorCog, Cpu, Skull, Leaf, Star, Cog, Zap as Bolt, Square,
+  ImageIcon, DollarSign,
 } from "lucide-react";
 import { ProviderStatusBadge } from "@/components/StatusBadge";
 import { useTheme, type ThemeId } from "@/lib/theme";
@@ -185,6 +186,207 @@ const LAYER_ROWS: { key: BudgetLayer; label: string; help: string }[] = [
   { key: "patches",     label: "Patches",     help: "Targeted corrections that overlay canon (one-off rule fixes)." },
   { key: "scratchpad",  label: "Scratchpad",  help: "Short-lived working notes the model may consult mid-task." },
 ];
+
+// =====================================================================
+// Task #85 — image-generation spend cap usage card.
+//
+// Read-only display of current daily image-gen usage vs the effective
+// caps (engine defaults + any per-user override). Two progress bars,
+// one per cap. The bar that's closest to its ceiling is implicitly the
+// one most likely to trip first; if either is already over, we render
+// it in amber so the user can see why a request was blocked.
+// =====================================================================
+interface ImageQuotaResponse {
+  defaults: { daily_count: number; daily_usd_cents: number };
+  caps: { daily_count: number; daily_usd_cents: number };
+  has_override: boolean;
+  overridden_fields: Array<"daily_count" | "daily_usd_cents">;
+  usage_today: { count: number; usd_cents: number; window_started_at: string };
+  override_note: string | null;
+}
+
+const IMAGE_QUOTA_QUERY_KEY = ["/api/image-quota"] as const;
+
+async function fetchImageQuota(): Promise<ImageQuotaResponse> {
+  const r = await fetch("/api/image-quota", {
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  });
+  if (!r.ok) throw new Error(`GET /api/image-quota failed: ${r.status}`);
+  return (await r.json()) as ImageQuotaResponse;
+}
+
+function formatCents(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+function ImageQuotaUsageCard() {
+  const { data, isLoading, error } = useQuery({
+    queryKey: IMAGE_QUOTA_QUERY_KEY,
+    queryFn: fetchImageQuota,
+    retry: false,
+    // Re-poll every 30s so a successful or blocked image-gen run shows
+    // up promptly without the user having to refresh the page.
+    refetchInterval: 30_000,
+  });
+
+  const renderBody = () => {
+    if (isLoading) {
+      return (
+        <div
+          className="flex items-center gap-2 text-[12.5px] text-muted-foreground"
+          data-testid="image-quota-loading"
+        >
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Loading image quota…
+        </div>
+      );
+    }
+    if (error || !data) {
+      return (
+        <div
+          className="text-[12.5px] text-amber-700 inline-flex items-center gap-2"
+          data-testid="image-quota-error"
+        >
+          <AlertCircle className="w-4 h-4" />
+          Couldn't load image quota — sign in is required.
+        </div>
+      );
+    }
+
+    // Pre-compute progress percentages, clamped to [0, 100]. The "over"
+    // flag triggers amber styling so a tripped cap is visually obvious.
+    const countPct = Math.min(
+      100,
+      Math.round((data.usage_today.count / Math.max(1, data.caps.daily_count)) * 100),
+    );
+    const usdPct = Math.min(
+      100,
+      Math.round(
+        (data.usage_today.usd_cents / Math.max(1, data.caps.daily_usd_cents)) * 100,
+      ),
+    );
+    const countOver = data.usage_today.count >= data.caps.daily_count;
+    const usdOver = data.usage_today.usd_cents >= data.caps.daily_usd_cents;
+    const anyOver = countOver || usdOver;
+
+    return (
+      <>
+        {/* Daily image count bar */}
+        <div data-testid="image-quota-count-row">
+          <div className="flex items-baseline justify-between mb-1.5">
+            <span className="text-[11px] uppercase tracking-wide font-mono font-medium text-foreground">
+              Daily images
+            </span>
+            <span
+              className={`text-[12px] font-mono ${countOver ? "text-amber-700 font-bold" : "text-muted-foreground"}`}
+              data-testid="image-quota-count-value"
+            >
+              {data.usage_today.count.toLocaleString()} /{" "}
+              {data.caps.daily_count.toLocaleString()}
+            </span>
+          </div>
+          <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
+            <div
+              className={`h-full ${countOver ? "bg-amber-500" : "bg-primary"} transition-all`}
+              style={{ width: `${countPct}%` }}
+              data-testid="image-quota-count-bar"
+            />
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-1">
+            Successful generations and edits both count. Resets at UTC midnight.
+          </div>
+        </div>
+
+        {/* Daily USD bar */}
+        <div data-testid="image-quota-usd-row">
+          <div className="flex items-baseline justify-between mb-1.5">
+            <span className="text-[11px] uppercase tracking-wide font-mono font-medium text-foreground inline-flex items-center gap-1">
+              <DollarSign className="w-3 h-3" />
+              Estimated USD today
+            </span>
+            <span
+              className={`text-[12px] font-mono ${usdOver ? "text-amber-700 font-bold" : "text-muted-foreground"}`}
+              data-testid="image-quota-usd-value"
+            >
+              {formatCents(data.usage_today.usd_cents)} /{" "}
+              {formatCents(data.caps.daily_usd_cents)}
+            </span>
+          </div>
+          <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
+            <div
+              className={`h-full ${usdOver ? "bg-amber-500" : "bg-primary"} transition-all`}
+              style={{ width: `${usdPct}%` }}
+              data-testid="image-quota-usd-bar"
+            />
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-1">
+            Per-image cost is estimated from the provider catalog (mock-mode generations are free).
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border">
+          {data.has_override ? (
+            <span
+              className="text-[10.5px] text-foreground bg-secondary border border-border px-2 py-0.5 rounded uppercase tracking-wide"
+              data-testid="image-quota-override-badge"
+            >
+              Override active
+              {data.overridden_fields.length > 0 && (
+                <> · {data.overridden_fields.join(" + ")}</>
+              )}
+            </span>
+          ) : (
+            <span
+              className="text-[10.5px] text-muted-foreground"
+              data-testid="image-quota-defaults-hint"
+            >
+              Defaults: {data.defaults.daily_count.toLocaleString()} images /{" "}
+              {formatCents(data.defaults.daily_usd_cents)} USD per day
+            </span>
+          )}
+          {anyOver && (
+            <span
+              className="text-[11.5px] text-amber-700 inline-flex items-center gap-1"
+              data-testid="image-quota-over-cap"
+            >
+              <AlertCircle className="w-3.5 h-3.5" />
+              Spend cap reached — image generation is paused until UTC midnight or an admin raises the cap.
+            </span>
+          )}
+          {data.override_note && (
+            <span
+              className="text-[11px] text-muted-foreground italic"
+              data-testid="image-quota-override-note"
+            >
+              note: {data.override_note}
+            </span>
+          )}
+        </div>
+      </>
+    );
+  };
+
+  return (
+    <section
+      className="bg-card border border-card-border rounded-xl p-6 shadow-card space-y-4"
+      data-testid="image-quota-card"
+    >
+      <div className="flex items-baseline justify-between">
+        <div>
+          <h2 className="text-lg font-serif font-semibold text-foreground tracking-tight inline-flex items-center gap-2">
+            <ImageIcon className="w-4 h-4" />
+            Image generation spend cap
+          </h2>
+          <p className="text-[12.5px] text-muted-foreground mt-0.5">
+            Daily ceiling on how many images you can generate, and how much they can cost.
+          </p>
+        </div>
+      </div>
+      {renderBody()}
+    </section>
+  );
+}
 
 function MemoryBudgetsCard() {
   const queryClient = useQueryClient();
@@ -1083,6 +1285,9 @@ export function Settings() {
 
       {/* Per-user memory budgets (Task #59) */}
       <MemoryBudgetsCard />
+
+      {/* Image-generation spend cap usage (Task #85) */}
+      <ImageQuotaUsageCard />
 
       {/* Lattice continuity scratchpad (Task #67) */}
       <ScratchpadCard />
