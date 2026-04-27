@@ -286,24 +286,47 @@ async function submitTask(input, extras = {}) {
   });
 
   // -----------------------------------------------------------------
-  await test("POST /api/conversations creates an empty thread with the given title", async () => {
-    const title = `${nonce} manual create flow`;
+  await test("POST /api/conversations reserves an id (no DB row until first task)", async () => {
+    const title = `${nonce} manual reserved flow`;
     const r = await request("POST", "/api/conversations", { title });
     assert.equal(r.status, 201, `expected 201, got ${r.status} ${JSON.stringify(r.data)}`);
     assert.equal(r.data.title, title);
-    assert.ok(r.data.id, "response must include the new conversation id");
+    assert.ok(r.data.id, "response must include the reserved conversation id");
     assert.equal(r.data.archived, false);
-    // The new row must show up in the default GET list.
-    const list = await request("GET", "/api/conversations?limit=200");
-    assert.equal(list.status, 200);
-    const found = list.data.conversations?.find((c) => c.id === r.data.id);
-    assert.ok(found, "newly POSTed conversation must appear in GET /api/conversations");
-    // And a follow-up task can target it via explicit conversation_id.
-    const taskRes = await submitTask(`${nonce} first message in manual thread`, {
+    assert.equal(r.data.pending, true, "response must flag itself as pending");
+    // Critical invariant: the reserved row must NOT yet appear in GET /api/conversations.
+    const beforeList = await request("GET", "/api/conversations?limit=200");
+    assert.equal(beforeList.status, 200);
+    const beforeMatch = beforeList.data.conversations?.find((c) => c.id === r.data.id);
+    assert.ok(!beforeMatch, "reservation must not appear in GET before first task");
+    // First task targeting the reservation materializes the conversation row.
+    const taskRes = await submitTask(`${nonce} first message in reserved thread`, {
       conversation_id: r.data.id,
     });
     assert.equal(taskRes.status, 200);
     assert.equal(taskRes.data.conversation_id, r.data.id);
+    // After the task lands, the row must appear with the originally-reserved title.
+    const afterList = await request("GET", "/api/conversations?limit=200");
+    const afterMatch = afterList.data.conversations?.find((c) => c.id === r.data.id);
+    assert.ok(afterMatch, "after first task, reserved conversation must appear in GET");
+    assert.equal(afterMatch.title, title, "title must match the original reservation");
+  });
+
+  await test("POST /api/conversations reservation is single-use (second task 404s)", async () => {
+    const r = await request("POST", "/api/conversations", { title: `${nonce} single-use` });
+    assert.equal(r.status, 201);
+    const first = await submitTask(`${nonce} first consumes`, { conversation_id: r.data.id });
+    assert.equal(first.status, 200);
+    // Second task with the same id but no DB row (because it's been consumed
+    // already in the first call's transaction, which inserted it) — should
+    // succeed because the conversation now exists. Sanity check.
+    const second = await submitTask(`${nonce} second hits real row`, { conversation_id: r.data.id });
+    assert.equal(second.status, 200, "second task should target the now-real row");
+    // But a fresh, never-targeted, expired-or-bogus reservation id should 404.
+    const bogus = await submitTask(`${nonce} bogus`, {
+      conversation_id: "11111111-1111-1111-1111-111111111111",
+    });
+    assert.equal(bogus.status, 404);
   });
 
   await test("POST /api/conversations rejects empty/missing title with 400", async () => {

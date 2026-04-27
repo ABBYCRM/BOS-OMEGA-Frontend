@@ -17,7 +17,10 @@ import { expensiveLimiter } from "../lib/security/rateLimit.js";
 import { z } from "zod";
 import {
   planConversationAssignment,
+  consumeReservation,
   ConversationNotFoundError,
+  deriveTitle,
+  deriveKeywords,
   type ConvDecision,
 } from "../bos/conversationClusterer.js";
 
@@ -97,21 +100,53 @@ router.post("/", expensiveLimiter, async (req, res) => {
   }
   let conversation_decision: ConvDecision | null = null;
   if (req.user?.id) {
-    try {
-      conversation_decision = await planConversationAssignment({
-        userId: req.user.id,
-        inputText: parsed.data.input,
-        explicitId: extras.data.conversation_id ?? null,
-        forceNew: extras.data.force_new_conversation ?? false,
-      });
-    } catch (err) {
-      if (err instanceof ConversationNotFoundError) {
-        res.status(404).json({ error: err.message, code: err.code });
-        return;
+    // Manual-create reservation path: when the client previously called
+    // POST /api/conversations, the returned id is a reservation (not yet
+    // in the DB). The first task that targets it materializes the row
+    // transactionally with `commitConversationDecision`. Consume the
+    // reservation BEFORE falling through to the standard planner so an
+    // explicit conversation_id from the manual-create UX doesn't 404.
+    if (extras.data.conversation_id) {
+      const reserved = consumeReservation(req.user.id, extras.data.conversation_id);
+      if (reserved) {
+        conversation_decision = {
+          kind: "new",
+          conversation_id: reserved.id,
+          title: reserved.title,
+          topic_keywords: deriveKeywords(parsed.data.input),
+          method: "force_new",
+        };
       }
-      // Clustering must not block task submission — log and continue
-      // unscoped so a transient DB read can't take task creation down.
-      req.log.warn({ err }, "Conversation assignment failed; proceeding without conversation_id");
+    }
+    if (!conversation_decision) {
+      try {
+        conversation_decision = await planConversationAssignment({
+          userId: req.user.id,
+          inputText: parsed.data.input,
+          explicitId: extras.data.conversation_id ?? null,
+          forceNew: extras.data.force_new_conversation ?? false,
+        });
+      } catch (err) {
+        if (err instanceof ConversationNotFoundError) {
+          res.status(404).json({ error: err.message, code: err.code });
+          return;
+        }
+        // Clustering DB read failed transiently. Rather than silently
+        // dropping the task into an unscoped row (which weakens the
+        // "every authenticated task is conversation-scoped" contract
+        // and is a pain to clean up later), fall back to a deterministic
+        // force-new decision so the task lands in a fresh thread we can
+        // audit and reassign. The new conversation row is still created
+        // atomically with the task INSERT in saveTask.
+        req.log.warn({ err }, "Conversation clustering failed; falling back to force_new for this task");
+        conversation_decision = {
+          kind: "new",
+          conversation_id: (await import("crypto")).randomUUID(),
+          title: deriveTitle(parsed.data.input),
+          topic_keywords: deriveKeywords(parsed.data.input),
+          method: "force_new",
+        };
+      }
     }
   }
 

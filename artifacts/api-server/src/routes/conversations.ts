@@ -35,8 +35,8 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { conversationsTable, tasksTable } from "@workspace/db";
 import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
-import { randomUUID } from "crypto";
 import { z } from "zod";
+import { reserveConversation } from "../bos/conversationClusterer.js";
 
 const router = Router();
 
@@ -133,6 +133,22 @@ const CreateBody = z.object({
   title: z.string().min(1).max(200),
 });
 
+/**
+ * POST /api/conversations — manual "New chat" reservation.
+ *
+ * Returns a freshly-allocated conversation id + title shape so the
+ * client can immediately render the new thread, BUT does NOT persist
+ * the row to the DB. The reservation is materialized atomically with
+ * the FIRST task that targets it (the user submits a message with
+ * `conversation_id = <reserved-id>`). This preserves the
+ * "no empty conversations" invariant — no orphan rows accumulate
+ * from users clicking "+ New chat" without sending a message.
+ *
+ * The reservation has a 30-minute TTL. After expiry, a task that
+ * still targets the reserved id will 404. The response is shaped
+ * like a real conversation row (with an extra `pending: true` flag)
+ * so the optimistic UI doesn't have to special-case it.
+ */
 router.post("/", async (req, res) => {
   if (!req.user?.id) {
     res.status(401).json({ error: "Authentication required", code: "UNAUTHENTICATED" });
@@ -143,21 +159,8 @@ router.post("/", async (req, res) => {
     res.status(400).json({ error: "Invalid body", code: "INPUT_ERROR", detail: parsed.error.issues });
     return;
   }
-  const id = randomUUID();
-  const now = new Date();
-  const [row] = await db
-    .insert(conversationsTable)
-    .values({
-      id,
-      user_id: req.user.id,
-      title: parsed.data.title,
-      topic_keywords: [],
-      created_at: now,
-      last_active_at: now,
-      archived: false,
-    })
-    .returning();
-  res.status(201).json(row);
+  const reserved = reserveConversation(req.user.id, parsed.data.title);
+  res.status(201).json(reserved);
 });
 
 const PatchBody = z

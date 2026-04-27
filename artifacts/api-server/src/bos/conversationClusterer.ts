@@ -109,6 +109,90 @@ export class ConversationNotFoundError extends Error {
   }
 }
 
+/**
+ * In-memory reservation store for `POST /api/conversations` ("manual
+ * new chat" UX). The endpoint allocates an id + user-supplied title and
+ * stashes them here; nothing is written to the DB until the first
+ * task arrives with `conversation_id = <reserved>`. At that point the
+ * reservation is consumed, converted to a `ConvDecision { kind: "new",
+ *  method: "manual_create" }`, and committed transactionally with the
+ * task INSERT. This preserves the "no empty conversations" invariant
+ * even on the manual-create path.
+ *
+ * TTL is 30 minutes. The store is process-local; in a multi-replica
+ * deployment a follower could reject a reservation made on the leader.
+ * Acceptable for v1 — a clean upgrade path is to back this with Redis.
+ */
+const RESERVATION_TTL_MS = 30 * 60 * 1000;
+interface Reservation {
+  id: string;
+  userId: string;
+  title: string;
+  expiresAt: number;
+}
+const reservations = new Map<string, Reservation>();
+
+function reservationKey(userId: string, id: string): string {
+  return `${userId}:${id}`;
+}
+
+function sweepExpiredReservations(now: number = Date.now()): void {
+  for (const [key, r] of reservations) {
+    if (r.expiresAt <= now) reservations.delete(key);
+  }
+}
+
+/** Reserve a conversation id + title for the user. Returns the row
+ *  shape the client expects so the UI can optimistically render the
+ *  thread; the row is not persisted until the first task lands. */
+export function reserveConversation(userId: string, title: string): {
+  id: string;
+  user_id: string;
+  title: string;
+  topic_keywords: string[];
+  archived: boolean;
+  created_at: Date;
+  last_active_at: Date;
+  pending: true;
+} {
+  sweepExpiredReservations();
+  const id = randomUUID();
+  const now = new Date();
+  reservations.set(reservationKey(userId, id), {
+    id,
+    userId,
+    title,
+    expiresAt: now.getTime() + RESERVATION_TTL_MS,
+  });
+  return {
+    id,
+    user_id: userId,
+    title,
+    topic_keywords: [],
+    archived: false,
+    created_at: now,
+    last_active_at: now,
+    pending: true,
+  };
+}
+
+/** Look up (and consume) a pending reservation. Returns null if no
+ *  matching live reservation exists for this user. Once consumed the
+ *  reservation cannot be reused. */
+export function consumeReservation(userId: string, id: string): Reservation | null {
+  sweepExpiredReservations();
+  const key = reservationKey(userId, id);
+  const r = reservations.get(key);
+  if (!r) return null;
+  reservations.delete(key);
+  return r;
+}
+
+/** Test-only escape hatch: drain the reservation cache between tests. */
+export function _clearReservationsForTest(): void {
+  reservations.clear();
+}
+
 /** Drizzle's `db` and the transaction handle share the same query API
  *  but their types differ (the transaction has no `$client`). Accept
  *  either by widening to the structural intersection of "things that
