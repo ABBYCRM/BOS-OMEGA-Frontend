@@ -175,6 +175,11 @@ const auditCounts = {
   SCRATCHPAD_PINNED: 0,
   CONVERSATION_CREATED: 0,
   CONVERSATION_ASSIGNED: 0,
+  // LLM_INPUT_PREPARED: emitted by providerBridge each time a task's
+  // prompt is built and sent to the model. The post-import task in
+  // step 7 must produce one of these — the canonical audit-row proof
+  // that the rehydrated lattice reached the model layer.
+  LLM_INPUT_PREPARED: 0,
 };
 
 // ---- Step 1: provision two fresh users via super_admin -----------------
@@ -417,6 +422,13 @@ await test("Audit chain records all lattice + scratchpad + conversation events",
   assert.ok(auditCounts.SCRATCHPAD_AUTO_WRITTEN >= 3,
     `expected >=3 SCRATCHPAD_AUTO_WRITTEN (one per User A task), got ${auditCounts.SCRATCHPAD_AUTO_WRITTEN}`);
   assert.ok(auditCounts.SCRATCHPAD_PINNED >= 1, "expected >=1 SCRATCHPAD_PINNED");
+  // Canonical proof that the rehydrated lattice reached the model layer
+  // on the post-import task (step 7). Each task submission emits one
+  // LLM_INPUT_PREPARED row; with 3 pre-export tasks + 1 post-import
+  // task, we expect at least 4. The presence of any of these scoped to
+  // userATaskIds + userBNewTaskId is what closes the audit-trail proof.
+  assert.ok(auditCounts.LLM_INPUT_PREPARED >= 4,
+    `expected >=4 LLM_INPUT_PREPARED (3 original + 1 post-import); got ${auditCounts.LLM_INPUT_PREPARED}`);
   // CONVERSATION_CREATED / CONVERSATION_ASSIGNED are emitted by the
   // task pipeline. They may not always be filterable to our test
   // run's exact metadata shape, so we treat them as informational
@@ -482,6 +494,7 @@ await test("Write docs/lattice-continuity-verification.md", async () => {
     `| \`SCRATCHPAD_PINNED\` | ${auditCounts.SCRATCHPAD_PINNED} |`,
     `| \`CONVERSATION_CREATED\` | ${auditCounts.CONVERSATION_CREATED} |`,
     `| \`CONVERSATION_ASSIGNED\` | ${auditCounts.CONVERSATION_ASSIGNED} |`,
+    `| \`LLM_INPUT_PREPARED\` | ${auditCounts.LLM_INPUT_PREPARED} |`,
     "",
     "Required minima (asserted in the spec): EXPORTED ≥ 1, IMPORTED ≥ 1,",
     "AUTO_WRITTEN ≥ 3 (one per User-A task), PINNED ≥ 1. The CONVERSATION_*",
