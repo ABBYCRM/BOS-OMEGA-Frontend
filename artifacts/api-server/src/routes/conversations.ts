@@ -113,6 +113,11 @@ router.get("/:id", async (req, res) => {
     return;
   }
 
+  // Task #64 — include `final_output` so the console can rehydrate
+  // the assistant's prior answer when the user resumes this thread.
+  // Without this field MessageList shows blank assistant bubbles for
+  // every restored turn, which breaks "resumable old conversations
+  // with full-fidelity prior turns".
   const tasks = await db
     .select({
       id: tasksTable.id,
@@ -120,6 +125,7 @@ router.get("/:id", async (req, res) => {
       tri_state: tasksTable.tri_state,
       task_type: tasksTable.task_type,
       final_status: tasksTable.final_status,
+      final_output: tasksTable.final_output,
       created_at: tasksTable.created_at,
     })
     .from(tasksTable)

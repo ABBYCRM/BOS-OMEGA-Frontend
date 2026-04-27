@@ -298,5 +298,75 @@ await test("re-export the imported conversation → bundle round-trips with hash
     "re-exported imported conversation bundle must hash-verify cleanly");
 });
 
+// Task #64 — code-review fix #1: a resumed conversation must restore
+// the assistant's prior answer text, not just task metadata. We pull
+// the imported conversation through GET /api/conversations/:id (which
+// is exactly what TaskConsole's resume path calls) and assert each
+// task carries a non-empty `final_output` whose JSON envelope decodes
+// to a non-empty `answer` field. Without this assertion a future
+// regression in the conversations route or the import path could
+// silently leave assistant bubbles blank in the console.
+await test("imported conversation rehydrates with non-empty assistant answers (resume fidelity)", async () => {
+  const r = await request("GET", `/api/conversations/${encodeURIComponent(importedConversationId)}`);
+  assert.equal(r.status, 200, `conversation detail failed: ${r.status} ${JSON.stringify(r.data)}`);
+  assert.ok(Array.isArray(r.data.tasks) && r.data.tasks.length >= 1,
+    "imported conversation must expose at least one task");
+  for (const t of r.data.tasks) {
+    assert.ok(typeof t.final_output === "string" && t.final_output.length > 0,
+      `task ${t.id} missing final_output (resume would show blank assistant bubble)`);
+    let parsed = null;
+    try { parsed = JSON.parse(t.final_output); } catch { /* fall through */ }
+    assert.ok(parsed && typeof parsed === "object",
+      `task ${t.id} final_output is not a JSON envelope`);
+    assert.ok(typeof parsed.answer === "string" && parsed.answer.length > 0,
+      `task ${t.id} final_output.answer is empty (assistant bubble would render blank)`);
+  }
+});
+
+// Task #64 — code-review fix #2: imported scratchpad rows whose
+// source_task_id pointed at a turn in the bundle must be remapped to
+// the freshly-created task id, otherwise the per-task scratchpad
+// panel for the imported thread renders empty. We re-export the
+// imported conversation, find the task that corresponds to our
+// originally-pinned turn, and assert that GET
+// /api/scratchpad?source_task_id=<new id> returns at least the
+// previously pinned row.
+await test("imported scratchpad row is visible in the imported thread (source_task_id remap)", async () => {
+  // Re-fetch the imported bundle to learn which new task id replaced
+  // our originally seeded task. The bundle round-trips deterministic
+  // turn ordering, so the most-recent turn's task_id IS the new id.
+  const re = await request("GET",
+    `/api/continuity-bundle?conversation_id=${encodeURIComponent(importedConversationId)}`);
+  assert.equal(re.status, 200);
+  // Pull the imported tasks straight from the conversation detail —
+  // that is the source of truth the scratchpad panel queries against.
+  const detail = await request("GET", `/api/conversations/${encodeURIComponent(importedConversationId)}`);
+  assert.equal(detail.status, 200);
+  const tasks = detail.data.tasks;
+  assert.ok(tasks.length >= 1, "imported conversation must have at least one task");
+  // Look up the scratchpad scoped to each new task id. At least one of
+  // the imported tasks must surface the originally pinned scratchpad
+  // row (remapped from the source task id), otherwise the per-task
+  // panel in the imported thread is empty.
+  let foundForAnyTask = false;
+  for (const t of tasks) {
+    const sp = await request("GET", `/api/scratchpad?source_task_id=${encodeURIComponent(t.id)}`);
+    assert.equal(sp.status, 200, `scratchpad fetch for task ${t.id} failed`);
+    const items = Array.isArray(sp.data) ? sp.data : (sp.data?.items ?? []);
+    if (items.length > 0) {
+      foundForAnyTask = true;
+      // Sanity-check: the returned row should actually carry the new
+      // task id (not the original source task id).
+      for (const row of items) {
+        assert.equal(row.source_task_id, t.id,
+          `scratchpad row ${row.id} source_task_id was not remapped to new task id ${t.id}`);
+      }
+      break;
+    }
+  }
+  assert.ok(foundForAnyTask,
+    "imported scratchpad row was not visible against any imported task — source_task_id remap failed");
+});
+
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

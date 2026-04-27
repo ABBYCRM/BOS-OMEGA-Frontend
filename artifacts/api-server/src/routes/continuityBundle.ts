@@ -601,6 +601,26 @@ router.post("/import", async (req, res) => {
     canon_hash: string;
   }> = [];
 
+  // Pre-allocate the new task ids for every turn so we can build a
+  // source→fresh map BEFORE we upsert scratchpad rows. Without this
+  // remap, imported scratchpad would keep `source_task_id` values
+  // pointing at task ids that don't exist in this importer's account
+  // (they belong to the source workspace), so the per-task scratchpad
+  // panel for the imported thread would render empty even though the
+  // pinned/auto-summary rows are present in memory_items. Mapping
+  // source_task_id → new task id makes the imported thread show the
+  // same scratchpad context the source AI saw. Turns whose
+  // source_task_id has no corresponding entry in the bundle's `turns`
+  // (e.g. a pin from an older turn that fell off the recency window)
+  // are remapped to null so the row still imports but isn't tied to a
+  // task that doesn't exist locally.
+  const turn_id_map = new Map<string, string>();
+  for (const t of payload.turns) {
+    const fresh = randomUUID();
+    new_task_ids.push(fresh);
+    turn_id_map.set(t.task_id, fresh);
+  }
+
   // Run as one transaction so a partial failure never leaves a half-
   // imported thread visible to the user. Memory upserts are idempotent
   // (re-importing the same bundle is a no-op for memory rows) but
@@ -609,6 +629,9 @@ router.post("/import", async (req, res) => {
   await db.transaction(async (tx) => {
     // --- Memory upserts (scratchpad + continuity), scoped to importer.
     for (const it of payload.scratchpad) {
+      const remapped_source_task_id = it.source_task_id
+        ? (turn_id_map.get(it.source_task_id) ?? null)
+        : null;
       await tx
         .insert(memoryItemsTable)
         .values({
@@ -619,7 +642,7 @@ router.post("/import", async (req, res) => {
           content: it.content.slice(0, 16_000),
           authority_level: Math.min(Math.max(0, it.authority_level | 0), 10),
           source: it.source === "manual_pin" || it.source === "auto_summary" ? it.source : "manual",
-          source_task_id: it.source_task_id,
+          source_task_id: remapped_source_task_id,
         })
         .onConflictDoUpdate({
           target: memoryItemsTable.id,
@@ -631,6 +654,12 @@ router.post("/import", async (req, res) => {
             content: it.content.slice(0, 16_000),
             authority_level: Math.min(Math.max(0, it.authority_level | 0), 10),
             source: it.source === "manual_pin" || it.source === "auto_summary" ? it.source : "manual",
+            // Keep the remap on overwrite too — re-importing the same
+            // bundle into the same account should converge the row's
+            // source_task_id to the latest fresh task id, otherwise a
+            // re-import would leave the row pointing at a stale id
+            // from the previous import attempt.
+            source_task_id: remapped_source_task_id,
             updated_at: new Date(),
           },
           where: eq(memoryItemsTable.user_id, userId),
@@ -672,11 +701,11 @@ router.post("/import", async (req, res) => {
       archived: false,
     });
 
-    // --- Turns become new tasks. NEW ids — we never re-use source ids
-    //     to avoid collisions with the importer's own task history.
+    // --- Turns become new tasks. We pre-allocated the new ids above
+    //     (so the scratchpad upsert could remap source_task_id), so
+    //     here we just look them up from turn_id_map.
     for (const t of payload.turns) {
-      const new_id = randomUUID();
-      new_task_ids.push(new_id);
+      const new_id = turn_id_map.get(t.task_id)!;
       // Reconstruct a final_output JSON envelope mimicking the
       // pipeline's bos_output shape so TaskDetail / chat rehydration
       // sees the same field shape it expects.

@@ -246,6 +246,10 @@ type ConversationDetail = {
     tri_state: string;
     task_type: string;
     final_status: string;
+    // Task #64 — present so resumed conversations can show the
+    // assistant's prior answer (parsed into bos_output) in
+    // MessageList instead of an empty assistant bubble.
+    final_output: string | null;
     created_at: string;
   }>;
 };
@@ -259,10 +263,14 @@ async function fetchConversationDetail(id: string): Promise<ConversationDetail> 
   return (await r.json()) as ConversationDetail;
 }
 
-// Re-hydrate a conversation's stored tasks into the chat-thread shape the
-// MessageList expects. We deliberately don't refetch each task's full
-// final_output here — the message bubble shows the input + a bare-bones
-// task summary, and clicking through opens the full Task Detail view.
+// Re-hydrate a conversation's stored tasks into the chat-thread shape
+// the MessageList expects. Task #64: parse `final_output` (a JSON
+// envelope produced by the pipeline) into `bos_output` so the
+// AssistantBubble shows the prior answer text — without this the
+// resumed thread looks empty even though the data is there. If the
+// envelope is malformed (legacy rows / partial writes) we fall back
+// to surfacing the raw string under `final_output` so the user is
+// never silently shown a blank bubble.
 function conversationToMessages(detail: ConversationDetail): ChatMessage[] {
   const out: ChatMessage[] = [];
   for (const t of detail.tasks) {
@@ -273,6 +281,33 @@ function conversationToMessages(detail: ConversationDetail): ChatMessage[] {
       attachments: [],
       ts: new Date(t.created_at).getTime(),
     });
+    // Prefer the parsed pipeline envelope so AssistantBubble shows
+    // the rich answer text + assumptions/uncertainties. If the row
+    // is legacy or partially-written and the JSON envelope is
+    // malformed, synthesize a minimal BosOutput pointing the
+    // `answer` field at the raw stored text — without this fallback
+    // MessageList renders "No answer text returned." even though
+    // the underlying string is non-empty, which is exactly the
+    // "blank assistant bubble" regression the resume-fidelity work
+    // was meant to eliminate.
+    let bos_output: BosOutput | undefined;
+    if (t.final_output) {
+      try {
+        bos_output = JSON.parse(t.final_output) as BosOutput;
+      } catch {
+        bos_output = {
+          state: (t.tri_state === "GO" || t.tri_state === "HOLD" || t.tri_state === "ABORT")
+            ? (t.tri_state as BosOutput["state"])
+            : "GO",
+          task_type: t.task_type || "general",
+          answer: t.final_output,
+          assumptions: [],
+          uncertainties: [],
+          missing_inputs: [],
+          failure_modes: [],
+        };
+      }
+    }
     out.push({
       id: `a-${t.id}`,
       role: "assistant",
@@ -283,6 +318,8 @@ function conversationToMessages(detail: ConversationDetail): ChatMessage[] {
         task_type: t.task_type,
         tri_state: t.tri_state,
         final_status: t.final_status,
+        final_output: t.final_output ?? undefined,
+        bos_output,
       },
       ts: new Date(t.created_at).getTime() + 1,
     });
