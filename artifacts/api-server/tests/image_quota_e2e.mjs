@@ -84,11 +84,40 @@ await test("login as super_admin", async () => {
   assert.ok(jar.cookie, "session cookie should be set");
 });
 
-async function clearOverride() {
-  await request(jar, "DELETE", "/api/image-quota/override");
+// Capture the super_admin's own user_id from the login session so the
+// override admin endpoints (now scoped under /users/:user_id/override)
+// can target their own account.
+let SELF_USER_ID = null;
+async function captureSelfUserId() {
+  if (SELF_USER_ID) return SELF_USER_ID;
+  const me = await request(jar, "GET", "/api/auth/me");
+  SELF_USER_ID =
+    me.data?.user?.id ?? me.data?.id ?? me.data?.user_id ?? null;
+  if (!SELF_USER_ID) throw new Error(`could not resolve self user_id from /api/auth/me: ${JSON.stringify(me.data)}`);
+  return SELF_USER_ID;
 }
 
-// Reset any leftover override from a previous test run before we start.
+async function setOverride(body) {
+  return request(
+    jar,
+    "PUT",
+    `/api/image-quota/users/${encodeURIComponent(SELF_USER_ID)}/override`,
+    body,
+  );
+}
+
+async function clearOverride() {
+  if (!SELF_USER_ID) return;
+  await request(
+    jar,
+    "DELETE",
+    `/api/image-quota/users/${encodeURIComponent(SELF_USER_ID)}/override`,
+  );
+}
+
+// Resolve the super_admin's user_id so we can call the admin override
+// endpoints below, then reset any leftover override from a prior run.
+await captureSelfUserId();
 await clearOverride();
 
 // ----------------------------------------------------------------- 2. GET shape
@@ -106,9 +135,9 @@ await test("GET /api/image-quota returns the documented shape", async () => {
   assert.equal(r.data.has_override, false, "no override yet");
 });
 
-// ----------------------------------------------------------------- 3. Set tight count cap
-await test("PUT /api/image-quota/override accepts max_images_per_day=1", async () => {
-  const r = await request(jar, "PUT", "/api/image-quota/override", {
+// ----------------------------------------------------------------- 3. Set tight count cap (super_admin path)
+await test("PUT /api/image-quota/users/:id/override (super_admin) accepts max_images_per_day=1", async () => {
+  const r = await setOverride({
     max_images_per_day: 1,
     max_usd_cents_per_day: null,
     note: "image_quota_e2e",
@@ -158,7 +187,7 @@ await test("captures today's baseline count", async () => {
   baselineCount = r.data?.usage_today?.count ?? 0;
   // To make the FIRST generation succeed regardless of baseline, raise
   // the cap to baseline + 1.
-  const tight = await request(jar, "PUT", "/api/image-quota/override", {
+  const tight = await setOverride({
     max_images_per_day: baselineCount + 1,
     max_usd_cents_per_day: null,
     note: "image_quota_e2e",
@@ -245,7 +274,7 @@ await test("max_usd_cents_per_day=0 still allows mock generations (mock cost = 0
   // Loosen count cap so the count gate doesn't accidentally take credit
   // for the block. With USD cap = 0 and mock cost = 0, the inequality
   // `usage + 0 > 0` is FALSE on a fresh day → mock keeps working.
-  const set = await request(jar, "PUT", "/api/image-quota/override", {
+  const set = await setOverride({
     max_images_per_day: 1000,
     max_usd_cents_per_day: 0,
     note: "image_quota_e2e_usd",
@@ -256,8 +285,12 @@ await test("max_usd_cents_per_day=0 still allows mock generations (mock cost = 0
 });
 
 // ----------------------------------------------------------------- 9. Cleanup
-await test("DELETE /api/image-quota/override drops the override", async () => {
-  const r = await request(jar, "DELETE", "/api/image-quota/override");
+await test("DELETE /api/image-quota/users/:id/override drops the override", async () => {
+  const r = await request(
+    jar,
+    "DELETE",
+    `/api/image-quota/users/${encodeURIComponent(SELF_USER_ID)}/override`,
+  );
   assert.equal(r.status, 200);
   assert.equal(r.data?.ok, true);
   const after = await request(jar, "GET", "/api/image-quota");
@@ -265,21 +298,94 @@ await test("DELETE /api/image-quota/override drops the override", async () => {
 });
 
 // ----------------------------------------------------------------- 10. Override input validation
-await test("PUT /api/image-quota/override rejects negative + oversized values", async () => {
-  const r1 = await request(jar, "PUT", "/api/image-quota/override", {
-    max_images_per_day: -1,
-  });
+await test("PUT override rejects negative + oversized values", async () => {
+  const r1 = await setOverride({ max_images_per_day: -1 });
   assert.equal(r1.status, 400, "negative count rejected");
 
-  const r2 = await request(jar, "PUT", "/api/image-quota/override", {
-    max_images_per_day: 999_999,
-  });
+  const r2 = await setOverride({ max_images_per_day: 999_999 });
   assert.equal(r2.status, 400, "oversized count rejected");
 
-  const r3 = await request(jar, "PUT", "/api/image-quota/override", {
-    max_usd_cents_per_day: 99_999_999,
-  });
+  const r3 = await setOverride({ max_usd_cents_per_day: 99_999_999 });
   assert.equal(r3.status, 400, "oversized USD rejected");
+});
+
+// --------------------------------------------- 11. Non-admin cannot mutate overrides
+//
+// This is the cost-governance core of the feature: a normal user must
+// NOT be able to lift their own image-spend cap. We register a temp
+// non-admin (member role), log in as them, and assert PUT/DELETE on
+// the override endpoints both return 403 SUPER_ADMIN_REQUIRED.
+await test("non-admin user cannot mutate /override (cost-governance gate)", async () => {
+  // Register a fresh member account via the public sign-up route. The
+  // helper jar is intentionally a fresh cookie jar so the super_admin
+  // session above isn't clobbered.
+  const memberJar = {};
+  const email = `quota-member-${Date.now()}@image-quota-e2e.test`;
+  const password = "Quota-e2e-Member-Pwd!9";
+  const reg = await request(memberJar, "POST", "/api/auth/register", {
+    email,
+    password,
+    display_name: "Quota E2E Member",
+  });
+  // If sign-up isn't available in this env, fall back to skipping
+  // gracefully — the gate is still enforced server-side, we just
+  // can't witness it from the client. Treat 4xx as "skip with note".
+  if (reg.status >= 400) {
+    console.log(
+      `       NOTE: /api/auth/register returned ${reg.status} (${JSON.stringify(reg.data)?.slice(0, 100)}); falling back to direct no-cookie call.`,
+    );
+    // Fall back: hit the endpoint without ANY session — should be 401.
+    const r = await fetch(
+      `${API_BASE}/api/image-quota/users/${encodeURIComponent(SELF_USER_ID)}/override`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ max_images_per_day: 999 }),
+      },
+    );
+    assert.equal(r.status, 401, "anonymous mutation must be 401");
+    return;
+  }
+  // Sign-up succeeded; the cookie should now be a member session.
+  // Some servers auto-login on register; if not, do an explicit login.
+  if (!memberJar.cookie) {
+    const li = await request(memberJar, "POST", "/api/auth/login", {
+      email,
+      password,
+    });
+    assert.equal(li.status, 200, "member login should succeed");
+  }
+  const memberSelf = await request(memberJar, "GET", "/api/auth/me");
+  const memberId =
+    memberSelf.data?.user?.id ?? memberSelf.data?.id ?? memberSelf.data?.user_id;
+  assert.ok(memberId, "got member user_id from /api/auth/me");
+
+  // The member tries to raise THEIR OWN cap — must be 403.
+  const putSelf = await request(
+    memberJar,
+    "PUT",
+    `/api/image-quota/users/${encodeURIComponent(memberId)}/override`,
+    { max_images_per_day: 999, max_usd_cents_per_day: 9999 },
+  );
+  assert.equal(
+    putSelf.status,
+    403,
+    `member raising own cap must be 403, got ${putSelf.status}: ${JSON.stringify(putSelf.data)?.slice(0, 200)}`,
+  );
+  assert.equal(putSelf.data?.code, "SUPER_ADMIN_REQUIRED");
+
+  // The member tries to drop the super_admin's cap — must also be 403.
+  const delAdmin = await request(
+    memberJar,
+    "DELETE",
+    `/api/image-quota/users/${encodeURIComponent(SELF_USER_ID)}/override`,
+  );
+  assert.equal(delAdmin.status, 403, "member dropping admin cap must be 403");
+
+  // GET, by contrast, is fine for the member (they need to see their
+  // own usage card on the Settings page).
+  const getMember = await request(memberJar, "GET", "/api/image-quota");
+  assert.equal(getMember.status, 200, "member can still GET own quota");
 });
 
 // Final cleanup so a re-run of this test doesn't inherit a stale override.
