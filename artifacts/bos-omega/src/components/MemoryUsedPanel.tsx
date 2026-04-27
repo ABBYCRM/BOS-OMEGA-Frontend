@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "wouter";
-import { ChevronDown, ChevronRight, Brain, Loader2, ExternalLink, AlertCircle, Scissors } from "lucide-react";
+import { ChevronDown, ChevronRight, Brain, Loader2, ExternalLink, AlertCircle, Scissors, Copy, Check, Download } from "lucide-react";
 import { useGetTaskMemoryContext, useListMemory } from "@workspace/api-client-react";
 
 type AuditEntry = {
@@ -81,6 +81,9 @@ export function MemoryUsedPanel({
 }) {
   const [open, setOpen] = useState(false);
   const [showFull, setShowFull] = useState(false);
+  // Task #53: transient confirmation that the clipboard write succeeded.
+  // Auto-clears after a short delay so repeated copies still feel responsive.
+  const [copied, setCopied] = useState(false);
 
   // Find the orchestrator-level MEMORY_INJECTED event. Task #46's pipeline
   // emits exactly one per task today, but if a future re-run produces more
@@ -185,6 +188,53 @@ export function MemoryUsedPanel({
   const fullText = fullQuery.data?.memory_context ?? null;
   const fullChars = fullQuery.data?.chars ?? null;
   const fullTruncated = fullQuery.data?.truncated ?? false;
+
+  // Task #53: copy/download affordances for the fetched full context.
+  // Both are gated on `showFull && fullText` in the JSX so they only render
+  // once the lazy fetch from Task #49 has actually returned a body — copying
+  // or downloading the bounded preview would be misleading.
+  const onCopyFull = async () => {
+    if (!fullText) return;
+    try {
+      await navigator.clipboard.writeText(fullText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Older browsers / non-secure contexts don't expose the async
+      // Clipboard API. Fall back to the legacy execCommand path so the
+      // affordance still works for users on http://localhost or http
+      // intranets where the clipboard is otherwise blocked.
+      const ta = document.createElement("textarea");
+      ta.value = fullText;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand("copy");
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      } catch {
+        /* swallow — nothing we can do, leave the button in its idle state */
+      }
+      document.body.removeChild(ta);
+    }
+  };
+
+  const onDownloadFull = () => {
+    if (!fullText) return;
+    const blob = new Blob([fullText], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    // Per the task spec: filename is the task id so multiple downloads
+    // from different tasks don't collide in the user's downloads folder.
+    a.download = `task-${taskId ?? "unknown"}-memory-context.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div
@@ -460,27 +510,63 @@ export function MemoryUsedPanel({
               {/* Affordance only renders when we have a taskId to fetch
                   against AND the preview is actually shorter than the
                   recorded full size. */}
-              {taskId && previewIsTruncated && (
-                showFull ? (
-                  <button
-                    type="button"
-                    onClick={() => setShowFull(false)}
-                    className="text-[10px] font-mono text-primary hover:underline"
-                    data-testid="memory-context-show-preview"
-                  >
-                    SHOW PREVIEW
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setShowFull(true)}
-                    className="text-[10px] font-mono text-primary hover:underline flex items-center gap-1"
-                    data-testid="memory-context-view-full"
-                  >
-                    VIEW FULL CONTEXT
-                  </button>
-                )
-              )}
+              <div className="flex items-center gap-3">
+                {/* Task #53: copy + download affordances. Only render once
+                    the full context has actually been fetched — copying or
+                    downloading the preview would be misleading because it's
+                    capped at 8000 chars by the orchestrator. */}
+                {showFull && fullText && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={onCopyFull}
+                      className="text-[10px] font-mono text-primary hover:underline inline-flex items-center gap-1"
+                      data-testid="memory-context-copy-full"
+                      aria-label={copied ? "Copied" : "Copy full memory context to clipboard"}
+                      title={copied ? "Copied" : "Copy full memory context to clipboard"}
+                    >
+                      {copied ? (
+                        <Check className="w-3 h-3 text-green-700" />
+                      ) : (
+                        <Copy className="w-3 h-3" />
+                      )}
+                      {copied ? "COPIED" : "COPY"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onDownloadFull}
+                      className="text-[10px] font-mono text-primary hover:underline inline-flex items-center gap-1"
+                      data-testid="memory-context-download-full"
+                      aria-label="Download full memory context as a .txt file"
+                      title="Download full memory context as a .txt file"
+                    >
+                      <Download className="w-3 h-3" />
+                      DOWNLOAD
+                    </button>
+                  </>
+                )}
+                {taskId && previewIsTruncated && (
+                  showFull ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowFull(false)}
+                      className="text-[10px] font-mono text-primary hover:underline"
+                      data-testid="memory-context-show-preview"
+                    >
+                      SHOW PREVIEW
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowFull(true)}
+                      className="text-[10px] font-mono text-primary hover:underline flex items-center gap-1"
+                      data-testid="memory-context-view-full"
+                    >
+                      VIEW FULL CONTEXT
+                    </button>
+                  )
+                )}
+              </div>
             </div>
             {showFull ? (
               fullQuery.isLoading ? (

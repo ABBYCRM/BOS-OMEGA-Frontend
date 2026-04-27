@@ -439,6 +439,160 @@ describe("MemoryUsedPanel", () => {
     expect(line.textContent).toMatch(/scratchpad notes ranked/); // plural
   });
 
+  // === Task #53: copy + download affordances on the full-context view ===
+
+  it("does NOT show copy/download buttons until the full context has been fetched", () => {
+    // No taskId / no fetch → buttons must not render even with the panel open.
+    renderWithClient(<MemoryUsedPanel audit={[memoryInjectedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+    expect(screen.queryByTestId("memory-context-copy-full")).toBeNull();
+    expect(screen.queryByTestId("memory-context-download-full")).toBeNull();
+  });
+
+  it("does NOT show copy/download buttons while the user is still on the preview", async () => {
+    // Stub the lazy fetch so the data is available, but don't click "View
+    // full context" — copying the preview would be misleading because it's
+    // capped at 8000 chars by the orchestrator.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              memory_context: "FULL CONTEXT",
+              chars: 11654,
+              truncated: false,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        ),
+      ),
+    );
+    renderWithClient(<MemoryUsedPanel audit={[memoryInjectedEntry]} taskId="task-1" />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+    // Preview is showing, fullText is null → no copy/download buttons.
+    expect(screen.getByTestId("memory-context-preview")).toBeInTheDocument();
+    expect(screen.queryByTestId("memory-context-copy-full")).toBeNull();
+    expect(screen.queryByTestId("memory-context-download-full")).toBeNull();
+  });
+
+  it("copies the full text to the clipboard with a visual confirmation", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    const fullBody = "FULL CONTEXT BODY 0123456789".repeat(10);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              memory_context: fullBody,
+              chars: 11654,
+              truncated: false,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        ),
+      ),
+    );
+
+    renderWithClient(<MemoryUsedPanel audit={[memoryInjectedEntry]} taskId="task-1" />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+    fireEvent.click(screen.getByTestId("memory-context-view-full"));
+
+    // Wait for the fetch to resolve and the buttons to appear.
+    const copyBtn = await screen.findByTestId("memory-context-copy-full");
+    expect(copyBtn.textContent).toMatch(/COPY/);
+    expect(copyBtn.textContent).not.toMatch(/COPIED/);
+
+    fireEvent.click(copyBtn);
+
+    // Clipboard receives the full body, not the bounded preview.
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(fullBody);
+
+    // Visual confirmation flips to COPIED.
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("memory-context-copy-full").textContent,
+      ).toMatch(/COPIED/);
+    });
+  });
+
+  it("downloads the full text as a .txt file named with the task id", async () => {
+    const fullBody = "FULL CONTEXT BODY".repeat(20);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              memory_context: fullBody,
+              chars: 11654,
+              truncated: false,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        ),
+      ),
+    );
+
+    // Spy the URL helpers so we can verify the blob URL lifecycle without
+    // touching real browser internals (jsdom doesn't actually download).
+    const createObjectURL = vi.fn((_b: Blob) => "blob:mock-url");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", {
+      value: createObjectURL,
+      configurable: true,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      value: revokeObjectURL,
+      configurable: true,
+    });
+
+    // Capture the synthesized <a> click so we can read href + download attrs.
+    const clicks: { href: string; download: string }[] = [];
+    const originalClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+      clicks.push({ href: this.href, download: this.download });
+    };
+
+    // Real task ids are UUIDs from randomUUID() in pipeline.ts — use a
+    // representative one here so the asserted filename mirrors what users
+    // actually see (and so we don't accidentally regress to the awkward
+    // "task-task-42-..." pattern a `task-`-prefixed fixture would produce).
+    const realisticTaskId = "550e8400-e29b-41d4-a716-446655440000";
+
+    try {
+      renderWithClient(
+        <MemoryUsedPanel audit={[memoryInjectedEntry]} taskId={realisticTaskId} />,
+      );
+      fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+      fireEvent.click(screen.getByTestId("memory-context-view-full"));
+
+      const downloadBtn = await screen.findByTestId(
+        "memory-context-download-full",
+      );
+      fireEvent.click(downloadBtn);
+
+      // Blob → object URL → <a download> → click → revoke. All must fire,
+      // and the filename must follow the task-<id>-memory-context.txt spec.
+      expect(createObjectURL).toHaveBeenCalledTimes(1);
+      expect(createObjectURL.mock.calls[0][0]).toBeInstanceOf(Blob);
+      expect(clicks).toHaveLength(1);
+      expect(clicks[0].download).toBe(
+        `task-${realisticTaskId}-memory-context.txt`,
+      );
+      expect(clicks[0].href).toContain("blob:mock-url");
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
+    } finally {
+      HTMLAnchorElement.prototype.click = originalClick;
+    }
+  });
+
   it("surfaces a fallback error message when the full-context fetch fails", async () => {
     vi.stubGlobal(
       "fetch",
