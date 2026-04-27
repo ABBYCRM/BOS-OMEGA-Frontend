@@ -255,6 +255,57 @@ await test("super_admin can log in", async () => {
 });
 
 /*
+ * Step 0 — preflight: bail out *before* submitting any tasks if the
+ * environment has no LLM provider wired in.
+ *
+ * Why this exists: without this gate, a fresh-clone install with no
+ * vendor key, no AI Integration env vars, and no Ollama instance would
+ * sail through provisioning and the inline-mock setup, then fail much
+ * later inside step 8 with "expected >=3 SCRATCHPAD_AUTO_WRITTEN, got
+ * 0" — a confusing assertion that hides the real cause ("no LLM
+ * provider is reachable, so every task HOLD'd"). The preflight
+ * endpoint walks the same 4-tier resolution chain as keyResolver.ts
+ * (DB → vendor env → legacy canonical env → AI Integrations proxy)
+ * plus a 1s Ollama probe, and returns ok:false + an actionable hint
+ * when nothing resolves. Surfacing that hint here turns a 30-second
+ * confused debugging session into an instant fix.
+ *
+ * Note this runs BEFORE the inline-mock setup further below: that
+ * setup *does* make `prov_generic` resolvable via the DB path during
+ * the run, but the teardown clears the mock key on truly fresh
+ * installs (anywhere `prov_generic` had no operator-stored key
+ * pre-run), so the preflight on the next clone-and-run still reflects
+ * ambient operator wiring and not stale state from a prior run.
+ *
+ * On preflight failure we close the inline-mock listener so the Node
+ * process can exit cleanly, then exit(1) immediately — no further
+ * test steps run, and the operator sees a one-line actionable hint
+ * instead of a downstream audit-count assertion.
+ */
+{
+  const pf = await fetch(`${API_BASE}/api/providers/preflight`, {
+    headers: { Accept: "application/json", Cookie: adminJar.cookie },
+  });
+  const pfData = await pf.json().catch(() => null);
+  if (pf.status !== 200 || !pfData || pfData.ok !== true) {
+    const hint = (pfData && typeof pfData.hint === "string" && pfData.hint)
+      || "No LLM provider is reachable in this env. Either set ANTHROPIC_API_KEY / OPENAI_API_KEY, provision the AI Integration, or configure a provider via Settings.";
+    console.error("\n  PREFLIGHT FAILURE — aborting before submitting any tasks.");
+    console.error(`  ${hint}`);
+    console.error("  (Without a reachable provider, tasks would HOLD on `no_provider_available`");
+    console.error("   and this spec would fail much later at the audit-count assertions with");
+    console.error("   a confusing message. Wire up a provider, then re-run.)\n");
+    await new Promise((res) => mockServer.close(() => res(null)));
+    process.exit(1);
+  }
+  const summary = Array.isArray(pfData.reachable)
+    ? pfData.reachable.map((r) => `${r.name}→${r.source}`).join(", ")
+    : "(none reported)";
+  console.log(`  ok  preflight: at least one LLM provider reachable (${summary})`);
+  pass++;
+}
+
+/*
  * Setup the inline mock provider via the admin API. State captured
  * here is restored in the teardown step at the bottom of the spec, so
  * an operator-configured DB is left exactly as it was before the run
@@ -739,7 +790,8 @@ await test("Write docs/lattice-continuity-verification.md", async () => {
     "",
     "| # | Step | Result |",
     "| --- | --- | --- |",
-    "| 0 | Inline mock LLM provider setup + ambient inventory | PASS |",
+    "| 0a | Preflight `GET /api/providers/preflight` — at least one LLM provider reachable | PASS |",
+    "| 0b | Inline mock LLM provider setup + ambient inventory | PASS |",
     "| 1 | Provision one fresh user via `POST /api/users` (super_admin) | PASS |",
     "| 2 | Submit 3 related tasks + 1 manual pin in original session | PASS |",
     "| 3 | `GET /api/lattice/export` — blob, hash, fence, preamble | PASS |",

@@ -29,6 +29,54 @@ router.get("/", async (_req, res) => {
   res.json(providers.map(sanitize));
 });
 
+// GET /api/providers/preflight — does this install have at least ONE
+// LLM provider with a resolvable key/route? Used by the lattice
+// round-trip self-test (and any future E2E test that submits tasks)
+// to fail loudly with an actionable hint *before* submitting tasks
+// that would otherwise HOLD on `no_provider_available` and surface as
+// a confusing audit-count assertion failure many steps later.
+//
+// Resolution mirrors `resolveProviderKey` exactly (DB → vendor env →
+// legacy canonical env → AI Integrations proxy). For Ollama there is
+// no key, so we cheaply probe `/api/version` with a 1s timeout — that
+// way a freshly seeded DB with `prov_ollama` enabled but no Ollama
+// process running does NOT incorrectly pass preflight.
+//
+// This endpoint must be declared before the `:id`-parameterised
+// routes below so Express does not try to interpret "preflight" as a
+// provider id. The current router has no `GET /:id` (only PATCH /
+// PUT / POST / DELETE on `:id`), but ordering it here keeps that
+// guarantee robust under future additions.
+router.get("/preflight", async (_req, res) => {
+  const providers = await db.select().from(llmProvidersTable);
+  const reachable: Array<{ name: string; source: string }> = [];
+  for (const p of providers) {
+    if (!p.enabled) continue;
+    if (p.name.toLowerCase() === "ollama") {
+      const ollamaHost = (process.env["OLLAMA_HOST"] || "http://localhost:11434").replace(/\/$/, "");
+      try {
+        const r = await fetch(`${ollamaHost}/api/version`, {
+          signal: AbortSignal.timeout(1000),
+        });
+        if (r.ok) reachable.push({ name: p.name, source: `ollama_local:${ollamaHost}` });
+      } catch (_e) { /* unreachable — skip */ }
+      continue;
+    }
+    const { key, source } = await resolveProviderKey(p.id, p.name);
+    if (key) reachable.push({ name: p.name, source });
+  }
+  if (reachable.length === 0) {
+    res.json({
+      ok: false,
+      reachable: [],
+      reason: "no_llm_provider_reachable",
+      hint: "No LLM provider is reachable in this env. Either set ANTHROPIC_API_KEY / OPENAI_API_KEY, provision the AI Integration, or configure a provider via Settings.",
+    });
+    return;
+  }
+  res.json({ ok: true, reachable });
+});
+
 router.post("/", async (req, res) => {
   const parsed = CreateProviderBody.safeParse(req.body);
   if (!parsed.success) {
