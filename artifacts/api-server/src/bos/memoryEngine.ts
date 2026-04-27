@@ -4,6 +4,7 @@ import { eq, desc } from "drizzle-orm";
 import {
   approxTokenCount,
   buildContextFromMemory as buildContextFromMemoryHelper,
+  DROPPED_TITLES_CAP,
   relevanceScore,
   selectWithinBudget,
   tokensFromText,
@@ -57,11 +58,25 @@ export interface InjectedItemRef {
   title: string;
 }
 
+// Task #52: DROPPED_TITLES_CAP is owned by memoryHelpers.ts (so the no-DB
+// unit-test harness can import it without dragging @workspace/db) and
+// re-exported here so existing call sites that pull engine constants from
+// memoryEngine.ts keep working.
+export { DROPPED_TITLES_CAP };
+
 export interface LayerSelection {
   /** Items that fit the per-layer token budget, in selected order. */
   items: string[];
   /** Items that ranked but were dropped because they did not fit the budget. */
   dropped: number;
+  /**
+   * Titles of the items that ranked but did not fit the budget, in the
+   * same iteration order as the greedy fit skipped them. Bounded to
+   * `DROPPED_TITLES_CAP` so the audit metadata stays cheap to render.
+   * Task #52: the count alone could not tell the user *which* notes were
+   * hidden — these titles close that loop.
+   */
+  dropped_titles: string[];
   /** Per-item provenance for each rendered string in `items`, same order. */
   injected: InjectedItemRef[];
 }
@@ -72,7 +87,7 @@ async function selectLayer(
   budget_tokens: number,
   prefix: string,
   initial_pull: number,
-): Promise<{ items: RankedItem[]; dropped: number }> {
+): Promise<{ items: RankedItem[]; dropped: number; dropped_titles: string[] }> {
   const rows = await db
     .select()
     .from(memoryItemsTable)
@@ -103,7 +118,10 @@ async function selectLayer(
   // the audit log (and ultimately the user) how many ranked items the
   // budget cutoff hid from the model — answering "why didn't the AI use
   // my note?" with "it ranked below the budget cutoff" instead of silence.
-  const { items, dropped } = selectWithinBudget(annotated, budget_tokens);
+  // Task #52: also surface the *titles* of the dropped items so the user
+  // can identify exactly which notes were hidden and act on them. Bounded
+  // to DROPPED_TITLES_CAP so the audit blob stays cheap to render.
+  const { items, dropped, dropped_items } = selectWithinBudget(annotated, budget_tokens);
   return {
     items: items.map((i) => ({
       id: i.r.id,
@@ -112,16 +130,18 @@ async function selectLayer(
       tokens: i.tokens,
     })),
     dropped,
+    dropped_titles: dropped_items.slice(0, DROPPED_TITLES_CAP).map((i) => i.r.title),
   };
 }
 
 function toSelection(
   layer: MemoryLayer,
-  picked: { items: RankedItem[]; dropped: number },
+  picked: { items: RankedItem[]; dropped: number; dropped_titles: string[] },
 ): LayerSelection {
   return {
     items: picked.items.map((i) => i.rendered),
     dropped: picked.dropped,
+    dropped_titles: picked.dropped_titles,
     injected: picked.items.map((i) => ({ id: i.id, layer, title: i.title })),
   };
 }

@@ -434,6 +434,12 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   // the full text here we cannot faithfully reproduce what the AI saw —
   // memory items mutate over time, so re-rendering at request time would
   // show a different context than the one actually injected.
+  // Task #52: alongside the dropped *count* per layer (added in #48), surface
+  // the actual *titles* of the items the greedy budget fit had to skip. The
+  // count alone tells the user "2 canon notes were trimmed" but not which
+  // two — so the user cannot decide whether to bump authority, shorten the
+  // note, or move it. The titles arrays are bounded to DROPPED_TITLES_CAP
+  // inside selectLayer so this audit row stays cheap to render.
   await auditLog(task_id, "MEMORY_INJECTED", `Memory context built (${memory_context.length} chars)`, {
     canon_items: canon_sel.items.length,
     continuity_items: continuity_sel.items.length,
@@ -443,6 +449,10 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     continuity_dropped: continuity_sel.dropped,
     patches_dropped: patches_sel.dropped,
     scratchpad_dropped: scratchpad_sel.dropped,
+    canon_dropped_titles: canon_sel.dropped_titles,
+    continuity_dropped_titles: continuity_sel.dropped_titles,
+    patches_dropped_titles: patches_sel.dropped_titles,
+    scratchpad_dropped_titles: scratchpad_sel.dropped_titles,
     memory_context_chars: memory_context.length,
     section_headers,
     memory_context_preview: memory_context.slice(0, 8000),

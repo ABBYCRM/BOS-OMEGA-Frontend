@@ -11,6 +11,18 @@
  */
 
 const APPROX_CHARS_PER_TOKEN = 4;
+
+/**
+ * Cap on how many dropped titles we surface to the audit log per layer.
+ * Task #52: an audit row is meant to be cheap to render in the trace UI,
+ * so we bound the array. The full ranked list is regenerated on the next
+ * task run, so the cap is a UX trade-off, not a data-loss risk. 20 covers
+ * the realistic case (a user with a few dozen canon notes) without
+ * bloating the metadata blob. Lives here (not in memoryEngine.ts) so the
+ * pure-helpers test harness can import it without dragging @workspace/db.
+ */
+export const DROPPED_TITLES_CAP = 20;
+
 const STOPWORDS = new Set([
   "the","a","an","and","or","but","of","to","in","on","at","for","with","by",
   "is","are","was","were","be","been","being","do","does","did","have","has",
@@ -90,8 +102,11 @@ export function approxTokenCount(text: string): number {
  * Inputs are pre-sorted by the caller (authority → relevance → recency in
  * selectLayer). This helper walks the sorted list once and picks items
  * whose token cost still fits within `budget_tokens`. Anything that ranked
- * but did not fit is counted in `dropped` so callers (and the audit log)
- * can tell the user how many of their notes the budget cutoff hid.
+ * but did not fit is counted in `dropped` AND echoed back as
+ * `dropped_items` in the same iteration order so callers (and the audit
+ * log) can tell the user not just *how many* of their notes the budget
+ * cutoff hid, but *which specific ones* — closing the loop so the user
+ * can decide whether to bump authority, shorten the note, or move it.
  *
  * Pure: no DB, no clock. Lives here so the unit-test harness can exercise
  * it without dragging @workspace/db.
@@ -99,19 +114,19 @@ export function approxTokenCount(text: string): number {
 export function selectWithinBudget<T extends { tokens: number }>(
   ranked: readonly T[],
   budget_tokens: number,
-): { items: T[]; dropped: number } {
+): { items: T[]; dropped: number; dropped_items: T[] } {
   const items: T[] = [];
+  const dropped_items: T[] = [];
   let used = 0;
-  let dropped = 0;
   for (const item of ranked) {
     if (used + item.tokens > budget_tokens) {
-      dropped++;
+      dropped_items.push(item);
       continue;
     }
     items.push(item);
     used += item.tokens;
   }
-  return { items, dropped };
+  return { items, dropped: dropped_items.length, dropped_items };
 }
 
 /**

@@ -42,6 +42,7 @@ import {
   buildContextFromMemory,
   approxTokenCount,
   selectWithinBudget,
+  DROPPED_TITLES_CAP,
 } from "../src/bos/memoryHelpers.ts";
 // BOP.FRONT_DOOR.v1 — pure, no-deps classifier + UX response builder.
 import { classifyFrontDoorInput } from "../src/bos/frontDoorInterpreter.ts";
@@ -720,9 +721,103 @@ test("selectWithinBudget skips an oversized item but keeps filling with later on
 });
 
 test("selectWithinBudget on an empty ranked list returns zero items and zero dropped", () => {
-  const { items, dropped } = selectWithinBudget([], 1000);
+  const { items, dropped, dropped_items } = selectWithinBudget([], 1000);
   assert.equal(items.length, 0);
   assert.equal(dropped, 0);
+  assert.deepEqual(dropped_items, []);
+});
+
+console.log("\nTask #52 dropped titles (specific notes, not just a count)");
+
+test("selectWithinBudget echoes dropped_items so callers can extract titles", () => {
+  // Five items at 200 tokens, budget 750 → first 3 fit, last 2 overflow.
+  // The dropped_items array must contain *those exact two items*, in the
+  // same iteration order the greedy fit skipped them. This is what
+  // selectLayer maps to .title for the audit log so the user can
+  // identify which specific notes were trimmed.
+  const ranked = [
+    { title: "alpha",   rendered: "[CANON:alpha] x",   tokens: 200 },
+    { title: "beta",    rendered: "[CANON:beta] x",    tokens: 200 },
+    { title: "gamma",   rendered: "[CANON:gamma] x",   tokens: 200 },
+    { title: "delta",   rendered: "[CANON:delta] x",   tokens: 200 },
+    { title: "epsilon", rendered: "[CANON:epsilon] x", tokens: 200 },
+  ];
+  const { items, dropped, dropped_items } = selectWithinBudget(ranked, 750);
+  assert.equal(items.length, 3);
+  assert.equal(dropped, 2);
+  // Mirror what selectLayer does: pick the .title from each dropped row.
+  const dropped_titles = dropped_items.map((i) => i.title);
+  assert.deepEqual(dropped_titles, ["delta", "epsilon"],
+    "dropped_titles must list exactly the items the greedy fit skipped, in order");
+  // The kept items must NOT appear in dropped_items (and vice versa).
+  const kept_titles = items.map((i) => i.title);
+  for (const t of dropped_titles) {
+    assert.ok(!kept_titles.includes(t), `kept items leaked into dropped_items: ${t}`);
+  }
+  for (const t of kept_titles) {
+    assert.ok(!dropped_titles.includes(t), `dropped items leaked into kept items: ${t}`);
+  }
+  // The dropped count must equal the dropped_items length — they are
+  // two views of the same set, never out of sync.
+  assert.equal(dropped, dropped_items.length);
+});
+
+test("selectWithinBudget reports the oversized-but-skipped item by title (greedy-continue path)", () => {
+  // The huge item is dropped, but the small items after it still fit.
+  // dropped_items must contain exactly the huge one — not the smalls.
+  const ranked = [
+    { title: "small-1", rendered: "[CANON:small-1] x", tokens: 100 },
+    { title: "huge",    rendered: "[CANON:huge] y",    tokens: 5000 },
+    { title: "small-2", rendered: "[CANON:small-2] z", tokens: 100 },
+  ];
+  const { items, dropped, dropped_items } = selectWithinBudget(ranked, 500);
+  assert.equal(items.length, 2);
+  assert.equal(dropped, 1);
+  assert.deepEqual(dropped_items.map((i) => i.title), ["huge"],
+    "only the huge item ranked-but-overflowed; smalls fit and must not appear");
+});
+
+test("selectWithinBudget returns empty dropped_items when everything fits", () => {
+  // Symmetric to the dropped > 0 cases: when nothing overflows, the
+  // titles array must be empty so the audit log records [] not undefined.
+  const ranked = [
+    { title: "a", rendered: "[CANON:a] one",   tokens: 10 },
+    { title: "b", rendered: "[CANON:b] two",   tokens: 10 },
+    { title: "c", rendered: "[CANON:c] three", tokens: 10 },
+  ];
+  const { items, dropped, dropped_items } = selectWithinBudget(ranked, 100);
+  assert.equal(items.length, 3);
+  assert.equal(dropped, 0);
+  assert.deepEqual(dropped_items, []);
+});
+
+test("dropped_titles list (as exposed by selectLayer) is bounded to a sane cap", () => {
+  // Replays the cap selectLayer applies on top of selectWithinBudget so
+  // the MEMORY_INJECTED audit metadata stays cheap to render even when a
+  // user has hundreds of low-authority notes overflowing the budget.
+  // Imports DROPPED_TITLES_CAP from the production module so this test
+  // never drifts out of sync with the engine when the cap is tuned.
+  assert.ok(typeof DROPPED_TITLES_CAP === "number" && DROPPED_TITLES_CAP > 0,
+    "DROPPED_TITLES_CAP must be a positive number");
+  const ranked = Array.from({ length: DROPPED_TITLES_CAP * 5 }, (_, i) => ({
+    title: `note-${i}`,
+    rendered: `[CANON:note-${i}] x`,
+    tokens: 100,
+  }));
+  // Budget = 100 → only the first item fits; everything else overflows.
+  const { items, dropped_items } = selectWithinBudget(ranked, 100);
+  assert.equal(items.length, 1);
+  assert.equal(dropped_items.length, ranked.length - 1,
+    "selectWithinBudget itself returns the full overflow list");
+  // The cap is applied at the selectLayer boundary before audit logging.
+  const dropped_titles = dropped_items.slice(0, DROPPED_TITLES_CAP).map((i) => i.title);
+  assert.equal(dropped_titles.length, DROPPED_TITLES_CAP,
+    `selectLayer caps dropped_titles at ${DROPPED_TITLES_CAP} for the audit blob`);
+  // Ordering invariant: capped slice still starts with the first overflow.
+  assert.equal(dropped_titles[0], "note-1",
+    "capped dropped_titles preserves overflow iteration order from the head");
+  assert.equal(dropped_titles[DROPPED_TITLES_CAP - 1], `note-${DROPPED_TITLES_CAP}`,
+    "capped dropped_titles preserves overflow iteration order at the tail of the cap");
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
