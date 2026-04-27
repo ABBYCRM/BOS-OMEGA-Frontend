@@ -794,8 +794,28 @@ function ProviderCard({ provider }: { provider: any }) {
           setTestResult(null);
           setDiscoverResult(null);
           invalidate();
+          // One-click activation: save → test → if OK enable + discover.
+          // Anything that fails surfaces in testResult; we never silently
+          // flip the toggle on for a key that didn't authenticate.
           test.mutate({ id: provider.id }, {
-            onSuccess: (r) => { setTestResult(r); invalidate(); },
+            onSuccess: (r) => {
+              setTestResult(r);
+              invalidate();
+              if (r.ok) {
+                if (!provider.enabled) {
+                  update.mutate(
+                    { id: provider.id, data: { enabled: true } },
+                    { onSuccess: invalidate },
+                  );
+                }
+                discover.mutate({ id: provider.id }, {
+                  onSuccess: (d) => {
+                    setDiscoverResult({ discovered: d.discovered, newly_registered: d.newly_registered });
+                    invalidate();
+                  },
+                });
+              }
+            },
           });
         },
       },
@@ -901,11 +921,12 @@ function ProviderCard({ provider }: { provider: any }) {
             </div>
             <button
               onClick={handleSaveKey}
-              disabled={!keyInput.trim() || setKey.isPending}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg text-[13px] font-medium hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-card"
+              disabled={!keyInput.trim() || setKey.isPending || test.isPending || discover.isPending}
+              data-testid={`button-save-activate-${provider.id}`}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg text-[13px] font-medium hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-card whitespace-nowrap"
             >
-              {setKey.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-              Save key
+              {(setKey.isPending || test.isPending || discover.isPending) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              {setKey.isPending ? "Saving…" : test.isPending ? "Testing…" : discover.isPending ? "Discovering…" : "Save & Activate"}
             </button>
             {hasKey && (
               <button
