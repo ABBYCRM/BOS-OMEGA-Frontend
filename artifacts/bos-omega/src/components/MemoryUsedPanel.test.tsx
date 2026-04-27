@@ -1038,4 +1038,267 @@ describe("MemoryUsedPanel", () => {
       /5 scratchpad notes ranked but didn't fit the 750-token scratchpad budget/,
     );
   });
+
+  // === Task #60: per-layer trimmed-titles disclosure ===
+  //
+  // The orchestrator records per-layer `*_dropped_titles` arrays on
+  // MEMORY_INJECTED (added in Task #52, bounded to DROPPED_TITLES_CAP=20
+  // in artifacts/api-server/src/bos/memoryHelpers.ts). The Memory Used
+  // panel surfaces them as an expandable list under each layer's line in
+  // the dropped notice so users can see *which* notes were trimmed and
+  // click through to the Memory Manager when an id is recoverable from
+  // the parallel `dropped_items` array.
+
+  it("hides the per-layer trimmed-titles toggle on legacy rows with no *_dropped_titles", () => {
+    // Legacy: dropped count > 0, no titles array → toggle must NOT render.
+    const legacyDropped = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        canon_dropped: 2,
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[legacyDropped]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+    expect(screen.getByTestId("memory-dropped-notice")).toBeInTheDocument();
+    expect(screen.queryByTestId("memory-dropped-titles-canon")).toBeNull();
+    expect(
+      screen.queryByTestId("memory-dropped-titles-toggle-canon"),
+    ).toBeNull();
+  });
+
+  it("renders one trimmed-titles toggle per dropped layer (collapsed by default)", () => {
+    const droppedEntry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        canon_dropped: 2,
+        continuity_dropped: 1,
+        canon_dropped_titles: ["Niche policy clause", "Edge-case rubric"],
+        continuity_dropped_titles: ["Last week's field log"],
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[droppedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    const canonToggle = screen.getByTestId(
+      "memory-dropped-titles-toggle-canon",
+    );
+    expect(canonToggle.textContent).toMatch(/SHOW TRIMMED TITLES \(2\)/);
+    expect(canonToggle).toHaveAttribute("aria-expanded", "false");
+
+    const continuityToggle = screen.getByTestId(
+      "memory-dropped-titles-toggle-continuity",
+    );
+    expect(continuityToggle.textContent).toMatch(/SHOW TRIMMED TITLES \(1\)/);
+    expect(continuityToggle).toHaveAttribute("aria-expanded", "false");
+
+    // Layers with zero dropped don't appear in the notice at all,
+    // so their disclosures must also be absent.
+    expect(
+      screen.queryByTestId("memory-dropped-titles-toggle-patches"),
+    ).toBeNull();
+    expect(
+      screen.queryByTestId("memory-dropped-titles-toggle-scratchpad"),
+    ).toBeNull();
+
+    // Lists themselves are hidden until the user clicks the toggle.
+    expect(
+      screen.queryByTestId("memory-dropped-titles-list-canon"),
+    ).toBeNull();
+    expect(
+      screen.queryByTestId("memory-dropped-titles-list-continuity"),
+    ).toBeNull();
+  });
+
+  it("expands a per-layer trimmed-titles list independently of other layers", () => {
+    const droppedEntry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        canon_dropped: 2,
+        continuity_dropped: 1,
+        canon_dropped_titles: ["Niche policy clause", "Edge-case rubric"],
+        continuity_dropped_titles: ["Last week's field log"],
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[droppedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    fireEvent.click(screen.getByTestId("memory-dropped-titles-toggle-canon"));
+
+    const canonList = screen.getByTestId("memory-dropped-titles-list-canon");
+    expect(canonList.textContent).toContain("Niche policy clause");
+    expect(canonList.textContent).toContain("Edge-case rubric");
+    expect(
+      screen.getByTestId("memory-dropped-titles-toggle-canon"),
+    ).toHaveAttribute("aria-expanded", "true");
+
+    // Continuity stays collapsed — the four disclosures don't share state.
+    expect(
+      screen.queryByTestId("memory-dropped-titles-list-continuity"),
+    ).toBeNull();
+    expect(
+      screen.getByTestId("memory-dropped-titles-toggle-continuity"),
+    ).toHaveAttribute("aria-expanded", "false");
+
+    // Toggle canon back to collapsed.
+    fireEvent.click(screen.getByTestId("memory-dropped-titles-toggle-canon"));
+    expect(
+      screen.queryByTestId("memory-dropped-titles-list-canon"),
+    ).toBeNull();
+  });
+
+  it("links each trimmed title to /memory#item-<id> when dropped_items carries the matching (layer, title)", () => {
+    const droppedEntry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        canon_dropped: 2,
+        canon_dropped_titles: ["Niche policy clause", "Edge-case rubric"],
+        // Only the first title has a matching id in dropped_items;
+        // the second must fall back to plain text per the task spec.
+        dropped_items: [
+          { id: "mem-canon-2", layer: "canon", title: "Niche policy clause" },
+        ],
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[droppedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+    fireEvent.click(screen.getByTestId("memory-dropped-titles-toggle-canon"));
+
+    // Matched title → Memory Manager deep-link.
+    const link = screen.getByTestId("memory-dropped-title-link-canon-0");
+    expect(link.getAttribute("href")).toBe("/memory#item-mem-canon-2");
+    expect(link.textContent).toContain("Niche policy clause");
+
+    // Unmatched title → plain text, no anchor.
+    expect(
+      screen.queryByTestId("memory-dropped-title-link-canon-1"),
+    ).toBeNull();
+    const text = screen.getByTestId("memory-dropped-title-text-canon-1");
+    expect(text.textContent).toContain("Edge-case rubric");
+  });
+
+  it("keys the (layer, title) lookup so two layers with the same title don't cross-link", () => {
+    // Two dropped notes share the same title across canon and scratchpad.
+    // The lookup must NOT resolve a scratchpad title to a canon id.
+    const droppedEntry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        canon_dropped: 1,
+        scratchpad_dropped: 1,
+        canon_dropped_titles: ["Style rule"],
+        scratchpad_dropped_titles: ["Style rule"],
+        dropped_items: [
+          { id: "mem-canon-99", layer: "canon", title: "Style rule" },
+          // No scratchpad row → its title must render as plain text.
+        ],
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[droppedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+    fireEvent.click(screen.getByTestId("memory-dropped-titles-toggle-canon"));
+    fireEvent.click(
+      screen.getByTestId("memory-dropped-titles-toggle-scratchpad"),
+    );
+
+    // Canon resolves to its id.
+    const canonLink = screen.getByTestId("memory-dropped-title-link-canon-0");
+    expect(canonLink.getAttribute("href")).toBe("/memory#item-mem-canon-99");
+
+    // Scratchpad has no matching dropped_items entry → plain text only.
+    expect(
+      screen.queryByTestId("memory-dropped-title-link-scratchpad-0"),
+    ).toBeNull();
+    expect(
+      screen.getByTestId("memory-dropped-title-text-scratchpad-0").textContent,
+    ).toContain("Style rule");
+  });
+
+  it("shows '…and N more' when the dropped count exceeds the recorded titles array (capped at DROPPED_TITLES_CAP)", () => {
+    // The orchestrator caps *_dropped_titles at DROPPED_TITLES_CAP=20 server
+    // side. When more notes were dropped than the array carries, the UI
+    // must surface the overflow explicitly so users don't read "I dropped
+    // 25, only 20 named" as missing data.
+    const titles = Array.from({ length: 20 }, (_, i) => `note-${i + 1}`);
+    const droppedEntry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        canon_dropped: 25,
+        canon_dropped_titles: titles,
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[droppedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    // Toggle copy includes the "X of Y" form when overflow > 0.
+    const toggle = screen.getByTestId("memory-dropped-titles-toggle-canon");
+    expect(toggle.textContent).toMatch(/SHOW TRIMMED TITLES \(20 of 25\)/);
+
+    // Overflow notice only appears inside the expanded list.
+    expect(
+      screen.queryByTestId("memory-dropped-titles-overflow-canon"),
+    ).toBeNull();
+    fireEvent.click(toggle);
+    const overflow = screen.getByTestId("memory-dropped-titles-overflow-canon");
+    expect(overflow.textContent).toMatch(/…and 5 more/);
+    expect(overflow.textContent).toMatch(/caps per-layer trimmed titles at 20/);
+  });
+
+  it("uses the simple '(n)' toggle form and hides the overflow notice when titles array carries every dropped note", () => {
+    const droppedEntry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        canon_dropped: 2,
+        canon_dropped_titles: ["First", "Second"],
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[droppedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    expect(
+      screen.getByTestId("memory-dropped-titles-toggle-canon").textContent,
+    ).toMatch(/SHOW TRIMMED TITLES \(2\)/);
+    fireEvent.click(screen.getByTestId("memory-dropped-titles-toggle-canon"));
+    expect(
+      screen.queryByTestId("memory-dropped-titles-overflow-canon"),
+    ).toBeNull();
+  });
+
+  it("ignores malformed *_dropped_titles entries instead of crashing", () => {
+    // Defensive parser must drop non-string entries silently — the panel
+    // never trusts audit metadata to be well-formed.
+    const droppedEntry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        canon_dropped: 3,
+        // Mix of valid strings, a number, null, and an object. Only the
+        // two strings should make it through to the rendered list.
+        canon_dropped_titles: [
+          "Real title A",
+          42,
+          null,
+          { not: "a string" },
+          "Real title B",
+        ],
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[droppedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    const toggle = screen.getByTestId("memory-dropped-titles-toggle-canon");
+    // dropped: 3, valid recorded: 2 → toggle shows "(2 of 3)"
+    expect(toggle.textContent).toMatch(/SHOW TRIMMED TITLES \(2 of 3\)/);
+    fireEvent.click(toggle);
+    const list = screen.getByTestId("memory-dropped-titles-list-canon");
+    expect(list.textContent).toContain("Real title A");
+    expect(list.textContent).toContain("Real title B");
+    expect(list.textContent).not.toContain("42");
+    expect(list.textContent).not.toContain("a string");
+  });
 });

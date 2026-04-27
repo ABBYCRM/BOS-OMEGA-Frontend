@@ -41,6 +41,18 @@ type MemoryMeta = {
   continuity_dropped?: number;
   patches_dropped?: number;
   scratchpad_dropped?: number;
+  // Task #52 / #60: per-layer titles of the items the budget cut, in the
+  // same iteration order as the greedy fit skipped them. Bounded server-
+  // side to DROPPED_TITLES_CAP (mirrored below) so the audit row stays
+  // cheap. The Memory Used panel renders these inline under each
+  // dropped-notice line so users can see exactly which notes were
+  // trimmed and click through to the Memory Manager when the matching
+  // dropped_items row carries an id. Optional so legacy MEMORY_INJECTED
+  // rows recorded before Task #52 keep rendering with count-only copy.
+  canon_dropped_titles?: string[];
+  continuity_dropped_titles?: string[];
+  patches_dropped_titles?: string[];
+  scratchpad_dropped_titles?: string[];
   memory_context_chars?: number;
   section_headers?: string[];
   memory_context_preview?: string;
@@ -58,6 +70,14 @@ type MemoryMeta = {
   // — they fall back to MEMORY_TOKEN_BUDGETS_DEFAULT below.
   budgets?: RecordedBudgets;
 };
+
+// Mirror of DROPPED_TITLES_CAP in artifacts/api-server/src/bos/memoryHelpers.ts.
+// The orchestrator caps each per-layer *_dropped_titles array at this size
+// so the audit row stays cheap to render. The UI mirrors the same cap when
+// it slices the array defensively (in case a future server bump lands
+// before the panel is updated) AND when computing the "…and N more"
+// truncation hint, so the two ends of the contract always agree.
+const DROPPED_TITLES_CAP = 20;
 
 // Engine defaults used as a fallback when the audit row predates Task #59
 // or the budgets field is malformed. These mirror MEMORY_TOKEN_BUDGETS in
@@ -109,6 +129,14 @@ export function MemoryUsedPanel({
   // headline, and a typical task can drop up to DROPPED_TITLES_CAP × 4
   // layers = 80 rows, which would dominate the panel if always-on.
   const [showDroppedItems, setShowDroppedItems] = useState(false);
+  // Task #60: per-layer dropped titles disclosure. Each layer in the
+  // dropped notice can independently expand to show the recorded
+  // *_dropped_titles array (the actual notes the budget cut). Stored as
+  // a record keyed by layer so the four disclosures don't share state —
+  // a user expanding canon shouldn't also expand continuity.
+  const [expandedDroppedTitleLayers, setExpandedDroppedTitleLayers] = useState<
+    Record<string, boolean>
+  >({});
 
   // Find the orchestrator-level MEMORY_INJECTED event. Task #46's pipeline
   // emits exactly one per task today, but if a future re-run produces more
@@ -130,6 +158,30 @@ export function MemoryUsedPanel({
   // metadata blob can't crash the panel — anything not-an-array or with
   // non-string id/layer/title is silently filtered.
   const dropped_items_full: InjectedItem[] = parseInjectedItems(meta.dropped_items);
+  // Task #60: defensive parser for the per-layer *_dropped_titles arrays.
+  // Returns an empty array when the field is missing, malformed, or
+  // contains non-string entries — same hardening pattern as
+  // parseInjectedItems above so malformed audit metadata can't crash
+  // the panel.
+  const parseTitles = (raw: unknown): string[] =>
+    Array.isArray(raw) ? raw.filter((t): t is string => typeof t === "string") : [];
+  const droppedTitlesByLayer: Record<LayerKey, string[]> = {
+    CANON: parseTitles(meta.canon_dropped_titles),
+    CONTINUITY: parseTitles(meta.continuity_dropped_titles),
+    PATCHES: parseTitles(meta.patches_dropped_titles),
+    SCRATCHPAD: parseTitles(meta.scratchpad_dropped_titles),
+  };
+  // Task #60: build a (layer, title) → id lookup off the recorded
+  // dropped_items so each rendered title can deep-link to its source row
+  // in the Memory Manager when the same (layer, title) tuple is present
+  // in dropped_items. Two different layers can legitimately have the
+  // same title, so we key on both — never on title alone — to avoid
+  // sending a user to the wrong layer's row. When no id is found, the
+  // title is rendered as plain text per the task spec.
+  const droppedIdByLayerTitle = new Map<string, string>();
+  for (const it of dropped_items_full) {
+    droppedIdByLayerTitle.set(`${it.layer.toUpperCase()}|${it.title}`, it.id);
+  }
 
   // Task #49: only fire the lazy fetch when the user has both opened the
   // panel AND clicked "View full context". Without the panel-open guard the
@@ -408,20 +460,124 @@ export function MemoryUsedPanel({
                     className="list-disc pl-5 space-y-0.5"
                     data-testid="memory-dropped-list"
                   >
-                    {droppedLayers.map((l) => (
-                      <li
-                        key={l.key}
-                        data-testid={`memory-dropped-${l.key.toLowerCase()}`}
-                      >
-                        <span className={`font-bold ${LAYER_COLORS[l.key]}`}>
-                          {l.dropped}
-                        </span>{" "}
-                        of your {LAYER_PLAIN_NAME[l.key]} note
-                        {l.dropped === 1 ? "" : "s"} ranked but didn't fit
-                        the {liveBudgets[l.key].toLocaleString()}-token{" "}
-                        {LAYER_PLAIN_NAME[l.key]} budget for this task.
-                      </li>
-                    ))}
+                    {droppedLayers.map((l) => {
+                      // Task #60: per-layer disclosure of the actual titles
+                      // the budget cut. The orchestrator records up to
+                      // DROPPED_TITLES_CAP titles per layer; we mirror the
+                      // cap here so a future server bump can't push us
+                      // past the contract by surprise. When the dropped
+                      // count exceeds what's recorded, the "…and N more"
+                      // hint at the bottom of the list keeps users honest
+                      // about how much was cut beyond the named tail.
+                      const allTitles = droppedTitlesByLayer[l.key];
+                      const displayTitles = allTitles.slice(0, DROPPED_TITLES_CAP);
+                      const overflow = Math.max(0, l.dropped - displayTitles.length);
+                      const expanded = !!expandedDroppedTitleLayers[l.key];
+                      const layerLower = l.key.toLowerCase();
+                      const titlesBodyId = `memory-dropped-titles-body-${layerLower}`;
+                      return (
+                        <li
+                          key={l.key}
+                          data-testid={`memory-dropped-${layerLower}`}
+                        >
+                          <span className={`font-bold ${LAYER_COLORS[l.key]}`}>
+                            {l.dropped}
+                          </span>{" "}
+                          of your {LAYER_PLAIN_NAME[l.key]} note
+                          {l.dropped === 1 ? "" : "s"} ranked but didn't fit
+                          the {liveBudgets[l.key].toLocaleString()}-token{" "}
+                          {LAYER_PLAIN_NAME[l.key]} budget for this task.
+                          {/* Task #60: expandable titles list. Hidden
+                              entirely on legacy MEMORY_INJECTED rows where
+                              *_dropped_titles is missing — the count copy
+                              above still tells the user the headline so we
+                              don't surface an empty toggle. */}
+                          {displayTitles.length > 0 && (
+                            <div
+                              className="mt-1"
+                              data-testid={`memory-dropped-titles-${layerLower}`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedDroppedTitleLayers((prev) => ({
+                                    ...prev,
+                                    [l.key]: !prev[l.key],
+                                  }))
+                                }
+                                aria-expanded={expanded}
+                                aria-controls={titlesBodyId}
+                                className="text-[10px] font-mono text-primary hover:underline inline-flex items-center gap-1"
+                                data-testid={`memory-dropped-titles-toggle-${layerLower}`}
+                              >
+                                {expanded ? (
+                                  <ChevronDown className="w-3 h-3" />
+                                ) : (
+                                  <ChevronRight className="w-3 h-3" />
+                                )}
+                                {expanded ? "HIDE" : "SHOW"} TRIMMED TITLES
+                                {" ("}
+                                {overflow > 0
+                                  ? `${displayTitles.length} of ${l.dropped}`
+                                  : displayTitles.length}
+                                {")"}
+                              </button>
+                              {expanded && (
+                                <ul
+                                  id={titlesBodyId}
+                                  className="mt-1 ml-1 space-y-0.5 list-none"
+                                  data-testid={`memory-dropped-titles-list-${layerLower}`}
+                                >
+                                  {displayTitles.map((title, i) => {
+                                    // Cross-reference each recorded title
+                                    // against the (layer, title) keys we
+                                    // built off dropped_items above. Match
+                                    // → deep-link to /memory#item-<id>;
+                                    // miss → plain text per the task spec.
+                                    const id = droppedIdByLayerTitle.get(
+                                      `${l.key}|${title}`,
+                                    );
+                                    return (
+                                      <li
+                                        key={`${title}-${i}`}
+                                        className="font-mono text-[10px] text-foreground break-all"
+                                        data-testid={`memory-dropped-title-${layerLower}-${i}`}
+                                      >
+                                        {id ? (
+                                          <Link
+                                            href={`/memory#item-${id}`}
+                                            className="text-primary hover:underline"
+                                            data-testid={`memory-dropped-title-link-${layerLower}-${i}`}
+                                          >
+                                            {title || "(untitled)"}
+                                          </Link>
+                                        ) : (
+                                          <span
+                                            data-testid={`memory-dropped-title-text-${layerLower}-${i}`}
+                                          >
+                                            {title || "(untitled)"}
+                                          </span>
+                                        )}
+                                      </li>
+                                    );
+                                  })}
+                                  {overflow > 0 && (
+                                    <li
+                                      className="font-mono text-[10px] text-amber-700 italic"
+                                      data-testid={`memory-dropped-titles-overflow-${layerLower}`}
+                                    >
+                                      …and {overflow} more (audit row caps
+                                      per-layer trimmed titles at{" "}
+                                      {DROPPED_TITLES_CAP} for cost reasons).
+                                    </li>
+                                  )}
+                                </ul>
+                              )}
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                   <div className="text-muted-foreground pt-1">
                     Each memory layer has its own token budget — canon{" "}
