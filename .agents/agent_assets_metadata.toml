@@ -18,3 +18,9 @@ id = "dfX3ExJA0wRe6plha6HfQ"
 uri = "file://artifacts/api-server/R1_R5_IMPLEMENTATION_PLAN.md"
 type = "text"
 title = "R-1 + R-5 Implementation Plan"
+
+[[outputs]]
+id = "WimROT8rt8eXK5bjIESUk"
+uri = "file://exports/bos-omega-source-20260427-220305.tar.gz"
+type = "unspecified"
+title = "BOS-OMEGA full source code (15M tarball)"
