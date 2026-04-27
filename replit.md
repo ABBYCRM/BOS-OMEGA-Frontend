@@ -46,10 +46,7 @@ Server-side, hash-verified text format (`bos-omega.continuity-bundle.v1`) for mo
 
 ### UI/UX Design
 
-The UI offers two themes:
-- **`theme-retro95`**: A default Windows 95-inspired theme.
-- **`theme-modern`**: A "Claude-grade enterprise" theme with a warm, modern aesthetic.
-The active theme is persisted in localStorage.
+The UI ships eleven instantly-swappable themes registered in `artifacts/bos-omega/src/lib/theme.ts` and rendered as `:root.theme-<id>` blocks in `artifacts/bos-omega/src/index.css`: `retro95` (default Win95 bevels), `retro98`, `modern` (Claude/Linear/Stripe warm-cream), `cyberdine` (Terminator HUD), `umbrella` (basic crimson-on-black), `umbrella-corp` (full tactical command-console — pitch black + corporate red, hex-grid background, beveled cards, command-strip header, confidential sidebar footer, optional `public/branding/umbrella-logo.svg` override), `capybara`, `anime`, `steampunk`, `neonpunk`, and `ultraclean`. The active theme is persisted in localStorage under `bos.theme.v1` and synced across tabs. The umbrella-corp theme adds a reusable `<CorporateLogo />` (pure SVG octagonal mark with `mark` / `lockup` variants and `sm`/`md`/`lg` sizes; falls back to the inline SVG if the public override asset is missing) and CSS-gated header chips + sidebar confidential block in `Layout.tsx`. The visual switch is the only behavior change: routing, auth, RBAC, lattice/memory/provider, and BOS engine logic remain untouched.
 
 ### Technical Implementations
 

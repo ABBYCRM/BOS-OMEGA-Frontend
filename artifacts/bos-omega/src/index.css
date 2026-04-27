@@ -1003,3 +1003,312 @@
 :root.theme-ultraclean .shadow-elevated {
   box-shadow: 0 0 0 1px rgba(0,0,0,0.06) !important;
 }
+
+/* ============================================================
+   BOS-OMEGA · UMBRELLA CORP (tactical enterprise console)
+   A separate, fuller-fidelity sibling to .theme-umbrella with the
+   exact palette tokens from the umbrella-corp spec: pitch black
+   shell, charcoal panels, corporate red borders, hex-grid bg,
+   command-console typography. Scoped strictly under
+   `[data-theme="umbrella-corp"]` / `:root.theme-umbrella-corp` so
+   no other theme is affected.
+   ============================================================ */
+
+:root.theme-umbrella-corp {
+  /* Spec palette — exposed as raw tokens for any code that wants
+     to reference them directly (CorporateLogo, status chips, etc). */
+  --bg-root: #050505;
+  --bg-panel: #0b0b0c;
+  --bg-panel-2: #111113;
+  --bg-panel-3: #171719;
+  --border-muted: #2a2a2d;
+  --border-red: #8b1010;
+  --border-red-bright: #ff2b2b;
+  --text-main: #f2f2f2;
+  --text-muted: #a9a9a9;
+  --text-dim: #737373;
+  --accent-red: #d41414;
+  --accent-red-bright: #ff3333;
+  --accent-white: #ffffff;
+  --success: #19c45a;
+  --warning: #ffcc33;
+  --danger: #ff3333;
+
+  /* Map spec tokens onto the shadcn HSL contract used everywhere else. */
+  --background: 0 0% 2%;              /* #050505 */
+  --foreground: 0 0% 95%;
+  --card: 240 4% 5%;                  /* #0b0b0c */
+  --card-foreground: 0 0% 95%;
+  --card-border: 0 79% 30%;           /* #8b1010 */
+  --border: 240 4% 17%;
+  --input: 240 4% 7%;
+
+  --sidebar: 0 0% 2%;
+  --sidebar-foreground: 0 0% 92%;
+  --sidebar-border: 0 79% 30%;
+  --sidebar-primary: 0 82% 46%;       /* #d41414 */
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 60% 12%;
+  --sidebar-accent-foreground: 0 0% 100%;
+  --sidebar-accent-border: 0 82% 46%;
+  --sidebar-ring: 0 100% 60%;
+
+  --popover: 240 4% 5%;
+  --popover-foreground: 0 0% 95%;
+  --popover-border: 0 79% 30%;
+
+  --primary: 0 82% 46%;               /* corporate red */
+  --primary-foreground: 0 0% 100%;
+  --accent: 0 82% 46%;
+  --accent-foreground: 0 0% 100%;
+  --secondary: 240 4% 7%;
+  --secondary-foreground: 0 0% 95%;
+  --muted: 240 4% 9%;
+  --muted-foreground: 0 0% 66%;
+  --destructive: 0 100% 60%;          /* #ff3333 */
+  --destructive-foreground: 0 0% 100%;
+  --ring: 0 100% 60%;
+  --chart-1: 0 82% 46%;
+  --chart-2: 0 0% 95%;
+  --chart-3: 142 71% 45%;
+  --chart-4: 38 92% 50%;
+  --chart-5: 217 91% 60%;
+
+  --app-font-sans: 'Inter', 'system-ui', sans-serif;
+  --app-font-serif: 'Inter', 'system-ui', sans-serif;
+  --app-font-mono: 'JetBrains Mono', 'Menlo', monospace;
+  --radius: .25rem;
+}
+
+/* Body — pitch black with a faint hex grid + soft red top vignette. */
+:root.theme-umbrella-corp body {
+  font-family: var(--app-font-sans);
+  color: var(--text-main);
+  background-color: var(--bg-root);
+  background-image:
+    linear-gradient(30deg, rgba(212,20,20,0.05) 1px, transparent 1px),
+    linear-gradient(150deg, rgba(212,20,20,0.05) 1px, transparent 1px),
+    linear-gradient(90deg,  rgba(212,20,20,0.04) 1px, transparent 1px),
+    radial-gradient(ellipse at top, rgba(212,20,20,0.10), transparent 60%);
+  background-size: 28px 48px, 28px 48px, 28px 48px, 100% 100%;
+  letter-spacing: 0.01em;
+}
+
+/* Headings: command-console caps, white with a thin red bar prefix */
+:root.theme-umbrella-corp h1,
+:root.theme-umbrella-corp h2,
+:root.theme-umbrella-corp h3 {
+  font-family: var(--app-font-sans);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #fff;
+  font-weight: 600;
+}
+:root.theme-umbrella-corp h2::before,
+:root.theme-umbrella-corp h3::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 0.9em;
+  background: var(--accent-red);
+  margin-right: 0.55rem;
+  vertical-align: -0.08em;
+}
+
+/* Cards: dark panel + red hairline border + soft inner red glow */
+:root.theme-umbrella-corp .bg-card,
+:root.theme-umbrella-corp [data-slot="card"] {
+  background: linear-gradient(180deg, #0e0e10 0%, #050505 100%) !important;
+  border: 1px solid rgba(212,20,20,0.45) !important;
+  box-shadow:
+    0 0 0 1px rgba(212,20,20,0.08),
+    0 8px 24px rgba(0,0,0,0.7),
+    inset 0 0 24px rgba(212,20,20,0.06);
+}
+
+:root.theme-umbrella-corp .shadow-card,
+:root.theme-umbrella-corp .shadow-card-hover,
+:root.theme-umbrella-corp .shadow-elevated {
+  box-shadow:
+    0 0 0 1px rgba(212,20,20,0.35),
+    0 0 14px rgba(212,20,20,0.10),
+    0 8px 24px rgba(0,0,0,0.55) !important;
+}
+
+/* Sidebar: black carbon panel with a red right divider. */
+:root.theme-umbrella-corp aside.bg-sidebar {
+  background: linear-gradient(180deg, #050505 0%, #0a0a0a 100%) !important;
+  border-right: 1px solid var(--border-red) !important;
+  box-shadow: inset -1px 0 0 0 rgba(212,20,20,0.25);
+}
+
+/* Top header bar — beveled command strip with red bottom edge. */
+:root.theme-umbrella-corp main > div.h-16 {
+  background: linear-gradient(180deg, #0a0a0a 0%, #050505 100%) !important;
+  border-bottom: 1px solid var(--border-red) !important;
+  box-shadow:
+    inset 0 1px 0 0 rgba(255,255,255,0.04),
+    inset 0 -1px 0 0 rgba(212,20,20,0.35);
+}
+
+/* Inputs: sunken dark fields with red focus ring. */
+:root.theme-umbrella-corp input,
+:root.theme-umbrella-corp textarea,
+:root.theme-umbrella-corp select {
+  background: var(--bg-panel) !important;
+  border-color: rgba(212,20,20,0.35) !important;
+  color: #fff !important;
+}
+:root.theme-umbrella-corp input:focus,
+:root.theme-umbrella-corp textarea:focus,
+:root.theme-umbrella-corp select:focus {
+  border-color: var(--accent-red) !important;
+  box-shadow: 0 0 0 2px rgba(212,20,20,0.35) !important;
+  outline: none !important;
+}
+
+/* Primary buttons: black/red metallic. */
+:root.theme-umbrella-corp .bg-primary,
+:root.theme-umbrella-corp button.bg-primary {
+  background: linear-gradient(180deg, #d41414 0%, #8b1010 100%) !important;
+  color: #fff !important;
+  border: 1px solid rgba(255,51,51,0.6) !important;
+  text-shadow: 0 1px 0 rgba(0,0,0,0.4);
+}
+:root.theme-umbrella-corp .text-primary { color: var(--accent-red) !important; }
+
+/* Sidebar nav: red active state, metallic hover. */
+:root.theme-umbrella-corp nav .bg-card {
+  background: linear-gradient(180deg, rgba(212,20,20,0.18) 0%, rgba(139,16,16,0.22) 100%) !important;
+  border-left: 2px solid var(--accent-red);
+  color: #fff !important;
+  box-shadow: inset 0 0 0 1px rgba(212,20,20,0.45);
+}
+
+/* Status-secure pill becomes a green operational chip */
+:root.theme-umbrella-corp .badge-secure {
+  background: linear-gradient(180deg, rgba(25,196,90,0.15) 0%, rgba(25,196,90,0.06) 100%) !important;
+  color: var(--success) !important;
+  border: 1px solid rgba(25,196,90,0.55) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+
+/* Confidential footer block in the sidebar (only rendered for this theme) */
+.umbrella-corp-confidential {
+  display: none;
+}
+:root.theme-umbrella-corp .umbrella-corp-confidential {
+  display: block;
+  border: 1px solid var(--border-red);
+  background: linear-gradient(180deg, #0a0000 0%, #050000 100%);
+  padding: 8px 10px;
+  font-family: var(--app-font-mono);
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--accent-red);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  text-align: center;
+  box-shadow: inset 0 0 0 1px rgba(212,20,20,0.25), 0 0 12px rgba(212,20,20,0.18);
+}
+.umbrella-corp-confidential strong {
+  display: block;
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  margin-bottom: 2px;
+}
+.umbrella-corp-confidential .uc-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(212,20,20,0.6), transparent);
+  margin: 4px 0;
+}
+
+/* Tactical header chips that only appear under umbrella-corp. */
+.umbrella-corp-only {
+  display: none !important;
+}
+:root.theme-umbrella-corp .umbrella-corp-only {
+  display: inline-flex !important;
+}
+:root.theme-umbrella-corp .umbrella-corp-only-block {
+  display: block !important;
+}
+:root.theme-umbrella-corp .umbrella-corp-hide {
+  display: none !important;
+}
+
+/* Reusable tactical chip (used in header status modules) */
+.umbrella-corp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid rgba(212,20,20,0.45);
+  background: linear-gradient(180deg, #0e0e10 0%, #050505 100%);
+  color: var(--text-main);
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  border-radius: 2px;
+}
+.umbrella-corp-chip .uc-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+}
+.umbrella-corp-chip .uc-label-dim {
+  color: var(--text-muted);
+}
+.umbrella-corp-chip .uc-label-red {
+  color: var(--accent-red);
+}
+
+/* Header tagline ("OUR BUSINESS IS CONTROL") */
+.umbrella-corp-tagline {
+  display: none;
+}
+:root.theme-umbrella-corp .umbrella-corp-tagline {
+  display: inline-block;
+  font-family: var(--app-font-mono);
+  color: var(--accent-red);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  margin-left: 12px;
+  border-left: 1px solid rgba(212,20,20,0.45);
+  padding-left: 12px;
+  white-space: nowrap;
+}
+
+/* Make red rounded borders apply to existing rounded-* utilities */
+:root.theme-umbrella-corp [class*="rounded-"] {
+  border-color: rgba(212,20,20,0.35);
+}
+
+/* Memory budget panel — uppercase section labels under this theme */
+:root.theme-umbrella-corp .bg-card label,
+:root.theme-umbrella-corp .bg-card .uppercase {
+  letter-spacing: 0.14em;
+}
+
+/* Settings appearance card — selected umbrella-corp tile gets a red glow */
+:root.theme-umbrella-corp button[data-testid="button-theme-umbrella-corp"][aria-pressed="true"] {
+  border-color: var(--accent-red) !important;
+  box-shadow: 0 0 0 2px rgba(212,20,20,0.55), 0 0 18px rgba(212,20,20,0.35) !important;
+}
+
+/* Scrollbars styled to match. */
+:root.theme-umbrella-corp ::-webkit-scrollbar-thumb {
+  background: rgba(212,20,20,0.45);
+  border: 2px solid var(--bg-root);
+}
+:root.theme-umbrella-corp ::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-red);
+}

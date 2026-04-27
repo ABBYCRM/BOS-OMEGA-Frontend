@@ -19,6 +19,7 @@ export type ThemeId =
   | "modern"
   | "cyberdine"
   | "umbrella"
+  | "umbrella-corp"
   | "capybara"
   | "anime"
   | "steampunk"
@@ -31,6 +32,7 @@ export const THEME_IDS: readonly ThemeId[] = [
   "modern",
   "cyberdine",
   "umbrella",
+  "umbrella-corp",
   "capybara",
   "anime",
   "steampunk",

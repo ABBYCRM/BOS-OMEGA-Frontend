@@ -4,6 +4,8 @@ import { cn } from "@/lib/utils";
 import { fetchAuthState, logout, roleLabel, type AuthUser } from "@/lib/auth";
 import { ConversationsList } from "@/components/ConversationsList";
 import { LatticeMenu } from "@/components/LatticeMenu";
+import { CorporateLogo } from "@/components/CorporateLogo";
+import { useTheme } from "@/lib/theme";
 import {
   Terminal,
   Server,
@@ -124,6 +126,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const currentItem = flatNav.find(
     (n) => n.href === location || (n.href === "/console" && location === "/"),
   );
+  // The umbrella-corp theme swaps in a tactical brand lockup + extra
+  // header chrome. Other themes keep the existing minimal brand badge.
+  const [theme] = useTheme();
+  const umbrellaCorp = theme === "umbrella-corp";
 
   return (
     <div className="flex h-screen bg-background overflow-hidden text-foreground">
@@ -132,15 +138,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Brand */}
         <div className="h-16 flex items-center px-5 border-b border-sidebar-border">
           <Link href="/console">
-            <div className="flex items-center gap-2.5 cursor-pointer group">
-              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shadow-card group-hover:shadow-card-hover transition-shadow">
-                <span className="text-primary-foreground font-serif text-base font-semibold leading-none">B</span>
+            {umbrellaCorp ? (
+              <div className="flex items-center cursor-pointer group" data-testid="brand-umbrella-corp">
+                <CorporateLogo size="md" variant="lockup" />
               </div>
-              <div>
-                <div className="text-[15px] font-serif font-semibold text-foreground tracking-tight leading-none">BOS-Omega</div>
-                <div className="text-[10.5px] text-muted-foreground tracking-wide mt-1 font-medium">Orchestration platform</div>
+            ) : (
+              <div className="flex items-center gap-2.5 cursor-pointer group">
+                <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shadow-card group-hover:shadow-card-hover transition-shadow">
+                  <span className="text-primary-foreground font-serif text-base font-semibold leading-none">B</span>
+                </div>
+                <div>
+                  <div className="text-[15px] font-serif font-semibold text-foreground tracking-tight leading-none">BOS-Omega</div>
+                  <div className="text-[10.5px] text-muted-foreground tracking-wide mt-1 font-medium">Orchestration platform</div>
+                </div>
               </div>
-            </div>
+            )}
           </Link>
         </div>
 
@@ -197,6 +209,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Footer */}
         <div className="px-4 py-3 border-t border-sidebar-border space-y-1">
+          {/* Confidential badge — only visible under the umbrella-corp
+              theme (display:none under every other theme via CSS).
+              When visible it carries its own bottom margin so non-umbrella
+              themes keep their original space-y-1 spacing exactly. */}
+          <div
+            className="umbrella-corp-confidential mb-2"
+            data-testid="confidential-footer"
+          >
+            <strong>CONFIDENTIAL</strong>
+            RESTRICTED ACCESS
+            <div className="uc-divider" />
+            UNAUTHORIZED ACCESS IS PROHIBITED
+            <br />
+            ALL ACTIVITY IS LOGGED AND MONITORED
+          </div>
           <div className="flex items-center gap-2 text-[10.5px] text-muted-foreground">
             <span className="w-1.5 h-1.5 rounded-full bg-green-600" />
             <span>Tri-State Engine</span>
@@ -217,13 +244,34 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <h1 className="text-[15px] font-serif font-semibold text-foreground tracking-tight">
             {currentItem?.label || "BOS-Omega"}
           </h1>
+          {/* Tactical tagline — visible only under the umbrella-corp theme. */}
+          <span className="umbrella-corp-tagline" data-testid="header-tagline">
+            OUR BUSINESS IS CONTROL
+          </span>
           <div className="ml-auto flex items-center gap-4">
-            <div className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
+            {/* Tactical status chips — replace the regular status text under
+                the umbrella-corp theme (CSS toggles which set is shown). */}
+            <span className="umbrella-corp-chip umbrella-corp-only" data-testid="chip-system-status">
+              <span className="uc-dot" />
+              <span className="uc-label-dim">System Status</span>
+              <span>All Systems Operational</span>
+            </span>
+            <span className="umbrella-corp-chip umbrella-corp-only" data-testid="chip-breakers">
+              <span className="uc-label-dim">Circuit Breakers</span>
+              <span>Closed</span>
+            </span>
+            <span className="umbrella-corp-chip umbrella-corp-only" data-testid="chip-soc2">
+              <span className="uc-label-dim">SOC2-Ready</span>
+              <span>Encrypted</span>
+            </span>
+
+            {/* Default chrome: hidden under umbrella-corp via .umbrella-corp-hide */}
+            <div className="flex items-center gap-2 text-[11.5px] text-muted-foreground umbrella-corp-hide">
               <span className="w-1.5 h-1.5 rounded-full bg-green-600" />
               <span>Circuit breakers closed</span>
             </div>
-            <div className="w-px h-4 bg-border" />
-            <div className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
+            <div className="w-px h-4 bg-border umbrella-corp-hide" />
+            <div className="flex items-center gap-2 text-[11.5px] text-muted-foreground umbrella-corp-hide">
               <ShieldCheck className="w-3.5 h-3.5 text-green-700" />
               <span>SOC2-ready · encrypted</span>
             </div>
