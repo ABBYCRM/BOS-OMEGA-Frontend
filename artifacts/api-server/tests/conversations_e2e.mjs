@@ -285,6 +285,40 @@ async function submitTask(input, extras = {}) {
     assert.equal(r.status, 404);
   });
 
+  // -----------------------------------------------------------------
+  await test("POST /api/conversations creates an empty thread with the given title", async () => {
+    const title = `${nonce} manual create flow`;
+    const r = await request("POST", "/api/conversations", { title });
+    assert.equal(r.status, 201, `expected 201, got ${r.status} ${JSON.stringify(r.data)}`);
+    assert.equal(r.data.title, title);
+    assert.ok(r.data.id, "response must include the new conversation id");
+    assert.equal(r.data.archived, false);
+    // The new row must show up in the default GET list.
+    const list = await request("GET", "/api/conversations?limit=200");
+    assert.equal(list.status, 200);
+    const found = list.data.conversations?.find((c) => c.id === r.data.id);
+    assert.ok(found, "newly POSTed conversation must appear in GET /api/conversations");
+    // And a follow-up task can target it via explicit conversation_id.
+    const taskRes = await submitTask(`${nonce} first message in manual thread`, {
+      conversation_id: r.data.id,
+    });
+    assert.equal(taskRes.status, 200);
+    assert.equal(taskRes.data.conversation_id, r.data.id);
+  });
+
+  await test("POST /api/conversations rejects empty/missing title with 400", async () => {
+    const r = await request("POST", "/api/conversations", {});
+    assert.equal(r.status, 400);
+  });
+
+  await test("POST /api/conversations requires authentication", async () => {
+    const saved = cookieHeader;
+    cookieHeader = "";
+    const r = await request("POST", "/api/conversations", { title: "anonymous" });
+    cookieHeader = saved;
+    assert.equal(r.status, 401);
+  });
+
   console.log(`\n${pass} pass, ${fail} fail`);
   process.exit(fail === 0 ? 0 : 1);
 })().catch((err) => {
