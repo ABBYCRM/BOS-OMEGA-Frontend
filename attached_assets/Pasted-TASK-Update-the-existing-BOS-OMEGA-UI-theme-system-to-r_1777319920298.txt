@@ -1,0 +1,240 @@
+TASK:
+Update the existing BOS-OMEGA UI theme system to recreate the attached Umbrella Corporation–style sci-fi enterprise dashboard aesthetic across the app, without breaking existing routing, auth, task logic, API calls, memory budgets, providers, or database behavior.
+
+CRITICAL RULE:
+This is a visual/theme refactor only.
+Do NOT rewrite backend logic.
+Do NOT change existing API contracts.
+Do NOT rename existing routes.
+Do NOT remove existing components.
+Do NOT alter auth, RBAC, task execution, model registry, memory, lattice, or provider logic.
+
+GOAL:
+Create a high-fidelity dark tactical corporate UI skin inspired by the attached image:
+- black / charcoal enterprise shell
+- red + white corporate accents
+- metallic card borders
+- hex grid background
+- beveled sci-fi panels
+- command-console typography
+- red warning/status styling
+- BOS-OMEGA branding upgraded into a corporate tactical command platform
+- logo support in header/sidebar/theme cards
+- theme selectable from Settings > Appearance
+
+IMPORTANT IP SAFETY:
+For production/public deployment, do not use protected “Umbrella Corporation” names/assets unless I provide licensed assets.
+Implement the skin as:
+Theme ID: umbrella-corp
+Display Name: Umbrella Corp
+Logo Mode: configurable
+Default safe branding: “BOS-OMEGA Corporation” or “Umbra Division”
+Allow a local asset override so I can privately upload my own logo files later.
+
+FILES TO INSPECT FIRST:
+1. package.json
+2. src/
+3. client/
+4. app/
+5. components/
+6. routes/
+7. theme files
+8. Settings / Appearance component
+9. global CSS / Tailwind config
+10. any existing skin/theme registry
+
+DO NOT GUESS FILE PATHS.
+Find actual files first, then modify minimally.
+
+IMPLEMENTATION REQUIREMENTS:
+
+1. Theme Registry
+Add or update theme object:
+
+id: "umbrella-corp"
+name: "Umbrella Corp"
+description: "Resident Evil tactical console: pitch black, corporate red, white logo marks, hex grid, beveled panels."
+status: enabled
+
+Palette:
+--bg-root: #050505
+--bg-panel: #0b0b0c
+--bg-panel-2: #111113
+--bg-panel-3: #171719
+--border-muted: #2a2a2d
+--border-red: #8b1010
+--border-red-bright: #ff2b2b
+--text-main: #f2f2f2
+--text-muted: #a9a9a9
+--text-dim: #737373
+--accent-red: #d41414
+--accent-red-bright: #ff3333
+--accent-white: #ffffff
+--success: #19c45a
+--warning: #ffcc33
+--danger: #ff3333
+
+2. Global Style
+Add theme-scoped CSS only under:
+[data-theme="umbrella-corp"] { ... }
+
+Do not globally override other themes.
+
+Use:
+- dark radial gradients
+- subtle hex grid background
+- red bevel borders
+- inset shadows
+- sharp tactical cards
+- high contrast text
+- compact enterprise spacing
+
+Example CSS behavior:
+- body/app background: black with faint hex pattern
+- sidebar: black carbon panel with red divider
+- top nav: beveled command bar
+- cards: dark panels, red borders, inner glow
+- buttons: black/red metallic
+- selected theme card: red glow + white checkmark
+- inputs: black background, red border on focus
+- status chips: green operational indicator
+- warning labels: red icon + uppercase label
+
+3. Logo System
+Create reusable component:
+
+CorporateLogo.tsx
+
+Props:
+- size: "sm" | "md" | "lg"
+- label?: boolean
+- variant?: "mark" | "lockup"
+- className?: string
+
+Default logo:
+Use pure CSS/SVG umbrella-like segmented octagonal mark:
+- red/white alternating triangular panels
+- black outline
+- metallic shadow
+- no external dependency
+- accessible aria-label
+
+Do NOT hotlink images.
+Do NOT require internet.
+Do NOT break build if logo asset missing.
+
+Also support optional local override:
+public/branding/umbrella-logo.svg
+If present, use it.
+If missing, fallback to generated SVG/CSS logo.
+
+4. Header Update
+In the top header when umbrella-corp theme is active:
+- left side shows large corporate lockup
+- text:
+  BOS-OMEGA
+  ORCHESTRATION PLATFORM
+- optional tagline:
+  OUR BUSINESS IS CONTROL
+Use safe default wording, not protected wording.
+- center status modules:
+  SYSTEM STATUS — ALL SYSTEMS OPERATIONAL
+  CIRCUIT BREAKERS — CLOSED
+  SOC2-READY — ENCRYPTED
+  LATTICE
+- right badge:
+  CLEARANCE LEVEL 5
+or preserve current Super Admin badge but style it.
+
+Do not remove logged-in user display.
+
+5. Sidebar Update
+When umbrella-corp theme is active:
+- add small corporate logo at top
+- keep all current nav links exactly functional
+- red active state
+- metallic hover
+- icons remain
+- bottom panel:
+  CONFIDENTIAL
+  RESTRICTED ACCESS
+  UNAUTHORIZED ACCESS IS PROHIBITED
+  ALL ACTIVITY IS LOGGED AND MONITORED
+
+6. Settings Appearance Cards
+Update appearance theme cards so umbrella-corp card looks like:
+- red/black/white color swatches
+- corporate logo mark
+- selected red glow
+- checkmark when active
+- description:
+  “Tactical enterprise console: pitch black, corporate red, hex grid, beveled command panels.”
+
+Do not remove other themes.
+
+7. Memory Budget Panel
+Style only:
+- card border red
+- dark input fields
+- red focus rings
+- uppercase section labels
+- status footer with:
+  Total: X / Y max
+  OVERRIDE ACTIVE
+  RESET TO DEFAULTS
+  SAVE BUDGETS
+
+Do not change calculation logic.
+
+8. Scratchpad Continuity Panel
+Style only:
+- dark terminal rows
+- AUTO badge yellow
+- PINNED badge green
+- task ids red
+- timestamps muted
+- delete icon preserved
+- scroll behavior preserved
+
+Do not change memory persistence behavior.
+
+9. Safety / Regression Requirements
+Before finishing:
+- Run existing tests if available.
+- Run typecheck if available.
+- Run lint if available.
+- Run build.
+- Fix only visual/theme-related errors.
+- Do not introduce new dependencies unless absolutely necessary.
+- Prefer CSS/SVG over packages.
+
+10. Acceptance Criteria
+PASS only if:
+- Existing app still boots.
+- Existing routes still work.
+- Login/session behavior unchanged.
+- Settings page still saves themes.
+- Memory budget save still works.
+- Sidebar navigation still works.
+- Existing themes still work.
+- umbrella-corp theme applies across header, sidebar, panels, buttons, inputs, settings cards, scratchpad continuity, task console.
+- Missing logo asset does not crash app.
+- No backend behavior changed.
+
+OUTPUT:
+After implementation, report:
+1. Files changed
+2. Theme registry location
+3. Logo component location
+4. How to replace logo asset privately
+5. Build/test results
+6. Any unresolved issues
+
+STRICT:
+Do not redesign data model.
+Do not touch authentication.
+Do not touch API logic.
+Do not touch task orchestration.
+Do not touch BOS decision engine.
+Do not hardcode protected assets.
+Do not remove existing themes.
