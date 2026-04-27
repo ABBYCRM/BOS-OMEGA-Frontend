@@ -58,7 +58,7 @@ import {
   auditLogsTable,
 } from "@workspace/db";
 import { and, desc, eq } from "drizzle-orm";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 import { z } from "zod";
 import { auditLog } from "../bos/auditEngine.js";
 import { getEffectiveBudgets } from "../bos/userBudgets.js";
@@ -397,9 +397,64 @@ router.get("/", async (req, res) => {
     items_count: canonCtx.items_count,
   };
 
+  // Determinism: the project goal explicitly requires that the same
+  // thread state produces the same bundle hash on repeated exports
+  // (so two AIs comparing exports can verify they're looking at the
+  // same conversation without coordinating wall clocks). Both
+  // `exported_at` and `source_session_id` were previously volatile
+  // (`new Date()` / `randomUUID()`), which baked a fresh hash into
+  // every export and broke that contract. We now derive both fields
+  // deterministically from the bundle's own content:
+  //
+  //   - exported_at  := the most-recent content timestamp present in
+  //                     the bundle (latest turn / scratchpad), so it
+  //                     advances monotonically as the thread grows
+  //                     but is stable across repeated exports of the
+  //                     same thread state. Falls back to the Unix
+  //                     epoch when the bundle is content-empty so
+  //                     the field is still ISO-8601 valid.
+  //
+  //   - source_session_id := UUID-shaped sha256 of (user_id | scope |
+  //                     scope_id | format_version), so the same
+  //                     user re-exporting the same thread always
+  //                     yields the same session id. Different users
+  //                     or different scopes yield different ids,
+  //                     keeping cross-thread audit attribution
+  //                     intact.
+  const contentTimestamps: number[] = [];
+  for (const t of turns) {
+    const ts = Date.parse(t.created_at);
+    if (Number.isFinite(ts)) contentTimestamps.push(ts);
+  }
+  for (const s of scratchpad) {
+    const ts = Date.parse(s.created_at);
+    if (Number.isFinite(ts)) contentTimestamps.push(ts);
+  }
+  const latestMs = contentTimestamps.length > 0 ? Math.max(...contentTimestamps) : 0;
+  const exported_at = new Date(latestMs).toISOString();
+  const sessionInput = [
+    userId,
+    scope,
+    task_id ?? "",
+    conversation_id ?? "",
+    CONTINUITY_BUNDLE_VERSION,
+  ].join("|");
+  const sessionHex = createHash("sha256").update(sessionInput).digest("hex");
+  // Format as a UUID-shaped 8-4-4-4-12 string. This is NOT a real
+  // RFC4122 UUID (we don't set the version/variant bits) but it
+  // matches the previous shape so any downstream parser that just
+  // checks length/hyphenation continues to accept it.
+  const source_session_id = [
+    sessionHex.slice(0, 8),
+    sessionHex.slice(8, 12),
+    sessionHex.slice(12, 16),
+    sessionHex.slice(16, 20),
+    sessionHex.slice(20, 32),
+  ].join("-");
+
   const built = buildContinuityBundle({
-    exported_at: new Date().toISOString(),
-    source_session_id: randomUUID(),
+    exported_at,
+    source_session_id,
     scope,
     task_id,
     conversation_id,

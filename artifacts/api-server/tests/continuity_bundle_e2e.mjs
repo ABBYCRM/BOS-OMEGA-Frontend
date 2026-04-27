@@ -283,6 +283,23 @@ await test("CONTINUITY_BUNDLE_IMPORTED audit event recorded with verified=true",
   assert.equal(evt.metadata.recomputed_hash, cleanHash);
 });
 
+// Task #64 — code-review fix #3: bundle export must be deterministic
+// for identical thread state. The same task exported twice in a row
+// must yield byte-identical blobs (same fidelity hash, same
+// exported_at, same source_session_id), otherwise two AIs comparing
+// exports to verify they're looking at the same conversation will
+// always disagree even when the underlying state is identical.
+await test("export is deterministic (same thread → same bundle hash)", async () => {
+  const a = await request("GET", `/api/continuity-bundle?task_id=${encodeURIComponent(createdTaskId)}`);
+  const b = await request("GET", `/api/continuity-bundle?task_id=${encodeURIComponent(createdTaskId)}`);
+  assert.equal(a.status, 200);
+  assert.equal(b.status, 200);
+  assert.equal(a.data.hash, b.data.hash,
+    "fidelity hash must be identical across repeated exports of the same thread state");
+  assert.equal(a.data.blob, b.data.blob,
+    "rendered blob must be byte-identical across repeated exports of the same thread state");
+});
+
 await test("re-export the imported conversation → bundle round-trips with hash_ok=true", async () => {
   const r = await request("GET",
     `/api/continuity-bundle?conversation_id=${encodeURIComponent(importedConversationId)}`);

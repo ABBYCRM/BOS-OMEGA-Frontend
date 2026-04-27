@@ -389,6 +389,31 @@ export function TaskConsole() {
           // assistant bubble, then leave the input box empty so the
           // user can type the next message.
           const seedTs = new Date(t.created_at).getTime();
+          // Parse final_output → bos_output the same way
+          // conversationToMessages does, so AssistantBubble shows the
+          // prior answer text on the orphan-task resume path. Without
+          // this MessageList renders "No answer text returned." even
+          // though the underlying string is non-empty, defeating the
+          // whole point of Resume.
+          let bos_output: BosOutput | undefined;
+          if (t.final_output) {
+            try {
+              bos_output = JSON.parse(t.final_output) as BosOutput;
+            } catch {
+              const triState = t.tri_state === "GO" || t.tri_state === "HOLD" || t.tri_state === "ABORT"
+                ? (t.tri_state as BosOutput["state"])
+                : "GO";
+              bos_output = {
+                state: triState,
+                task_type: t.task_type ?? "general",
+                answer: t.final_output,
+                assumptions: [],
+                uncertainties: [],
+                missing_inputs: [],
+                failure_modes: [],
+              };
+            }
+          }
           const seeded: ChatMessage[] = [
             {
               id: `u-${t.id}`,
@@ -408,6 +433,7 @@ export function TaskConsole() {
                 tri_state: t.tri_state ?? "GO",
                 final_status: t.final_status ?? "COMPLETED",
                 final_output: t.final_output ?? undefined,
+                bos_output,
               },
               ts: seedTs + 1,
             },
