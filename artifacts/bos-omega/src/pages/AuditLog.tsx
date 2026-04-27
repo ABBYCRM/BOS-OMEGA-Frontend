@@ -57,6 +57,15 @@ export function AuditLog() {
   const toggle = (id: string) =>
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
+  // Task #81: dropped-items list under each MEMORY_INJECTED row is
+  // collapsed by default (matching the Task Detail "Memory used" panel's
+  // UX) so a long audit feed isn't dominated by per-task dropped lists.
+  // Keyed by audit row id so expanding one row's dropped list never
+  // affects another.
+  const [droppedShown, setDroppedShown] = useState<Record<string, boolean>>({});
+  const toggleDropped = (id: string) =>
+    setDroppedShown((prev) => ({ ...prev, [id]: !prev[id] }));
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
@@ -106,8 +115,17 @@ export function AuditLog() {
               const injectedItems = isMemoryInjected
                 ? parseInjectedItems(meta?.injected_items)
                 : [];
+              // Task #81: parse the parallel `dropped_items` array recorded
+              // by Task #58. Rows recorded before #58 simply have no
+              // `dropped_items` field so parseInjectedItems returns [] and
+              // the section below stays hidden — preserving the legacy
+              // rendering exactly.
+              const droppedItems = isMemoryInjected
+                ? parseInjectedItems(meta?.dropped_items)
+                : [];
               const expandable = !!meta;
               const isOpen = expandable && !!expanded[log.id];
+              const showDropped = isOpen && !!droppedShown[log.id];
               return (
                 <div
                   key={log.id}
@@ -169,6 +187,52 @@ export function AuditLog() {
                           items={injectedItems}
                           enabled={isOpen}
                         />
+                      )}
+                      {/* Task #81: parallel "DROPPED ITEMS" list rendered
+                          via the same MemoryInjectedItemsList component as
+                          the Task Detail panel — same layer chips, same
+                          /memory#item-<id> deep-links, same "no longer
+                          available" markers for rows deleted after the
+                          task ran. Collapsed by default so a long audit
+                          feed isn't dominated by per-task dropped lists
+                          (a task can drop up to 80 rows in the worst
+                          case). Hidden entirely on legacy MEMORY_INJECTED
+                          rows recorded before Task #58 (no `dropped_items`
+                          field) — the raw metadata block below still
+                          shows whatever was actually logged. */}
+                      {isMemoryInjected && droppedItems.length > 0 && (
+                        <div data-testid={`audit-row-dropped-section-${log.id}`}>
+                          <button
+                            type="button"
+                            onClick={() => toggleDropped(log.id)}
+                            aria-expanded={showDropped}
+                            aria-controls={`audit-row-dropped-body-${log.id}`}
+                            className="text-[10px] font-mono text-primary hover:underline inline-flex items-center gap-1"
+                            data-testid={`audit-row-dropped-toggle-${log.id}`}
+                          >
+                            {showDropped ? (
+                              <ChevronDown className="w-3 h-3" />
+                            ) : (
+                              <ChevronRight className="w-3 h-3" />
+                            )}
+                            {showDropped ? "HIDE" : "SHOW"} DROPPED ITEMS (
+                            {droppedItems.length})
+                          </button>
+                          {showDropped && (
+                            <div
+                              id={`audit-row-dropped-body-${log.id}`}
+                              className="mt-2"
+                              data-testid={`audit-row-dropped-body-${log.id}`}
+                            >
+                              <MemoryInjectedItemsList
+                                items={droppedItems}
+                                enabled={showDropped}
+                                label="DROPPED ITEMS"
+                                testIdPrefix="memory-dropped-item"
+                              />
+                            </div>
+                          )}
+                        </div>
                       )}
                       <div>
                         <div className="text-[10px] font-mono text-muted-foreground tracking-wider mb-1">

@@ -194,6 +194,215 @@ describe("AuditLog page", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
+  // ----- Task #81: dropped-items list under MEMORY_INJECTED rows -----
+
+  it("renders a collapsed-by-default DROPPED ITEMS toggle when dropped_items are present, alongside the existing INJECTED list", async () => {
+    const droppedRow = {
+      ...memoryInjectedRow,
+      id: "audit-mi-dropped",
+      metadata: {
+        ...memoryInjectedRow.metadata,
+        dropped_items: [
+          { id: "mem-canon-2", layer: "canon", title: "Less-relevant canon" },
+          { id: "mem-scratch-deleted", layer: "scratchpad", title: "Old scratch" },
+        ],
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      makeFetch([droppedRow], {
+        memoryRows: [
+          {
+            id: "mem-canon-1",
+            layer: "canon",
+            title: "BOS Safety Canon",
+            content: "...",
+            authority_level: 9,
+            created_at: "2026-01-01T00:00:00.000Z",
+            updated_at: "2026-01-01T00:00:00.000Z",
+          },
+          {
+            id: "mem-canon-2",
+            layer: "canon",
+            title: "Less-relevant canon",
+            content: "...",
+            authority_level: 5,
+            created_at: "2026-01-01T00:00:00.000Z",
+            updated_at: "2026-01-01T00:00:00.000Z",
+          },
+          // mem-scratch-deleted intentionally absent → "no longer available"
+        ],
+      }),
+    );
+    renderWithClient(<AuditLog />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("audit-row-toggle-audit-mi-dropped"),
+      ).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByTestId("audit-row-toggle-audit-mi-dropped"));
+
+    // Body opens; injected list still rendered as before.
+    expect(
+      screen.getByTestId("audit-row-body-audit-mi-dropped"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("memory-injected-items")).toBeInTheDocument();
+
+    // Dropped section shows a toggle, but the list itself is collapsed by
+    // default so the body is not in the DOM yet.
+    const droppedToggle = screen.getByTestId(
+      "audit-row-dropped-toggle-audit-mi-dropped",
+    );
+    expect(droppedToggle).toHaveAttribute("aria-expanded", "false");
+    expect(droppedToggle.textContent).toMatch(/SHOW DROPPED ITEMS \(2\)/);
+    expect(
+      screen.queryByTestId("audit-row-dropped-body-audit-mi-dropped"),
+    ).toBeNull();
+    expect(screen.queryByTestId("memory-dropped-item-items")).toBeNull();
+  });
+
+  it("expands the DROPPED ITEMS list to show layer chips, deep-links, and 'no longer available' markers", async () => {
+    const droppedRow = {
+      ...memoryInjectedRow,
+      id: "audit-mi-dropped-expand",
+      metadata: {
+        ...memoryInjectedRow.metadata,
+        dropped_items: [
+          { id: "mem-canon-2", layer: "canon", title: "Less-relevant canon" },
+          { id: "mem-scratch-deleted", layer: "scratchpad", title: "Old scratch" },
+        ],
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      makeFetch([droppedRow], {
+        memoryRows: [
+          {
+            id: "mem-canon-1",
+            layer: "canon",
+            title: "BOS Safety Canon",
+            content: "...",
+            authority_level: 9,
+            created_at: "2026-01-01T00:00:00.000Z",
+            updated_at: "2026-01-01T00:00:00.000Z",
+          },
+          {
+            id: "mem-canon-2",
+            layer: "canon",
+            title: "Less-relevant canon",
+            content: "...",
+            authority_level: 5,
+            created_at: "2026-01-01T00:00:00.000Z",
+            updated_at: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    renderWithClient(<AuditLog />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("audit-row-toggle-audit-mi-dropped-expand"),
+      ).toBeInTheDocument(),
+    );
+
+    fireEvent.click(
+      screen.getByTestId("audit-row-toggle-audit-mi-dropped-expand"),
+    );
+    fireEvent.click(
+      screen.getByTestId("audit-row-dropped-toggle-audit-mi-dropped-expand"),
+    );
+
+    // Toggle flips; body and items list render.
+    expect(
+      screen.getByTestId("audit-row-dropped-toggle-audit-mi-dropped-expand"),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByTestId("audit-row-dropped-body-audit-mi-dropped-expand"),
+    ).toBeInTheDocument();
+    const droppedList = screen.getByTestId("memory-dropped-item-items");
+    expect(droppedList).toBeInTheDocument();
+    // Both the toggle button and the items-list header show "DROPPED ITEMS (2)";
+    // assert via getAllByText so the duplicate is tolerated.
+    expect(screen.getAllByText(/DROPPED ITEMS \(2\)/).length).toBeGreaterThanOrEqual(2);
+
+    // Surviving canon row is rendered as a Memory Manager deep-link.
+    const link = screen.getByTestId("memory-dropped-item-link-mem-canon-2");
+    expect(link.getAttribute("href")).toBe("/memory#item-mem-canon-2");
+    expect(link.textContent).toContain("Less-relevant canon");
+
+    // Deleted scratchpad row resolves async to "no longer available".
+    await waitFor(() =>
+      expect(
+        screen.getByTestId(
+          "memory-dropped-item-missing-mem-scratch-deleted",
+        ),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId("memory-dropped-item-link-mem-scratch-deleted"),
+    ).toBeNull();
+
+    // Collapsing again removes the body so the audit feed stays compact.
+    fireEvent.click(
+      screen.getByTestId("audit-row-dropped-toggle-audit-mi-dropped-expand"),
+    );
+    expect(
+      screen.queryByTestId("audit-row-dropped-body-audit-mi-dropped-expand"),
+    ).toBeNull();
+  });
+
+  it("does not render a DROPPED ITEMS section on legacy MEMORY_INJECTED rows recorded before Task #58 (no dropped_items field)", async () => {
+    const legacyDropped = {
+      ...memoryInjectedRow,
+      id: "audit-mi-legacy-dropped",
+      metadata: {
+        canon_items: 1,
+        canon_dropped: 3,
+        memory_context_chars: 100,
+        injected_items: [
+          { id: "mem-canon-1", layer: "canon", title: "BOS Safety Canon" },
+        ],
+        // No dropped_items field → legacy row.
+      },
+    };
+    vi.stubGlobal("fetch", makeFetch([legacyDropped], { memoryRows: [] }));
+    renderWithClient(<AuditLog />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("audit-row-toggle-audit-mi-legacy-dropped"),
+      ).toBeInTheDocument(),
+    );
+
+    fireEvent.click(
+      screen.getByTestId("audit-row-toggle-audit-mi-legacy-dropped"),
+    );
+
+    expect(
+      screen.getByTestId("audit-row-body-audit-mi-legacy-dropped"),
+    ).toBeInTheDocument();
+    // Existing injected items still render — no regression for #56.
+    expect(screen.getByTestId("memory-injected-items")).toBeInTheDocument();
+    // No dropped section / toggle / body.
+    expect(
+      screen.queryByTestId(
+        "audit-row-dropped-section-audit-mi-legacy-dropped",
+      ),
+    ).toBeNull();
+    expect(
+      screen.queryByTestId(
+        "audit-row-dropped-toggle-audit-mi-legacy-dropped",
+      ),
+    ).toBeNull();
+    expect(
+      screen.queryByTestId("audit-row-dropped-body-audit-mi-legacy-dropped"),
+    ).toBeNull();
+    // Raw metadata block still there so users see the dropped counts.
+    expect(
+      screen.getByTestId("audit-row-metadata-audit-mi-legacy-dropped"),
+    ).toBeInTheDocument();
+  });
+
   it("hides the items section on legacy MEMORY_INJECTED rows with no injected_items, but still shows raw metadata", async () => {
     const legacy = {
       ...memoryInjectedRow,
