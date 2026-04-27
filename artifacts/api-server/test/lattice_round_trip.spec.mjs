@@ -940,14 +940,13 @@ await test("Teardown: restore original provider config and close mock server", a
   }
   if (teardown.provGenericOriginal) {
     const o = teardown.provGenericOriginal;
-    // UpdateProviderBody validates `base_url` as `z.string().optional()`
-    // — null is rejected. If the original value was null we cannot
-    // restore it via the API; we omit the field so the route's
-    // `if (parsed.data.base_url !== undefined)` guard leaves the DB
-    // value alone. With the api-key cleared and the mock server closed,
-    // prov_generic becomes unusable until reconfigured anyway.
-    const body = { enabled: o.enabled, priority: o.priority };
-    if (typeof o.base_url === "string" && o.base_url.length > 0) body.base_url = o.base_url;
+    // UpdateProviderBody.base_url is `z.string().nullish()` so we can
+    // send the captured value verbatim — including the seed default
+    // of null — and the route fully restores prov_generic to its
+    // pre-run state. (Earlier this teardown had to omit base_url
+    // when null because the schema rejected it; see commit history
+    // and lib/api-spec/openapi.yaml UpdateProviderBody.)
+    const body = { base_url: o.base_url, enabled: o.enabled, priority: o.priority };
     const r = await request(adminJar, "PATCH", `/api/providers/prov_generic`, body);
     if (r.status !== 200) console.log(`       (teardown: restore prov_generic returned ${r.status} — non-fatal)`);
   }

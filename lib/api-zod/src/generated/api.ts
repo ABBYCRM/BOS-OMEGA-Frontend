@@ -344,7 +344,12 @@ export const UpdateProviderBody = zod.object({
     .optional(),
   enabled: zod.boolean().optional(),
   priority: zod.number().optional(),
-  base_url: zod.string().optional(),
+  base_url: zod
+    .string()
+    .nullish()
+    .describe(
+      "Provider base URL. Pass null to clear (revert to seed default\nof NULL — used by the lattice round-trip self-test teardown\nto fully restore prov_generic after temporarily pointing it\nat the inline mock LLM server).\n",
+    ),
 });
 
 export const UpdateProviderResponse = zod.object({

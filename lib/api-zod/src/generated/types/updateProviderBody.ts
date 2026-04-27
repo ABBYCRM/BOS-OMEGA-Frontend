@@ -11,5 +11,10 @@ export interface UpdateProviderBody {
   status?: UpdateProviderBodyStatus;
   enabled?: boolean;
   priority?: number;
-  base_url?: string;
+  /** Provider base URL. Pass null to clear (revert to seed default
+of NULL — used by the lattice round-trip self-test teardown
+to fully restore prov_generic after temporarily pointing it
+at the inline mock LLM server).
+ */
+  base_url?: string | null;
 }

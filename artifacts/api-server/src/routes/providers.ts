@@ -71,6 +71,10 @@ router.patch("/:id", async (req, res) => {
   if (parsed.data.status !== undefined) updates["status"] = parsed.data.status;
   if (parsed.data.enabled !== undefined) updates["enabled"] = parsed.data.enabled;
   if (parsed.data.priority !== undefined) updates["priority"] = parsed.data.priority;
+  // base_url is now nullable in UpdateProviderBody — explicit null
+  // clears the value (used by lattice round-trip teardown to fully
+  // restore prov_generic to seed default after pointing it at the
+  // inline mock LLM server). undefined leaves the column alone.
   if (parsed.data.base_url !== undefined) updates["base_url"] = parsed.data.base_url;
 
   const [updated] = await db.update(llmProvidersTable).set(updates).where(eq(llmProvidersTable.id, id)).returning();
