@@ -276,8 +276,15 @@ export function buildLatticeBlob(input: Omit<LatticePayload, "fidelity_hash">): 
  */
 export function parseLatticeBlob(blob: string): {
   payload: LatticePayload;
+  /** True when the recomputed sha256 matches the embedded fidelity_hash. */
+  hashOk: boolean;
+  /** The sha256 we recomputed from the parsed payload, surfaced for diagnostics. */
+  recomputedHash: string;
+  /** Backwards-compatible aliases (snake_case). */
   hash_ok: boolean;
   recomputed_hash: string;
+  /** The raw JSON envelope text we extracted from the fence. */
+  json: string;
 } {
   // Locate the fenced block. We accept ```MEMORY_LATTICE_V1 followed by
   // newlines and an optional language hint variant — keep the matcher
@@ -321,9 +328,17 @@ export function parseLatticeBlob(blob: string): {
   }
 
   const recomputed = computeFidelityHash(payload);
+  const ok = recomputed === payload.fidelity_hash;
+  // Both spellings are surfaced: the task spec calls for camelCase
+  // (`hashOk`/`recomputedHash`/`json`), and the existing call sites
+  // use snake_case (`hash_ok`/`recomputed_hash`). We populate both so
+  // a future caller can use either contract without a refactor.
   return {
     payload,
-    hash_ok: recomputed === payload.fidelity_hash,
+    hashOk: ok,
+    recomputedHash: recomputed,
+    hash_ok: ok,
     recomputed_hash: recomputed,
+    json: m[1] ?? "",
   };
 }

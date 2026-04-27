@@ -187,6 +187,13 @@ router.get("/export", async (req, res) => {
   }));
 
   const exported_at = new Date().toISOString();
+  // source_session_id IS the lattice_exports row id. That row is the
+  // canonical record of "this export run" — by reusing its id as the
+  // session id we get stable provenance: an importer (or human
+  // auditor) holding only the blob can look up the originating
+  // export row in our DB and find the byte size, hash, and timestamp
+  // we recorded at export time. A fresh random UUID would still be
+  // unique but would not be derivable from anything in our system.
   const source_session_id = randomUUID();
   const built = buildLatticeBlob({
     format_version: LATTICE_FORMAT_VERSION,
@@ -197,21 +204,34 @@ router.get("/export", async (req, res) => {
   });
 
   const task_count = taskRows.length;
-  const audit_id = randomUUID();
+  // The audit row is part of the export contract (the task says
+  // "an audit row is written for every successful export"). Insert
+  // failure must therefore propagate as a 500 — we cannot serve a
+  // blob that promises auditability if we couldn't write the audit.
+  // The only realistic failure here is DB unavailability, in which
+  // case the user retries.
   try {
     await db.insert(latticeExportsTable).values({
-      id: audit_id,
+      id: source_session_id, // reuse: blob.source_session_id == lattice_exports.id
       user_id,
       fidelity_sha256: built.hash,
       byte_size: built.byte_size,
       task_count,
     });
   } catch (err) {
-    req.log?.warn({ err }, "lattice_exports row insert failed (non-fatal — export still served)");
+    // Strict failure: the audit/export row is part of the export
+    // contract. If we cannot record it we must not serve a blob the
+    // user might rely on as audited continuity.
+    req.log?.error({ err }, "lattice_exports row insert failed; refusing to serve blob");
+    res.status(500).json({
+      error: "Failed to record export audit row; export aborted",
+      code: "LATTICE_EXPORT_AUDIT_WRITE_FAILED",
+    });
+    return;
   }
   await auditLog(undefined, "LATTICE_EXPORTED", `Lattice exported by user ${user_id}`, {
     user_id,
-    export_id: audit_id,
+    export_id: source_session_id,
     fidelity_sha256: built.hash,
     byte_size: built.byte_size,
     task_count,
