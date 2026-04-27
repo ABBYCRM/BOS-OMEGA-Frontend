@@ -11,55 +11,84 @@ import {
   Plus, Key, Trash2, CheckCircle2, XCircle, Loader2,
   Eye, EyeOff, AlertCircle, Sparkles, Zap, ShieldCheck, Lock, Database,
   Palette, Monitor, Brain, RotateCcw, Save, Pin,
+  MonitorCog, Cpu, Skull, Leaf, Star, Cog, Zap as Bolt, Square,
 } from "lucide-react";
 import { ProviderStatusBadge } from "@/components/StatusBadge";
 import { useTheme, type ThemeId } from "@/lib/theme";
 
+// Each option carries a 4-stop gradient used to render a tiny preview
+// swatch so the user can see the palette before clicking. Keep the
+// stops loosely aligned with the CSS variables defined for the theme
+// in `index.css` so the swatch and the applied theme look related.
+type ThemeOption = {
+  id: ThemeId;
+  label: string;
+  desc: string;
+  icon: typeof Palette;
+  swatch: [string, string, string, string];
+};
+const THEME_OPTIONS: ThemeOption[] = [
+  { id: "retro95",    label: "Windows 95",          desc: "Pixelated bevels, MS Sans Serif, system gray.",        icon: Palette,    swatch: ["#c0c0c0", "#000080", "#ffffff", "#808080"] },
+  { id: "retro98",    label: "Windows 98",          desc: "Refined Win98 grays with title-bar gradient blue.",    icon: Monitor,    swatch: ["#d4d0c8", "#0a246a", "#a6caf0", "#808080"] },
+  { id: "modern",     label: "Modern",              desc: "Warm-cream enterprise skin with rounded cards.",       icon: MonitorCog, swatch: ["#faf8f4", "#232b3a", "#cb6643", "#e7e0d3"] },
+  { id: "cyberdine",  label: "Cyberdyne",           desc: "Terminator HUD: red glow on black, mono terminal.",    icon: Cpu,        swatch: ["#0a0a0a", "#ff0000", "#ff5533", "#330000"] },
+  { id: "umbrella",   label: "Umbrella Corp",       desc: "Resident Evil corporate: blood red on white + black.", icon: Skull,      swatch: ["#ffffff", "#c10c0c", "#1a1a1a", "#e5e5e5"] },
+  { id: "capybara",   label: "Capybara",            desc: "Cozy sage + cream pastel, very rounded, friendly.",    icon: Leaf,       swatch: ["#f5ecdc", "#7a8a4f", "#c89b7b", "#4a3826"] },
+  { id: "anime",      label: "Anime",               desc: "Hot pink + cyan + manga ink, chunky drop shadows.",    icon: Star,       swatch: ["#fffafd", "#ff4b8b", "#00d4ff", "#1a1a1a"] },
+  { id: "steampunk",  label: "Steampunk",           desc: "Parchment + brass + dark wood, serif typography.",     icon: Cog,        swatch: ["#f3e9d2", "#6b4423", "#b08d57", "#2b1d10"] },
+  { id: "neonpunk",   label: "Neon Punk",           desc: "Cyberpunk grid: neon magenta + cyan on indigo black.", icon: Bolt,       swatch: ["#0a0014", "#ff00aa", "#00f0ff", "#270050"] },
+  { id: "ultraclean", label: "Ultra Clean",         desc: "Pure white, jet black accents, minimalist hairlines.", icon: Square,     swatch: ["#ffffff", "#000000", "#525252", "#e5e5e5"] },
+];
+
 function ThemeToggle() {
   const [theme, setTheme] = useTheme();
-  const options: { id: ThemeId; label: string; desc: string; icon: typeof Palette }[] = [
-    { id: "retro95", label: "Windows 95 Retro", desc: "Default. Pixelated bevels, MS Sans Serif, system gray.", icon: Palette },
-    { id: "modern",  label: "Modern",            desc: "Warm-cream enterprise skin with rounded cards.",       icon: Monitor },
-  ];
+  const active = THEME_OPTIONS.find((o) => o.id === theme);
   return (
     <section className="bg-card border border-card-border rounded-xl p-6 shadow-card space-y-4">
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-[15px] font-serif font-semibold text-foreground tracking-tight">Appearance</h2>
           <p className="text-[12.5px] text-muted-foreground mt-0.5">
-            Switch between the Windows 95 retro skin and the modern theme. Applied instantly on every page.
+            Pick a skin. Applied instantly on every page; remembered across reloads and tabs.
           </p>
         </div>
         <span className="text-[11.5px] text-muted-foreground">
-          Active: <span className="font-medium text-foreground">{theme === "retro95" ? "Windows 95 Retro" : "Modern"}</span>
+          Active: <span className="font-medium text-foreground">{active?.label ?? theme}</span>
         </span>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        {options.map((o) => {
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+        {THEME_OPTIONS.map((o) => {
           const Icon = o.icon;
-          const active = theme === o.id;
+          const isActive = theme === o.id;
           return (
             <button
               key={o.id}
               type="button"
               onClick={() => setTheme(o.id)}
               data-testid={`button-theme-${o.id}`}
-              className={`flex flex-col items-start gap-1.5 p-4 rounded-lg border text-left transition-all ${
-                active
-                  ? "bg-secondary border-foreground/20 ring-2 ring-primary/10"
+              aria-pressed={isActive}
+              className={`flex flex-col items-start gap-2 p-3 rounded-lg border text-left transition-all ${
+                isActive
+                  ? "bg-secondary border-foreground/30 ring-2 ring-primary/20"
                   : "bg-background border-border hover:bg-secondary/60"
               }`}
             >
-              <div className="flex items-center gap-2 w-full">
-                <Icon className={`w-4 h-4 ${active ? "text-foreground" : "text-muted-foreground"}`} />
-                <span className="text-[13px] font-medium text-foreground">{o.label}</span>
-                {active && (
-                  <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-foreground/10 text-foreground font-medium uppercase tracking-wide">
-                    Active
+              {/* Palette swatch — 4 stops from the theme's CSS variables */}
+              <div className="flex w-full h-7 rounded overflow-hidden border border-border/60">
+                {o.swatch.map((color, i) => (
+                  <div key={i} className="flex-1" style={{ background: color }} />
+                ))}
+              </div>
+              <div className="flex items-center gap-1.5 w-full">
+                <Icon className={`w-3.5 h-3.5 ${isActive ? "text-foreground" : "text-muted-foreground"}`} />
+                <span className="text-[12.5px] font-medium text-foreground truncate">{o.label}</span>
+                {isActive && (
+                  <span className="ml-auto text-[9px] px-1 py-0.5 rounded bg-foreground/10 text-foreground font-semibold uppercase tracking-wide flex-shrink-0">
+                    On
                   </span>
                 )}
               </div>
-              <span className="text-[11.5px] leading-snug text-muted-foreground">{o.desc}</span>
+              <span className="text-[11px] leading-snug text-muted-foreground line-clamp-2">{o.desc}</span>
             </button>
           );
         })}

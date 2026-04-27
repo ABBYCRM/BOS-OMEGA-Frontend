@@ -463,3 +463,491 @@
    override for clarity (and to allow toggling without page reload). */
 :root.theme-modern { }
 
+
+/* ============================================================
+   BOS-OMEGA · ALTERNATE SKINS
+   Each block defines a complete CSS-variable palette + a few
+   per-theme decorative overrides. Adding a theme: define the
+   `:root.theme-<id>` block here, then register the id in
+   `lib/theme.ts` and the option in Settings.tsx.
+   ============================================================ */
+
+/* --- RETRO 98 -------------------------------------------------- */
+:root.theme-retro98 {
+  --background: 36 8% 82%;            /* #d4d0c8 warm Win98 face */
+  --foreground: 0 0% 0%;
+  --card: 36 8% 82%;
+  --card-foreground: 0 0% 0%;
+  --card-border: 0 0% 50%;
+  --border: 0 0% 50%;
+  --input: 0 0% 100%;
+
+  --sidebar: 36 8% 82%;
+  --sidebar-foreground: 0 0% 0%;
+  --sidebar-border: 0 0% 50%;
+  --sidebar-primary: 226 83% 23%;     /* #0a246a Win98 title-bar blue */
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 36 8% 76%;
+  --sidebar-accent-foreground: 0 0% 0%;
+  --sidebar-accent-border: 0 0% 50%;
+  --sidebar-ring: 226 83% 23%;
+
+  --popover: 36 8% 82%;
+  --popover-foreground: 0 0% 0%;
+  --popover-border: 0 0% 50%;
+
+  --primary: 226 83% 23%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 207 86% 45%;              /* Win98 secondary blue */
+  --accent-foreground: 0 0% 100%;
+  --secondary: 36 8% 82%;
+  --secondary-foreground: 0 0% 0%;
+  --muted: 36 8% 86%;
+  --muted-foreground: 0 0% 25%;
+  --destructive: 0 80% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --ring: 226 83% 23%;
+  --chart-1: 226 83% 23%;
+  --chart-2: 207 86% 45%;
+  --chart-3: 120 60% 30%;
+  --chart-4: 50 100% 45%;
+  --chart-5: 0 0% 30%;
+
+  --app-font-sans: "Tahoma", "MS Sans Serif", "Geneva", "Verdana", sans-serif;
+  --app-font-serif: "Tahoma", "MS Sans Serif", "Geneva", "Verdana", sans-serif;
+  --app-font-mono: "Lucida Console", "Courier New", "Courier", monospace;
+  --radius: 0;
+}
+:root.theme-retro98 body { font-family: var(--app-font-sans); background: hsl(var(--background)); }
+:root.theme-retro98 .rounded,
+:root.theme-retro98 .rounded-sm,
+:root.theme-retro98 .rounded-md,
+:root.theme-retro98 .rounded-lg,
+:root.theme-retro98 .rounded-xl,
+:root.theme-retro98 .rounded-2xl,
+:root.theme-retro98 .rounded-full { border-radius: 0 !important; }
+:root.theme-retro98 .shadow-card,
+:root.theme-retro98 .shadow-card-hover,
+:root.theme-retro98 .shadow-elevated {
+  box-shadow:
+    inset -1px -1px 0 0 #000,
+    inset  1px  1px 0 0 #fff,
+    inset -2px -2px 0 0 #808080,
+    inset  2px  2px 0 0 #ececec !important;
+}
+:root.theme-retro98 .bg-primary {
+  background: linear-gradient(90deg, #0a246a 0%, #a6caf0 100%) !important;
+  color: #fff !important;
+}
+
+/* --- CYBERDINE (Terminator) ----------------------------------- */
+:root.theme-cyberdine {
+  --background: 0 0% 4%;              /* near-black */
+  --foreground: 0 100% 65%;           /* HUD red */
+  --card: 0 0% 7%;
+  --card-foreground: 0 100% 70%;
+  --card-border: 0 80% 35%;
+  --border: 0 70% 30%;
+  --input: 0 0% 10%;
+
+  --sidebar: 0 0% 3%;
+  --sidebar-foreground: 0 100% 65%;
+  --sidebar-border: 0 80% 35%;
+  --sidebar-primary: 0 100% 50%;
+  --sidebar-primary-foreground: 0 0% 0%;
+  --sidebar-accent: 0 0% 9%;
+  --sidebar-accent-foreground: 0 100% 65%;
+  --sidebar-accent-border: 0 80% 35%;
+  --sidebar-ring: 0 100% 50%;
+
+  --popover: 0 0% 6%;
+  --popover-foreground: 0 100% 70%;
+  --popover-border: 0 80% 35%;
+
+  --primary: 0 100% 50%;
+  --primary-foreground: 0 0% 0%;
+  --accent: 12 100% 55%;
+  --accent-foreground: 0 0% 0%;
+  --secondary: 0 0% 12%;
+  --secondary-foreground: 0 100% 70%;
+  --muted: 0 0% 14%;
+  --muted-foreground: 0 50% 60%;
+  --destructive: 0 100% 50%;
+  --destructive-foreground: 0 0% 0%;
+  --ring: 0 100% 50%;
+  --chart-1: 0 100% 50%;
+  --chart-2: 12 100% 55%;
+  --chart-3: 30 100% 50%;
+  --chart-4: 0 0% 70%;
+  --chart-5: 0 80% 35%;
+
+  --app-font-sans: "Share Tech Mono", "Courier New", monospace;
+  --app-font-serif: "Share Tech Mono", "Courier New", monospace;
+  --app-font-mono: "Share Tech Mono", "Courier New", monospace;
+  --radius: 0;
+}
+:root.theme-cyberdine body {
+  font-family: var(--app-font-sans);
+  background:
+    repeating-linear-gradient(0deg, transparent 0 2px, rgba(255,0,0,0.04) 2px 3px),
+    hsl(var(--background));
+  letter-spacing: 0.02em;
+}
+:root.theme-cyberdine .shadow-card,
+:root.theme-cyberdine .shadow-card-hover,
+:root.theme-cyberdine .shadow-elevated {
+  box-shadow: 0 0 0 1px rgba(255,0,0,0.4), 0 0 12px rgba(255,0,0,0.15) !important;
+}
+:root.theme-cyberdine h1,
+:root.theme-cyberdine h2,
+:root.theme-cyberdine h3 { text-transform: uppercase; letter-spacing: 0.08em; text-shadow: 0 0 6px rgba(255,0,0,0.4); }
+:root.theme-cyberdine .bg-primary { background: #ff0000 !important; color: #000 !important; }
+
+/* --- UMBRELLA CORPORATION (Resident Evil) --------------------- */
+:root.theme-umbrella {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 8%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 8%;
+  --card-border: 0 80% 40%;
+  --border: 0 0% 80%;
+  --input: 0 0% 96%;
+
+  --sidebar: 0 0% 6%;                 /* black sidebar */
+  --sidebar-foreground: 0 0% 96%;
+  --sidebar-border: 0 80% 40%;
+  --sidebar-primary: 0 80% 45%;       /* Umbrella red */
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 12%;
+  --sidebar-accent-foreground: 0 0% 100%;
+  --sidebar-accent-border: 0 80% 40%;
+  --sidebar-ring: 0 80% 45%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 8%;
+  --popover-border: 0 0% 80%;
+
+  --primary: 0 80% 45%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 0 80% 45%;
+  --accent-foreground: 0 0% 100%;
+  --secondary: 0 0% 95%;
+  --secondary-foreground: 0 0% 8%;
+  --muted: 0 0% 94%;
+  --muted-foreground: 0 0% 35%;
+  --destructive: 0 80% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --ring: 0 80% 45%;
+  --chart-1: 0 80% 45%;
+  --chart-2: 0 0% 8%;
+  --chart-3: 0 0% 50%;
+  --chart-4: 0 60% 60%;
+  --chart-5: 0 0% 80%;
+
+  --app-font-sans: 'Inter', 'system-ui', sans-serif;
+  --app-font-serif: 'Cormorant Garamond', 'Georgia', serif;
+  --app-font-mono: 'JetBrains Mono', 'Menlo', monospace;
+  --radius: .25rem;
+}
+:root.theme-umbrella body {
+  font-family: var(--app-font-sans);
+  background:
+    linear-gradient(135deg, transparent 49.5%, rgba(193,12,12,0.04) 49.5% 50.5%, transparent 50.5%) 0 0/24px 24px,
+    hsl(var(--background));
+}
+:root.theme-umbrella h1,
+:root.theme-umbrella h2,
+:root.theme-umbrella h3 { font-family: var(--app-font-serif); letter-spacing: 0.02em; }
+:root.theme-umbrella .bg-primary { background: #c10c0c !important; }
+
+/* --- CAPYBARA ------------------------------------------------- */
+:root.theme-capybara {
+  --background: 36 50% 92%;           /* #f5ecdc warm cream */
+  --foreground: 25 35% 18%;
+  --card: 38 55% 96%;
+  --card-foreground: 25 35% 18%;
+  --card-border: 30 25% 80%;
+  --border: 30 25% 82%;
+  --input: 36 40% 88%;
+
+  --sidebar: 30 35% 85%;
+  --sidebar-foreground: 25 35% 22%;
+  --sidebar-border: 30 25% 75%;
+  --sidebar-primary: 80 22% 38%;      /* sage green */
+  --sidebar-primary-foreground: 36 50% 96%;
+  --sidebar-accent: 30 35% 80%;
+  --sidebar-accent-foreground: 25 35% 18%;
+  --sidebar-accent-border: 30 25% 70%;
+  --sidebar-ring: 80 22% 38%;
+
+  --popover: 38 55% 96%;
+  --popover-foreground: 25 35% 18%;
+  --popover-border: 30 25% 80%;
+
+  --primary: 80 22% 38%;
+  --primary-foreground: 36 50% 96%;
+  --accent: 22 50% 60%;               /* warm capybara tan */
+  --accent-foreground: 36 50% 98%;
+  --secondary: 36 35% 86%;
+  --secondary-foreground: 25 35% 18%;
+  --muted: 36 30% 90%;
+  --muted-foreground: 25 20% 38%;
+  --destructive: 5 60% 50%;
+  --destructive-foreground: 36 50% 96%;
+  --ring: 80 22% 38%;
+  --chart-1: 80 22% 38%;
+  --chart-2: 22 50% 60%;
+  --chart-3: 200 35% 55%;
+  --chart-4: 50 60% 55%;
+  --chart-5: 25 35% 35%;
+
+  --app-font-sans: 'Comfortaa', 'Quicksand', 'Inter', sans-serif;
+  --app-font-serif: 'Comfortaa', 'Quicksand', 'Inter', sans-serif;
+  --app-font-mono: 'JetBrains Mono', monospace;
+  --radius: 1rem;                     /* very rounded, cozy */
+}
+:root.theme-capybara body { font-family: var(--app-font-sans); background: hsl(var(--background)); }
+:root.theme-capybara .shadow-card,
+:root.theme-capybara .shadow-card-hover,
+:root.theme-capybara .shadow-elevated {
+  box-shadow: 0 4px 16px rgba(122,138,79,0.08), 0 1px 3px rgba(74,56,38,0.06) !important;
+}
+
+/* --- ANIME ---------------------------------------------------- */
+:root.theme-anime {
+  --background: 320 100% 98%;         /* near-white pink tint */
+  --foreground: 0 0% 8%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 8%;
+  --card-border: 330 100% 70%;
+  --border: 330 60% 85%;
+  --input: 320 60% 96%;
+
+  --sidebar: 330 100% 96%;
+  --sidebar-foreground: 0 0% 8%;
+  --sidebar-border: 330 80% 75%;
+  --sidebar-primary: 335 100% 60%;    /* hot pink */
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 320 100% 92%;
+  --sidebar-accent-foreground: 0 0% 8%;
+  --sidebar-accent-border: 330 80% 75%;
+  --sidebar-ring: 335 100% 60%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 8%;
+  --popover-border: 330 100% 70%;
+
+  --primary: 335 100% 60%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 190 100% 50%;             /* electric cyan */
+  --accent-foreground: 0 0% 8%;
+  --secondary: 50 100% 88%;           /* yellow */
+  --secondary-foreground: 0 0% 8%;
+  --muted: 320 60% 95%;
+  --muted-foreground: 0 0% 25%;
+  --destructive: 0 100% 55%;
+  --destructive-foreground: 0 0% 100%;
+  --ring: 335 100% 60%;
+  --chart-1: 335 100% 60%;
+  --chart-2: 190 100% 50%;
+  --chart-3: 50 100% 55%;
+  --chart-4: 270 90% 65%;
+  --chart-5: 130 70% 50%;
+
+  --app-font-sans: 'M PLUS Rounded 1c', 'Comfortaa', 'Inter', sans-serif;
+  --app-font-serif: 'Bangers', 'Impact', sans-serif;
+  --app-font-mono: 'JetBrains Mono', monospace;
+  --radius: .75rem;
+}
+:root.theme-anime body { font-family: var(--app-font-sans); background: hsl(var(--background)); }
+:root.theme-anime h1,
+:root.theme-anime h2 {
+  font-family: var(--app-font-serif) !important;
+  letter-spacing: 0.05em;
+  -webkit-text-stroke: 1px rgba(0,0,0,0.85);
+}
+:root.theme-anime .shadow-card,
+:root.theme-anime .shadow-card-hover,
+:root.theme-anime .shadow-elevated {
+  box-shadow: 4px 4px 0 0 rgba(0,0,0,0.85) !important;
+}
+:root.theme-anime .bg-primary { background: #ff4b8b !important; }
+
+/* --- STEAMPUNK ------------------------------------------------ */
+:root.theme-steampunk {
+  --background: 38 35% 86%;           /* parchment */
+  --foreground: 25 50% 12%;
+  --card: 38 40% 92%;
+  --card-foreground: 25 50% 12%;
+  --card-border: 28 40% 35%;
+  --border: 28 30% 50%;
+  --input: 38 30% 84%;
+
+  --sidebar: 25 35% 22%;              /* dark wood */
+  --sidebar-foreground: 38 50% 88%;
+  --sidebar-border: 28 40% 35%;
+  --sidebar-primary: 30 60% 45%;      /* brass */
+  --sidebar-primary-foreground: 38 60% 96%;
+  --sidebar-accent: 25 30% 30%;
+  --sidebar-accent-foreground: 38 50% 88%;
+  --sidebar-accent-border: 28 40% 40%;
+  --sidebar-ring: 30 60% 45%;
+
+  --popover: 38 40% 92%;
+  --popover-foreground: 25 50% 12%;
+  --popover-border: 28 40% 35%;
+
+  --primary: 25 65% 28%;              /* dark brass */
+  --primary-foreground: 38 60% 96%;
+  --accent: 30 60% 45%;
+  --accent-foreground: 38 60% 96%;
+  --secondary: 38 30% 80%;
+  --secondary-foreground: 25 50% 12%;
+  --muted: 38 25% 84%;
+  --muted-foreground: 25 30% 30%;
+  --destructive: 0 60% 35%;
+  --destructive-foreground: 38 60% 96%;
+  --ring: 30 60% 45%;
+  --chart-1: 25 65% 28%;
+  --chart-2: 30 60% 45%;
+  --chart-3: 90 30% 35%;
+  --chart-4: 200 30% 35%;
+  --chart-5: 0 50% 40%;
+
+  --app-font-sans: 'Cormorant Garamond', 'Georgia', serif;
+  --app-font-serif: 'IM Fell English', 'Cormorant Garamond', 'Georgia', serif;
+  --app-font-mono: 'Courier New', monospace;
+  --radius: .375rem;
+}
+:root.theme-steampunk body {
+  font-family: var(--app-font-sans);
+  background:
+    radial-gradient(ellipse at top, rgba(120,80,30,0.08), transparent 60%),
+    repeating-linear-gradient(45deg, transparent 0 6px, rgba(80,50,20,0.025) 6px 7px),
+    hsl(var(--background));
+}
+:root.theme-steampunk h1,
+:root.theme-steampunk h2,
+:root.theme-steampunk h3 { font-family: var(--app-font-serif); font-weight: 600; }
+:root.theme-steampunk .shadow-card,
+:root.theme-steampunk .shadow-card-hover,
+:root.theme-steampunk .shadow-elevated {
+  box-shadow: 0 1px 0 rgba(120,80,30,0.4) inset, 0 0 0 1px rgba(80,50,20,0.25), 0 8px 16px rgba(40,20,5,0.12) !important;
+}
+
+/* --- NEON PUNK ------------------------------------------------ */
+:root.theme-neonpunk {
+  --background: 270 60% 6%;           /* deep purple-black */
+  --foreground: 180 100% 90%;
+  --card: 270 50% 10%;
+  --card-foreground: 180 100% 90%;
+  --card-border: 320 100% 50%;
+  --border: 280 60% 25%;
+  --input: 270 50% 14%;
+
+  --sidebar: 275 65% 5%;
+  --sidebar-foreground: 180 100% 85%;
+  --sidebar-border: 320 100% 50%;
+  --sidebar-primary: 320 100% 55%;    /* neon magenta */
+  --sidebar-primary-foreground: 0 0% 0%;
+  --sidebar-accent: 270 60% 12%;
+  --sidebar-accent-foreground: 180 100% 90%;
+  --sidebar-accent-border: 320 100% 50%;
+  --sidebar-ring: 320 100% 55%;
+
+  --popover: 270 50% 10%;
+  --popover-foreground: 180 100% 90%;
+  --popover-border: 320 100% 50%;
+
+  --primary: 320 100% 55%;
+  --primary-foreground: 0 0% 0%;
+  --accent: 180 100% 50%;             /* cyan */
+  --accent-foreground: 0 0% 0%;
+  --secondary: 270 50% 16%;
+  --secondary-foreground: 180 100% 90%;
+  --muted: 270 40% 18%;
+  --muted-foreground: 200 60% 70%;
+  --destructive: 0 100% 55%;
+  --destructive-foreground: 0 0% 0%;
+  --ring: 320 100% 55%;
+  --chart-1: 320 100% 55%;
+  --chart-2: 180 100% 50%;
+  --chart-3: 60 100% 55%;
+  --chart-4: 270 100% 65%;
+  --chart-5: 130 100% 55%;
+
+  --app-font-sans: 'Orbitron', 'Inter', sans-serif;
+  --app-font-serif: 'Orbitron', 'Inter', sans-serif;
+  --app-font-mono: 'Major Mono Display', 'JetBrains Mono', monospace;
+  --radius: .25rem;
+}
+:root.theme-neonpunk body {
+  font-family: var(--app-font-sans);
+  background:
+    linear-gradient(180deg, transparent 0, rgba(255,0,170,0.04) 100%),
+    repeating-linear-gradient(0deg, transparent 0 24px, rgba(0,240,255,0.05) 24px 25px),
+    repeating-linear-gradient(90deg, transparent 0 24px, rgba(255,0,170,0.04) 24px 25px),
+    hsl(var(--background));
+}
+:root.theme-neonpunk h1,
+:root.theme-neonpunk h2,
+:root.theme-neonpunk h3 { text-transform: uppercase; letter-spacing: 0.1em; text-shadow: 0 0 8px rgba(255,0,170,0.6), 0 0 16px rgba(0,240,255,0.3); }
+:root.theme-neonpunk .shadow-card,
+:root.theme-neonpunk .shadow-card-hover,
+:root.theme-neonpunk .shadow-elevated {
+  box-shadow: 0 0 0 1px rgba(255,0,170,0.5), 0 0 18px rgba(0,240,255,0.18) !important;
+}
+:root.theme-neonpunk .bg-primary { background: #ff00aa !important; color: #000 !important; }
+
+/* --- ULTRA CLEAN ---------------------------------------------- */
+:root.theme-ultraclean {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 4%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 4%;
+  --card-border: 0 0% 92%;
+  --border: 0 0% 92%;
+  --input: 0 0% 98%;
+
+  --sidebar: 0 0% 100%;
+  --sidebar-foreground: 0 0% 12%;
+  --sidebar-border: 0 0% 94%;
+  --sidebar-primary: 0 0% 4%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 96%;
+  --sidebar-accent-foreground: 0 0% 4%;
+  --sidebar-accent-border: 0 0% 92%;
+  --sidebar-ring: 0 0% 4%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 4%;
+  --popover-border: 0 0% 92%;
+
+  --primary: 0 0% 4%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 0 0% 4%;
+  --accent-foreground: 0 0% 100%;
+  --secondary: 0 0% 97%;
+  --secondary-foreground: 0 0% 4%;
+  --muted: 0 0% 97%;
+  --muted-foreground: 0 0% 38%;
+  --destructive: 0 70% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --ring: 0 0% 4%;
+  --chart-1: 0 0% 4%;
+  --chart-2: 0 0% 35%;
+  --chart-3: 0 0% 55%;
+  --chart-4: 0 0% 72%;
+  --chart-5: 0 0% 85%;
+
+  --app-font-sans: 'Inter', 'system-ui', sans-serif;
+  --app-font-serif: 'Inter', 'system-ui', sans-serif;
+  --app-font-mono: 'JetBrains Mono', 'Menlo', monospace;
+  --radius: .375rem;
+}
+:root.theme-ultraclean body { font-family: var(--app-font-sans); background: hsl(var(--background)); }
+:root.theme-ultraclean .shadow-card,
+:root.theme-ultraclean .shadow-card-hover,
+:root.theme-ultraclean .shadow-elevated {
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.06) !important;
+}
