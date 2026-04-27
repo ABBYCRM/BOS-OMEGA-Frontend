@@ -357,6 +357,88 @@ describe("MemoryUsedPanel", () => {
     expect(screen.getByTestId("memory-context-preview")).toBeInTheDocument();
   });
 
+  // === Task #51: per-layer dropped notice ===
+
+  it("hides the dropped notice and header badge when no layer dropped anything", () => {
+    // memoryInjectedEntry has no *_dropped fields → all coerce to 0.
+    renderWithClient(<MemoryUsedPanel audit={[memoryInjectedEntry]} />);
+    expect(screen.queryByTestId("memory-dropped-header-badge")).toBeNull();
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+    expect(screen.queryByTestId("memory-dropped-notice")).toBeNull();
+  });
+
+  it("renders a per-layer dropped notice with budgets when layers dropped > 0", () => {
+    const droppedEntry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        canon_dropped: 3,
+        continuity_dropped: 1,
+        patches_dropped: 0,
+        scratchpad_dropped: 0,
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[droppedEntry]} />);
+
+    // Collapsed-state badge surfaces the total so users notice without
+    // having to expand the panel.
+    const badge = screen.getByTestId("memory-dropped-header-badge");
+    expect(badge.textContent).toMatch(/4 dropped/);
+
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    // The notice itself is now visible.
+    const notice = screen.getByTestId("memory-dropped-notice");
+    expect(notice).toBeInTheDocument();
+
+    // Per-layer lines: only the layers with dropped > 0 appear, with
+    // both the dropped count AND the layer's token budget called out.
+    const canonLine = screen.getByTestId("memory-dropped-canon");
+    expect(canonLine.textContent).toContain("3");
+    expect(canonLine.textContent).toContain("canon");
+    // Budget value comes from MEMORY_TOKEN_BUDGETS mirror in the panel.
+    expect(canonLine.textContent).toMatch(/3,000-token/);
+
+    const continuityLine = screen.getByTestId("memory-dropped-continuity");
+    expect(continuityLine.textContent).toContain("1");
+    // Singular "note" for count == 1, and the continuity budget number.
+    expect(continuityLine.textContent).toMatch(/continuity note ranked/);
+    expect(continuityLine.textContent).toMatch(/1,500-token/);
+
+    // Layers with zero dropped MUST NOT be listed.
+    expect(screen.queryByTestId("memory-dropped-patches")).toBeNull();
+    expect(screen.queryByTestId("memory-dropped-scratchpad")).toBeNull();
+
+    // Explainer mentions every layer's budget so users understand the cutoff.
+    expect(notice.textContent).toMatch(/canon 3,000/);
+    expect(notice.textContent).toMatch(/continuity 1,500/);
+    expect(notice.textContent).toMatch(/patches 1,000/);
+    expect(notice.textContent).toMatch(/scratchpad 750/);
+
+    // Deep-link into Memory Manager so users can act on it.
+    const link = screen.getByTestId("memory-dropped-manager-link");
+    expect(link.getAttribute("href")).toBe("/memory");
+  });
+
+  it("renders the dropped notice even when the layer's items count is zero", () => {
+    // Edge case: a layer can drop items even if NONE fit (budget too small
+    // for any single ranked item). The notice must still appear.
+    const allDroppedEntry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        scratchpad_items: 0,
+        scratchpad_dropped: 5,
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[allDroppedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+    expect(screen.getByTestId("memory-dropped-notice")).toBeInTheDocument();
+    const line = screen.getByTestId("memory-dropped-scratchpad");
+    expect(line.textContent).toContain("5");
+    expect(line.textContent).toMatch(/scratchpad notes ranked/); // plural
+  });
+
   it("surfaces a fallback error message when the full-context fetch fails", async () => {
     vi.stubGlobal(
       "fetch",

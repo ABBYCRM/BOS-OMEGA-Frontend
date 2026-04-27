@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "wouter";
-import { ChevronDown, ChevronRight, Brain, Loader2, ExternalLink, AlertCircle } from "lucide-react";
+import { ChevronDown, ChevronRight, Brain, Loader2, ExternalLink, AlertCircle, Scissors } from "lucide-react";
 import { useGetTaskMemoryContext, useListMemory } from "@workspace/api-client-react";
 
 type AuditEntry = {
@@ -26,10 +26,37 @@ type MemoryMeta = {
   continuity_items?: number;
   patches_items?: number;
   scratchpad_items?: number;
+  // Task #51: per-layer dropped counts the orchestrator records on
+  // MEMORY_INJECTED (added in Task #48). When > 0, the layer had ranked
+  // items that did not fit its token budget — the panel uses these to
+  // answer "why didn't the AI use my note?" in plain English.
+  canon_dropped?: number;
+  continuity_dropped?: number;
+  patches_dropped?: number;
+  scratchpad_dropped?: number;
   memory_context_chars?: number;
   section_headers?: string[];
   memory_context_preview?: string;
   injected_items?: InjectedItem[];
+};
+
+// Mirror of MEMORY_TOKEN_BUDGETS from
+// artifacts/api-server/src/bos/memoryEngine.ts. Kept inline (rather than
+// imported) because the API server is a separate artifact; if those values
+// change there, update them here too. Tested values as of Task #51:
+// canon=3000, continuity=1500, patches=1000, scratchpad=750.
+const MEMORY_TOKEN_BUDGETS = {
+  CANON: 3000,
+  CONTINUITY: 1500,
+  PATCHES: 1000,
+  SCRATCHPAD: 750,
+} as const;
+
+const LAYER_PLAIN_NAME: Record<keyof typeof MEMORY_TOKEN_BUDGETS, string> = {
+  CANON: "canon",
+  CONTINUITY: "continuity",
+  PATCHES: "patches",
+  SCRATCHPAD: "scratchpad",
 };
 
 const LAYER_COLORS: Record<string, string> = {
@@ -116,12 +143,34 @@ export function MemoryUsedPanel({
   if (!entry) return null;
 
   const layers = [
-    { key: "CANON", count: meta.canon_items ?? 0 },
-    { key: "CONTINUITY", count: meta.continuity_items ?? 0 },
-    { key: "PATCHES", count: meta.patches_items ?? 0 },
-    { key: "SCRATCHPAD", count: meta.scratchpad_items ?? 0 },
+    {
+      key: "CANON" as const,
+      count: meta.canon_items ?? 0,
+      dropped: meta.canon_dropped ?? 0,
+    },
+    {
+      key: "CONTINUITY" as const,
+      count: meta.continuity_items ?? 0,
+      dropped: meta.continuity_dropped ?? 0,
+    },
+    {
+      key: "PATCHES" as const,
+      count: meta.patches_items ?? 0,
+      dropped: meta.patches_dropped ?? 0,
+    },
+    {
+      key: "SCRATCHPAD" as const,
+      count: meta.scratchpad_items ?? 0,
+      dropped: meta.scratchpad_dropped ?? 0,
+    },
   ];
   const total = layers.reduce((s, l) => s + l.count, 0);
+  // Task #51: any layer with dropped > 0 means the orchestrator ranked
+  // notes that didn't fit the per-layer token budget. Surface those so
+  // users don't have to dig through audit JSON to answer "why didn't
+  // the AI use my note?". Negative or non-numeric dropped values are
+  // coerced to 0 above so this filter is safe.
+  const droppedLayers = layers.filter((l) => l.dropped > 0);
   const headers = Array.isArray(meta.section_headers) ? meta.section_headers : [];
   const preview =
     typeof meta.memory_context_preview === "string" ? meta.memory_context_preview : "";
@@ -175,6 +224,18 @@ export function MemoryUsedPanel({
           <span className="font-mono text-[10px] text-muted-foreground border-l border-border pl-3">
             {chars} chars
           </span>
+          {/* Task #51: collapsed-state hint so users notice the dropped
+              notice exists without having to expand the panel first. */}
+          {droppedLayers.length > 0 && (
+            <span
+              className="font-mono text-[10px] text-amber-700 border-l border-border pl-3 inline-flex items-center gap-1"
+              data-testid="memory-dropped-header-badge"
+              title="Some stored notes ranked but didn't fit the budget"
+            >
+              <Scissors className="w-3 h-3" />
+              {droppedLayers.reduce((s, l) => s + l.dropped, 0)} dropped
+            </span>
+          )}
         </div>
       </button>
 
@@ -214,6 +275,67 @@ export function MemoryUsedPanel({
               </div>
             )}
           </div>
+
+          {/* Task #51: per-layer dropped notice. The orchestrator records
+              how many ranked items were cut to fit each layer's token
+              budget; surfacing that here answers "why didn't the AI use
+              my note?" without forcing users into the audit JSON. The
+              section is hidden entirely when no layer dropped anything,
+              and is also hidden on legacy tasks recorded before Task #48
+              shipped (their metadata has no *_dropped fields, which we
+              coerce to 0 above). */}
+          {droppedLayers.length > 0 && (
+            <div
+              className="rounded border border-amber-500/40 bg-amber-500/10 p-3"
+              data-testid="memory-dropped-notice"
+            >
+              <div className="flex items-start gap-2">
+                <Scissors className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" />
+                <div className="space-y-1.5 text-[11px] font-mono text-foreground leading-snug">
+                  <div className="font-bold text-amber-700">
+                    Some of your stored notes didn't fit this task's memory budget.
+                  </div>
+                  <ul
+                    className="list-disc pl-5 space-y-0.5"
+                    data-testid="memory-dropped-list"
+                  >
+                    {droppedLayers.map((l) => (
+                      <li
+                        key={l.key}
+                        data-testid={`memory-dropped-${l.key.toLowerCase()}`}
+                      >
+                        <span className={`font-bold ${LAYER_COLORS[l.key]}`}>
+                          {l.dropped}
+                        </span>{" "}
+                        of your {LAYER_PLAIN_NAME[l.key]} note
+                        {l.dropped === 1 ? "" : "s"} ranked but didn't fit
+                        the {MEMORY_TOKEN_BUDGETS[l.key].toLocaleString()}-token{" "}
+                        {LAYER_PLAIN_NAME[l.key]} budget for this task.
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="text-muted-foreground pt-1">
+                    Each memory layer has its own token budget — canon{" "}
+                    {MEMORY_TOKEN_BUDGETS.CANON.toLocaleString()}, continuity{" "}
+                    {MEMORY_TOKEN_BUDGETS.CONTINUITY.toLocaleString()}, patches{" "}
+                    {MEMORY_TOKEN_BUDGETS.PATCHES.toLocaleString()}, scratchpad{" "}
+                    {MEMORY_TOKEN_BUDGETS.SCRATCHPAD.toLocaleString()}.
+                    Items are picked top-ranked first; anything that pushed a
+                    layer over its budget was cut. Trim or merge lower-priority
+                    notes in{" "}
+                    <Link
+                      href="/memory"
+                      className="text-primary hover:underline"
+                      data-testid="memory-dropped-manager-link"
+                    >
+                      Memory Manager
+                    </Link>{" "}
+                    to make room.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Task #50: per-item provenance — each entry links to the source
               row in the Memory Manager. Items not present in the live list
