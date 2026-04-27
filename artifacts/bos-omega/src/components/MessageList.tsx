@@ -10,6 +10,8 @@ import {
   AlertTriangle, FileText, Image as ImageIcon, FileCode, FileSpreadsheet, Music, Video, File as FileIcon,
   Pin,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/hooks/use-toast";
 
 const SERIES_ROLE_COLORS: Record<string, string> = {
   DRAFTER: "text-sky-700",
@@ -284,10 +286,14 @@ function MODE_LABEL(mode: string, max_models?: number, agents_per_model?: number
 }
 
 // Task #67: Pin an assistant message into the per-user scratchpad layer.
-// POSTs to /api/scratchpad/pin with the message's task_id, a generated
-// title (first line of the answer, truncated), and the full answer text
-// as content. The resulting memory_items row is what later tasks see in
-// their scratchpad context — not the live conversation transcript.
+// POSTs to /api/scratchpad/pin with the message's task_id (as
+// `source_task_id` per the contract), an optional user-provided title
+// (prompted on click — leave empty to let the server derive one from
+// the content's first line), and the full answer text as content.
+//
+// On success a toast confirms the pin landed. The resulting memory_items
+// row is what later tasks see in their scratchpad context — not the
+// live conversation transcript.
 //
 // State machine is hardened against:
 //   - Double-click → an in-flight ref guards against re-entry even before
@@ -322,23 +328,49 @@ function PinButton({ task_id, answer }: { task_id?: string; answer: string }) {
 
   const onPin = async () => {
     if (inFlightRef.current || state === "pinning" || state === "pinned") return;
+
+    // Optional title prompt. Default = first line of the answer
+    // (truncated) so the user can hit Enter to accept; clearing the
+    // field and submitting empty falls through to the server's
+    // deriveTitle so the contract stays satisfied either way.
+    const head = (answer.split("\n")[0] ?? "").trim().slice(0, 80);
+    const default_title = head ? `Pin: ${head}` : "";
+    const entered = window.prompt(
+      "Title for this pin (leave blank to auto-generate):",
+      default_title,
+    );
+    if (entered === null) return; // user cancelled — leave state untouched
+    const title = entered.trim().length > 0 ? entered.trim() : undefined;
+
     inFlightRef.current = true;
     clearResetTimer();
     setState("pinning");
-    const head = (answer.split("\n")[0] ?? "").trim();
-    const title = head ? `Pin: ${head.slice(0, 80)}` : `Pin: task ${(task_id ?? "manual").slice(0, 8)}`;
     try {
+      const body: Record<string, unknown> = {
+        content: answer,
+        source_task_id: task_id,
+      };
+      if (title !== undefined) body.title = title;
       const r = await fetch("/api/scratchpad/pin", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ task_id, title, content: answer }),
+        body: JSON.stringify(body),
       });
       if (!r.ok) throw new Error(`POST /api/scratchpad/pin failed: ${r.status}`);
       setState("pinned");
+      toast({
+        title: "Pinned to scratchpad",
+        description: "This answer will be available to future tasks via your continuity context.",
+      });
       scheduleReset(2000);
-    } catch {
+    } catch (err) {
       setState("error");
+      toast({
+        title: "Pin failed",
+        description: err instanceof Error ? err.message : "Could not save to scratchpad.",
+        variant: "destructive",
+      });
       scheduleReset(2500);
     } finally {
       inFlightRef.current = false;
@@ -349,12 +381,14 @@ function PinButton({ task_id, answer }: { task_id?: string; answer: string }) {
     state === "pinned"  ? "Pinned"   :
     state === "error"   ? "Failed"   : "Pin";
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="sm"
       onClick={onPin}
       data-testid="button-pin-message"
       disabled={state === "pinning" || state === "pinned"}
-      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-60 disabled:cursor-default"
+      className="h-auto inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-60 disabled:cursor-default"
       aria-label={state === "pinned" ? "Pinned to scratchpad" : "Pin to scratchpad"}
       title={
         state === "pinned" ? "Pinned to scratchpad" :
@@ -368,7 +402,7 @@ function PinButton({ task_id, answer }: { task_id?: string; answer: string }) {
           ? <Check className="w-3.5 h-3.5 text-green-700" />
           : <Pin className="w-3.5 h-3.5" />}
       {label}
-    </button>
+    </Button>
   );
 }
 

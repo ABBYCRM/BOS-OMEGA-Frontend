@@ -8,9 +8,16 @@
  *                                    would be a privacy regression.
  *   POST /api/scratchpad/pin       → manually pin an assistant message
  *                                    into the scratchpad layer with
- *                                    source="manual_pin".
- *   DELETE /api/scratchpad/:id     → remove a scratchpad row owned by
- *                                    the caller.
+ *                                    source="manual_pin". Body shape per
+ *                                    Task #67 contract:
+ *                                      { content, source_task_id?, title? }
+ *                                    `title` is optional — when absent we
+ *                                    derive one from the first line of
+ *                                    the content (truncated to 80 chars).
+ *   DELETE /api/scratchpad/:id     → owner OR super_admin. The audit row
+ *                                    records the bypass when an admin
+ *                                    deletes another user's row so the
+ *                                    privileged action stays traceable.
  *
  * The list/create endpoints intentionally don't go through the wider
  * /api/memory router (which already handles ALL layers) because:
@@ -29,17 +36,40 @@ import { auditLog } from "../bos/auditEngine.js";
 
 const router = Router();
 
+const PIN_TITLE_MAX = 200;
+const PIN_CONTENT_MAX = 8000;
+const TITLE_HEAD_MAX = 80;
+
 const PinBody = z.object({
-  task_id: z.string().min(1).max(200).optional(),
-  title: z.string().min(1).max(200),
-  content: z.string().min(1).max(8000),
+  source_task_id: z.string().min(1).max(200).optional(),
+  title: z.string().min(1).max(PIN_TITLE_MAX).optional(),
+  content: z.string().min(1).max(PIN_CONTENT_MAX),
 });
+
+/**
+ * Derive a sensible title when the caller omitted one — first non-empty
+ * line of the content, truncated. Mirrors what PinButton used to send
+ * client-side; centralising it here lets non-UI clients (curl, scripts,
+ * future MCP/agent integrations) call /pin without computing a title.
+ */
+function deriveTitle(content: string, source_task_id?: string): string {
+  const head = (content.split("\n")[0] ?? "").trim();
+  if (head) {
+    const slim = head.length > TITLE_HEAD_MAX ? head.slice(0, TITLE_HEAD_MAX - 1) + "…" : head;
+    return `Pin: ${slim}`;
+  }
+  return `Pin: task ${(source_task_id ?? "manual").slice(0, 8)}`;
+}
 
 router.get("/", async (req, res) => {
   if (!req.user?.id) {
     res.status(401).json({ error: "Authentication required", code: "UNAUTHENTICATED" });
     return;
   }
+  // Order by created_at desc so the most recent pin/auto-summary lines up
+  // at the top of the Settings card. We expose created_at in the response
+  // (it's part of the row) so the UI can show "when did this enter the
+  // scratchpad" rather than a possibly-misleading updated_at.
   const items = await db
     .select()
     .from(memoryItemsTable)
@@ -49,7 +79,7 @@ router.get("/", async (req, res) => {
         eq(memoryItemsTable.layer, "scratchpad"),
       ),
     )
-    .orderBy(desc(memoryItemsTable.updated_at));
+    .orderBy(desc(memoryItemsTable.created_at));
   res.json(items);
 });
 
@@ -68,6 +98,7 @@ router.post("/pin", async (req, res) => {
     return;
   }
 
+  const title = parsed.data.title ?? deriveTitle(parsed.data.content, parsed.data.source_task_id);
   const id = randomUUID();
   const [row] = await db
     .insert(memoryItemsTable)
@@ -79,21 +110,23 @@ router.post("/pin", async (req, res) => {
       // they sit above the auto_summary writer (3) and at the same tier
       // as freeform manual notes created via /api/memory.
       authority_level: 5,
-      title: parsed.data.title,
+      title,
       content: parsed.data.content,
       source: "manual_pin",
+      source_task_id: parsed.data.source_task_id ?? null,
     })
     .returning();
 
   await auditLog(
-    parsed.data.task_id ?? undefined,
+    parsed.data.source_task_id ?? undefined,
     "SCRATCHPAD_PINNED",
     `User pinned scratchpad entry ${id}`,
     {
       memory_id: id,
       user_id: req.user.id,
-      task_id: parsed.data.task_id ?? null,
+      source_task_id: parsed.data.source_task_id ?? null,
       source: "manual_pin",
+      title_provided: parsed.data.title !== undefined,
     },
   );
 
@@ -123,26 +156,30 @@ router.delete("/:id", async (req, res) => {
     res.status(404).json({ error: "Scratchpad entry not found" });
     return;
   }
-  // Strict owner-only: scratchpad is a personal continuity surface, not a
-  // shared admin resource. We deliberately do NOT grant super_admin a
-  // bypass here (mirrors the per-user privacy posture documented at the
-  // top of this module). If an operational break-glass is ever needed it
-  // should be a separate, explicitly-audited admin endpoint.
-  if (row.user_id !== req.user.id) {
+  // Owner OR super_admin (per Task #67 contract). We deliberately
+  // surface the privileged path explicitly in the audit metadata so a
+  // cross-user delete is auditable rather than indistinguishable from a
+  // self-delete.
+  const is_owner = row.user_id === req.user.id;
+  const is_admin_bypass = !is_owner && req.user.role === "super_admin";
+  if (!is_owner && !is_admin_bypass) {
     res.status(404).json({ error: "Scratchpad entry not found" });
     return;
   }
 
   await db.delete(memoryItemsTable).where(eq(memoryItemsTable.id, id));
   await auditLog(
-    undefined,
+    row.source_task_id ?? undefined,
     "SCRATCHPAD_DELETED",
     `User deleted scratchpad entry ${id}`,
     {
       memory_id: id,
-      user_id: req.user.id,
+      deleter_user_id: req.user.id,
+      owner_user_id: row.user_id,
       title: row.title,
       source: row.source,
+      source_task_id: row.source_task_id ?? null,
+      admin_bypass: is_admin_bypass,
     },
   );
   res.status(204).end();

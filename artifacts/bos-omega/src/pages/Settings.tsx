@@ -6,6 +6,7 @@ import {
 } from "@workspace/api-client-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { Link } from "wouter";
 import {
   Plus, Key, Trash2, CheckCircle2, XCircle, Loader2,
   Eye, EyeOff, AlertCircle, Sparkles, Zap, ShieldCheck, Lock, Database,
@@ -417,6 +418,10 @@ type ScratchpadEntry = {
   content: string;
   authority_level: number;
   source: ScratchpadSource;
+  // Task #67 — link back to the task whose completion produced (for
+  // auto_summary) or whose answer was pinned (for manual_pin) this row.
+  // Nullable for legacy/freeform notes.
+  source_task_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -550,8 +555,27 @@ function ScratchpadCard() {
                   <span className="text-[12.5px] font-medium text-foreground truncate" title={entry.title}>
                     {entry.title}
                   </span>
-                  <span className="text-[10px] font-mono text-muted-foreground ml-auto whitespace-nowrap">
-                    {new Date(entry.updated_at).toLocaleString()}
+                  {/* Task #67 — clickable source-task link when known.
+                      Routes to the existing task detail page so the user
+                      can jump from a continuity row back to the original
+                      conversation that produced it. Hidden when the row
+                      has no source task (legacy/freeform notes). */}
+                  {entry.source_task_id && (
+                    <Link
+                      to={`/tasks/${entry.source_task_id}`}
+                      className="text-[10px] font-mono text-primary hover:underline whitespace-nowrap"
+                      data-testid={`link-source-task-${entry.id}`}
+                      title={`Open source task ${entry.source_task_id}`}
+                    >
+                      task {entry.source_task_id.slice(0, 8)}
+                    </Link>
+                  )}
+                  <span
+                    className="text-[10px] font-mono text-muted-foreground ml-auto whitespace-nowrap"
+                    data-testid={`scratchpad-created-${entry.id}`}
+                    title={`Created ${new Date(entry.created_at).toISOString()}`}
+                  >
+                    {new Date(entry.created_at).toLocaleString()}
                   </span>
                 </div>
                 <p className="text-[11.5px] text-muted-foreground font-mono whitespace-pre-wrap line-clamp-3 select-text">

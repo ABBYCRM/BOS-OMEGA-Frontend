@@ -1,165 +1,144 @@
 #!/usr/bin/env node
 /**
- * Task #67 — Lattice continuity scratchpad unit tests.
+ * Task #67 — unit tests for the deterministic scratchpad summary builder.
  *
- * Pure tests for the deterministic summary builder used by the scratchpad
- * auto-writer. Mirrors the bare-node convention used by the other suites
- * in this directory (no Vitest, no DB, no network) so the file can run
- * with the project's existing `node --experimental-strip-types` loader:
+ * The contract these tests pin (see canon row "BOS-OMEGA Scratchpad
+ * Summary Contract"):
+ *   - Output is a SINGLE PARAGRAPH (no embedded newlines).
+ *   - Three required sentences: task header, user-asked, answer.
+ *   - Optional fourth sentence collapsing uncertainties+assumptions.
+ *   - Long inputs are truncated with "…" rather than wrapped.
+ *   - Identical inputs produce identical output (deterministic; required
+ *     so mock-mode and offline tests see the same output as production).
  *
+ * Run from artifacts/api-server:
  *   $ node --experimental-strip-types tests/scratchpad_unit.mjs
- *
- * The DB-touching writer (scratchpadWriter.ts) is exercised end-to-end by
- * the API server in development; we don't test the DB insert here because
- * the bare ESM loader can't walk @workspace/db.
+ * Exits 0 on pass, 1 on any failure.
  */
 import assert from "node:assert/strict";
 import { buildAutoSummary } from "../src/bos/scratchpadSummary.ts";
 
 let pass = 0;
 let fail = 0;
-function t(name, fn) {
-  try {
-    fn();
-    console.log(`  ok  ${name}`);
-    pass++;
-  } catch (err) {
-    console.log(`  FAIL ${name}\n      ${err?.message || err}`);
-    fail++;
-  }
+function test(name, fn) {
+  try { fn(); console.log(`  ok  ${name}`); pass++; }
+  catch (err) { console.log(`  FAIL ${name}\n       ${err.message}`); fail++; }
 }
 
-console.log("scratchpad_unit: buildAutoSummary deterministic format");
+console.log("scratchpad_unit: buildAutoSummary contract (2–3 sentence summary)");
 
-t("includes task_id, task_type and state in first line", () => {
+test("includes task_id, task_type and state in opening sentence", () => {
   const out = buildAutoSummary({
-    task_id: "task-abc-123",
+    task_id: "abc-1234",
     task_type: "general",
     state: "GO",
     answer: "Hello world",
-    input_text: "say hi",
+    input_text: "What is 2+2?",
   });
-  const firstLine = out.content.split("\n")[0];
-  assert.ok(firstLine.includes("task-abc-123"), `missing task_id: ${firstLine}`);
-  assert.ok(firstLine.includes("general"), `missing task_type: ${firstLine}`);
-  assert.ok(firstLine.includes("GO"), `missing state: ${firstLine}`);
+  assert.match(out.content, /^Task abc-1234 \(general\) completed with state GO\./);
 });
 
-t("title uses first line of answer when available", () => {
+test("title uses first line of answer when available", () => {
   const out = buildAutoSummary({
-    task_id: "t1",
-    task_type: "qa",
-    state: "GO",
-    answer: "Capital of France is Paris.\nMore detail follows…",
-    input_text: "what is the capital of France?",
-  });
-  assert.ok(out.title.startsWith("Auto: "), `bad title prefix: ${out.title}`);
-  assert.ok(out.title.includes("Capital of France"), `title missing head: ${out.title}`);
-  assert.ok(!out.title.includes("\n"), `title must be single-line: ${out.title}`);
-});
-
-t("title falls back to task_id slice when answer is empty", () => {
-  const out = buildAutoSummary({
-    task_id: "12345678-aaaa-bbbb",
+    task_id: "id-x",
     task_type: "general",
-    state: "HOLD",
+    state: "GO",
+    answer: "First line is a good title\nSecond line is body",
+    input_text: "ask",
+  });
+  assert.equal(out.title, "Auto: First line is a good title");
+});
+
+test("title falls back to task_id slice when answer is empty", () => {
+  const out = buildAutoSummary({
+    task_id: "ffffffff-aaaa-bbbb-cccc-1234567890ab",
+    task_type: "general",
+    state: "ABORT",
     answer: "",
-    input_text: "something",
+    input_text: "ask",
   });
-  assert.ok(out.title.startsWith("Auto: task "), `bad fallback title: ${out.title}`);
-  assert.ok(out.title.includes("12345678"), `fallback should embed task_id slice: ${out.title}`);
-  assert.ok(out.content.includes("Answer: (empty)"), `empty answer marker missing`);
+  assert.equal(out.title, "Auto: task ffffffff");
 });
 
-t("truncates very long answer at 360 chars + ellipsis", () => {
-  const longAnswer = "x".repeat(2000);
+test("output is a single paragraph (no embedded newlines)", () => {
   const out = buildAutoSummary({
-    task_id: "t2",
+    task_id: "x",
     task_type: "general",
     state: "GO",
-    answer: longAnswer,
-    input_text: "produce a long answer",
+    answer: "Line one\nLine two\nLine three",
+    input_text: "Multi\nline\ninput",
   });
-  const answerLine = out.content.split("\n").find((l) => l.startsWith("Answer:")) ?? "";
-  // "Answer: " prefix (8) + 360 truncated payload (incl. trailing …)
-  assert.ok(answerLine.length <= 8 + 360 + 1, `answer line too long: ${answerLine.length}`);
-  assert.ok(answerLine.endsWith("…"), `truncation marker missing`);
+  assert.equal(out.content.includes("\n"), false, "content must not contain newlines");
+  assert.equal(out.title.includes("\n"), false, "title must not contain newlines");
 });
 
-t("truncates very long input_text in User asked line", () => {
-  const longInput = "y".repeat(2000);
+test("truncates very long answer with ellipsis", () => {
+  const huge = "A".repeat(2000);
   const out = buildAutoSummary({
-    task_id: "t3",
+    task_id: "x",
+    task_type: "general",
+    state: "GO",
+    answer: huge,
+    input_text: "ask",
+  });
+  assert.match(out.content, /Answer: A+…\.$/);
+  // The Answer sentence body (between "Answer: " and final ".") must be
+  // bounded and not 2000+ chars.
+  const m = out.content.match(/Answer: ([^.]+)\.$/);
+  assert.ok(m, "Answer sentence not found");
+  assert.ok(m[1].length < 400, `answer body too long: ${m[1].length}`);
+});
+
+test("emits Notes line only when uncertainties / assumptions non-empty", () => {
+  const without = buildAutoSummary({
+    task_id: "x",
     task_type: "general",
     state: "GO",
     answer: "ok",
-    input_text: longInput,
-  });
-  const askedLine = out.content.split("\n").find((l) => l.startsWith("User asked:")) ?? "";
-  assert.ok(askedLine.length <= 11 + 200 + 1, `user-asked line too long: ${askedLine.length}`);
-  assert.ok(askedLine.endsWith("…"), `truncation marker missing on user-asked line`);
-});
-
-t("emits Uncertainties / Assumptions only when arrays non-empty", () => {
-  const without = buildAutoSummary({
-    task_id: "t4",
-    task_type: "general",
-    state: "GO",
-    answer: "fine",
     input_text: "ask",
   });
-  assert.ok(!without.content.includes("Uncertainties:"), "should omit Uncertainties when empty");
-  assert.ok(!without.content.includes("Assumptions:"),  "should omit Assumptions when empty");
+  assert.equal(without.content.includes("Notes:"), false);
 
   const withBoth = buildAutoSummary({
-    task_id: "t4",
+    task_id: "x",
     task_type: "general",
     state: "GO",
-    answer: "fine",
+    answer: "ok",
     input_text: "ask",
-    uncertainties: ["maybe", "perhaps", "could be", "fourth dropped"],
-    assumptions: ["a1", "a2"],
+    uncertainties: ["maybe wrong"],
+    assumptions: ["assumed thing"],
   });
-  assert.ok(withBoth.content.includes("Uncertainties: maybe · perhaps · could be"),
-    "uncertainties should be joined with · and capped at 3");
-  assert.ok(!withBoth.content.includes("fourth dropped"), "uncertainties cap should drop the 4th");
-  assert.ok(withBoth.content.includes("Assumptions: a1 · a2"), "assumptions should join cleanly");
+  assert.match(withBoth.content, /Notes: uncertainties — maybe wrong \| assumptions — assumed thing\./);
 });
 
-t("is deterministic for identical inputs (mock-mode safety)", () => {
+test("is deterministic for identical inputs (mock-mode safety)", () => {
+  const args = {
+    task_id: "stable",
+    task_type: "general",
+    state: "GO",
+    answer: "the answer",
+    input_text: "the input",
+  };
+  const a = buildAutoSummary(args);
+  const b = buildAutoSummary(args);
+  assert.deepEqual(a, b);
+});
+
+test("3 sentences when no notes, 4 sentences when notes present", () => {
   const a = buildAutoSummary({
-    task_id: "det",
-    task_type: "general",
-    state: "GO",
-    answer: "answer body",
-    input_text: "ask body",
-    uncertainties: ["u"],
-    assumptions: ["a"],
+    task_id: "x", task_type: "general", state: "GO", answer: "yes", input_text: "ask",
   });
-  const b = buildAutoSummary({
-    task_id: "det",
-    task_type: "general",
-    state: "GO",
-    answer: "answer body",
-    input_text: "ask body",
-    uncertainties: ["u"],
-    assumptions: ["a"],
-  });
-  assert.equal(a.title, b.title);
-  assert.equal(a.content, b.content);
-});
+  // Count sentence-terminating periods that are followed by space-or-EOS.
+  const a_sentences = a.content.split(/\.(?=\s|$)/).filter((s) => s.trim().length > 0);
+  assert.equal(a_sentences.length, 3, `expected 3 sentences, got ${a_sentences.length}: ${a.content}`);
 
-t("title ignores trailing whitespace and newlines in head", () => {
-  const out = buildAutoSummary({
-    task_id: "t5",
-    task_type: "general",
-    state: "GO",
-    answer: "   line one with leading space   \nline two",
-    input_text: "ask",
+  const b = buildAutoSummary({
+    task_id: "x", task_type: "general", state: "GO", answer: "yes", input_text: "ask",
+    uncertainties: ["u1"],
   });
-  assert.ok(!out.title.endsWith(" "), `title should be trimmed: "${out.title}"`);
-  assert.ok(!out.title.includes("line two"), `title must use only first line`);
+  const b_sentences = b.content.split(/\.(?=\s|$)/).filter((s) => s.trim().length > 0);
+  assert.equal(b_sentences.length, 4, `expected 4 sentences, got ${b_sentences.length}: ${b.content}`);
 });
 
 console.log(`\nscratchpad_unit: ${pass} passed, ${fail} failed`);
-process.exit(fail === 0 ? 0 : 1);
+process.exit(fail > 0 ? 1 : 0);

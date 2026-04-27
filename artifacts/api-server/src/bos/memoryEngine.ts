@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
 import { memoryItemsTable } from "@workspace/db";
-import { and, eq, desc, isNull, or } from "drizzle-orm";
+import { and, eq, desc, sql } from "drizzle-orm";
 import {
   approxTokenCount,
   buildContextFromMemory as buildContextFromMemoryHelper,
@@ -89,19 +89,22 @@ async function selectLayer(
   initial_pull: number,
   user_id?: string | null,
 ): Promise<{ items: RankedItem[]; dropped: number; dropped_titles: string[] }> {
-  // Task #67 — per-user scoping for non-canon layers. When `user_id` is
-  // provided we restrict the pull to that user's rows plus any legacy
-  // (user_id IS NULL) rows from before per-user tagging existed; this
-  // closes the cross-user leakage where one user's pinned scratchpad row
-  // could be injected into another user's prompt context. Canon does NOT
-  // pass user_id (canon rows are intentionally global) so the legacy
-  // layer-only filter is preserved for it.
+  // Task #67 — strict per-user scoping for non-canon layers. When
+  // `user_id` is provided we ONLY pull that exact user's rows; we do
+  // NOT fall back to NULL-owned rows because doing so leaks anonymous
+  // or legacy auto-summaries (and any other untagged content) into
+  // authenticated users' prompt contexts. Canon does NOT pass
+  // `user_id` (canon rows are intentionally global) so its layer-only
+  // filter is preserved.
+  //
+  // A non-null `user_id` is required for non-canon retrieval — when it
+  // is `null` (anonymous caller) we return zero rows for these layers
+  // rather than risk cross-tenant injection.
   const where_clause =
     user_id !== undefined
-      ? and(
-          eq(memoryItemsTable.layer, layer),
-          or(eq(memoryItemsTable.user_id, user_id ?? ""), isNull(memoryItemsTable.user_id)),
-        )
+      ? user_id === null
+        ? and(eq(memoryItemsTable.layer, layer), sql`false`)
+        : and(eq(memoryItemsTable.layer, layer), eq(memoryItemsTable.user_id, user_id))
       : eq(memoryItemsTable.layer, layer);
 
   const rows = await db

@@ -33,6 +33,21 @@ export interface AutoSummaryRequest extends SummaryInputs {
  */
 export async function writeAutoSummary(req: AutoSummaryRequest): Promise<{ memory_id: string } | null> {
   try {
+    // Task #67 — privacy guard: never write NULL-owned auto-summaries.
+    // memoryEngine.selectLayer enforces strict per-user retrieval and
+    // returns zero rows for anonymous callers, so a NULL-owned row is
+    // unreachable AND unsafe (any future relaxation of the retrieval
+    // guard would leak it cross-tenant). Anonymous tasks therefore
+    // skip the writer entirely; this is observably non-fatal because
+    // pinning is the only manual continuity surface and pinning
+    // already requires authentication.
+    if (req.user_id === null) {
+      logger.debug(
+        { task_id: req.task_id },
+        "writeAutoSummary skipped (anonymous task — no per-user owner)",
+      );
+      return null;
+    }
     const { title, content } = buildAutoSummary(req);
     const id = randomUUID();
     await db.insert(memoryItemsTable).values({
@@ -46,12 +61,17 @@ export async function writeAutoSummary(req: AutoSummaryRequest): Promise<{ memor
       title,
       content,
       source: "auto_summary",
+      // Task #67 — record the originating task_id on the scratchpad row
+      // itself so the Settings panel can render a link back to the task,
+      // and so a future LLM-driven summariser can join back to the task
+      // metadata without parsing the title.
+      source_task_id: req.task_id,
     });
     await auditLog(
       req.task_id,
       "SCRATCHPAD_AUTO_WRITTEN",
       `Scratchpad auto-summary written for task ${req.task_id}`,
-      { memory_id: id, user_id: req.user_id, source: "auto_summary" },
+      { memory_id: id, user_id: req.user_id, source: "auto_summary", source_task_id: req.task_id },
     );
     return { memory_id: id };
   } catch (err) {

@@ -19,6 +19,14 @@ export const memoryItemsTable = pgTable("memory_items", {
   // The column is non-null with a default of "manual" so legacy rows
   // backfill cleanly without an explicit data migration.
   source: text("source").notNull().default("manual"),
+  // Task #67 — Lattice continuity scratchpad writer.
+  // For source="auto_summary" rows this is the task_id of the task whose
+  // completion produced the summary; for source="manual_pin" rows it's
+  // the task_id of the message the user pinned (when known). Nullable
+  // because legacy rows + freeform manual notes have no source task.
+  // Stored as text (not a real FK) so a deleted task does not cascade
+  // away the user's continuity history.
+  source_task_id: text("source_task_id"),
   created_at: timestamp("created_at").notNull().defaultNow(),
   updated_at: timestamp("updated_at").notNull().defaultNow(),
 });
