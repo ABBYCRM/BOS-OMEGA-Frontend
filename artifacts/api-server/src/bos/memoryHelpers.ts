@@ -85,6 +85,36 @@ export function approxTokenCount(text: string): number {
 }
 
 /**
+ * Greedy budget-fill over an already-ranked list of memory items.
+ *
+ * Inputs are pre-sorted by the caller (authority → relevance → recency in
+ * selectLayer). This helper walks the sorted list once and picks items
+ * whose token cost still fits within `budget_tokens`. Anything that ranked
+ * but did not fit is counted in `dropped` so callers (and the audit log)
+ * can tell the user how many of their notes the budget cutoff hid.
+ *
+ * Pure: no DB, no clock. Lives here so the unit-test harness can exercise
+ * it without dragging @workspace/db.
+ */
+export function selectWithinBudget<T extends { tokens: number }>(
+  ranked: readonly T[],
+  budget_tokens: number,
+): { items: T[]; dropped: number } {
+  const items: T[] = [];
+  let used = 0;
+  let dropped = 0;
+  for (const item of ranked) {
+    if (used + item.tokens > budget_tokens) {
+      dropped++;
+      continue;
+    }
+    items.push(item);
+    used += item.tokens;
+  }
+  return { items, dropped };
+}
+
+/**
  * Render the four memory layers into the model-facing context block.
  * Empty arrays are omitted entirely so a sparse memory store does not
  * inject empty section headers. All four parameters are required to

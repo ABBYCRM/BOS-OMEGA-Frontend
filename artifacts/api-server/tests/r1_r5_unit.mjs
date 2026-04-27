@@ -41,6 +41,7 @@ import {
   relevanceScore,
   buildContextFromMemory,
   approxTokenCount,
+  selectWithinBudget,
 } from "../src/bos/memoryHelpers.ts";
 // BOP.FRONT_DOOR.v1 — pure, no-deps classifier + UX response builder.
 import { classifyFrontDoorInput } from "../src/bos/frontDoorInterpreter.ts";
@@ -673,6 +674,55 @@ test("safeInputPreview: long input truncated to 200 chars by default", () => {
 test("safeInputPreview: strips control chars", () => {
   const r = safeInputPreview("hello\x00\x07world");
   assert.equal(r.preview, "helloworld");
+});
+
+console.log("\nTask #48 budget-fit dropped count");
+
+test("selectWithinBudget reports zero dropped when every ranked item fits", () => {
+  // Three items, total tokens = 30, budget = 100 — everything fits.
+  const ranked = [
+    { rendered: "[CANON:a] one", tokens: 10 },
+    { rendered: "[CANON:b] two", tokens: 10 },
+    { rendered: "[CANON:c] three", tokens: 10 },
+  ];
+  const { items, dropped } = selectWithinBudget(ranked, 100);
+  assert.equal(items.length, 3);
+  assert.equal(dropped, 0);
+});
+
+test("selectWithinBudget reports non-zero dropped count when input exceeds budget (acceptance criterion)", () => {
+  // Five items at 200 tokens each = 1000 total; canon budget here is 750
+  // so only the first three (600 tokens) fit and the remaining two are
+  // dropped. The dropped count is what the audit metadata exposes so the
+  // user can see "your note ranked but didn't fit the budget".
+  const ranked = Array.from({ length: 5 }, (_, i) => ({
+    rendered: `[CANON:item-${i}] payload`,
+    tokens: 200,
+  }));
+  const { items, dropped } = selectWithinBudget(ranked, 750);
+  assert.equal(items.length, 3, "first three items fit the 750-token budget");
+  assert.ok(dropped > 0, `expected dropped > 0, got ${dropped}`);
+  assert.equal(dropped, 2, "the two ranked-but-overflowing items are counted as dropped");
+});
+
+test("selectWithinBudget skips an oversized item but keeps filling with later ones that fit", () => {
+  // Greedy fill: a single big item that blows the budget is dropped, but
+  // smaller items after it can still slip in. This matches the existing
+  // selectLayer behaviour (continue, not break).
+  const ranked = [
+    { rendered: "[CANON:small-1] x", tokens: 100 },
+    { rendered: "[CANON:huge] y", tokens: 5000 },
+    { rendered: "[CANON:small-2] z", tokens: 100 },
+  ];
+  const { items, dropped } = selectWithinBudget(ranked, 500);
+  assert.equal(items.length, 2, "both small items fit even though the huge one is skipped");
+  assert.equal(dropped, 1, "the huge item is the only one dropped");
+});
+
+test("selectWithinBudget on an empty ranked list returns zero items and zero dropped", () => {
+  const { items, dropped } = selectWithinBudget([], 1000);
+  assert.equal(items.length, 0);
+  assert.equal(dropped, 0);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

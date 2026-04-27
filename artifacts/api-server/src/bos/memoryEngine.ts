@@ -5,6 +5,7 @@ import {
   approxTokenCount,
   buildContextFromMemory as buildContextFromMemoryHelper,
   relevanceScore,
+  selectWithinBudget,
   tokensFromText,
 } from "./memoryHelpers.js";
 
@@ -40,13 +41,20 @@ interface RankedItem {
   tokens: number;
 }
 
+export interface LayerSelection {
+  /** Items that fit the per-layer token budget, in selected order. */
+  items: string[];
+  /** Items that ranked but were dropped because they did not fit the budget. */
+  dropped: number;
+}
+
 async function selectLayer(
   layer: MemoryLayer,
   task_input: string,
   budget_tokens: number,
   prefix: string,
   initial_pull: number,
-): Promise<RankedItem[]> {
+): Promise<{ items: RankedItem[]; dropped: number }> {
   const rows = await db
     .select()
     .from(memoryItemsTable)
@@ -73,33 +81,33 @@ async function selectLayer(
     return b.updated_at - a.updated_at;
   });
 
-  // Greedy token fit against the per-layer budget.
-  const out: RankedItem[] = [];
-  let used = 0;
-  for (const item of annotated) {
-    if (used + item.tokens > budget_tokens) continue;
-    out.push({ rendered: item.rendered, tokens: item.tokens });
-    used += item.tokens;
-  }
-  return out;
+  // Greedy token fit against the per-layer budget. The dropped count tells
+  // the audit log (and ultimately the user) how many ranked items the
+  // budget cutoff hid from the model — answering "why didn't the AI use
+  // my note?" with "it ranked below the budget cutoff" instead of silence.
+  const { items, dropped } = selectWithinBudget(annotated, budget_tokens);
+  return {
+    items: items.map((i) => ({ rendered: i.rendered, tokens: i.tokens })),
+    dropped,
+  };
 }
 
-export async function getCanonMemory(task_input = ""): Promise<string[]> {
-  const items = await selectLayer("canon", task_input, MEMORY_TOKEN_BUDGETS.canon, "CANON", 50);
-  return items.map((i) => i.rendered);
+export async function getCanonMemory(task_input = ""): Promise<LayerSelection> {
+  const { items, dropped } = await selectLayer("canon", task_input, MEMORY_TOKEN_BUDGETS.canon, "CANON", 50);
+  return { items: items.map((i) => i.rendered), dropped };
 }
 
-export async function getContinuityMemory(task_input = ""): Promise<string[]> {
-  const items = await selectLayer("continuity", task_input, MEMORY_TOKEN_BUDGETS.continuity, "CONTINUITY", 50);
-  return items.map((i) => i.rendered);
+export async function getContinuityMemory(task_input = ""): Promise<LayerSelection> {
+  const { items, dropped } = await selectLayer("continuity", task_input, MEMORY_TOKEN_BUDGETS.continuity, "CONTINUITY", 50);
+  return { items: items.map((i) => i.rendered), dropped };
 }
 
-export async function getPatchesMemory(task_input = ""): Promise<string[]> {
-  const items = await selectLayer("patches", task_input, MEMORY_TOKEN_BUDGETS.patches, "PATCHES", 50);
-  return items.map((i) => i.rendered);
+export async function getPatchesMemory(task_input = ""): Promise<LayerSelection> {
+  const { items, dropped } = await selectLayer("patches", task_input, MEMORY_TOKEN_BUDGETS.patches, "PATCHES", 50);
+  return { items: items.map((i) => i.rendered), dropped };
 }
 
-export async function getScratchpad(task_input = ""): Promise<string[]> {
-  const items = await selectLayer("scratchpad", task_input, MEMORY_TOKEN_BUDGETS.scratchpad, "SCRATCHPAD", 25);
-  return items.map((i) => i.rendered);
+export async function getScratchpad(task_input = ""): Promise<LayerSelection> {
+  const { items, dropped } = await selectLayer("scratchpad", task_input, MEMORY_TOKEN_BUDGETS.scratchpad, "SCRATCHPAD", 25);
+  return { items: items.map((i) => i.rendered), dropped };
 }

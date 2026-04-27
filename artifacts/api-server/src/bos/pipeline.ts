@@ -407,28 +407,35 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   // executionEngine.executePipeline fetched only canon+scratchpad inline,
   // which meant continuity/patches were silently dropped and series_pass
   // and boil_the_ocean ran with no memory at all.
-  const [canon_items, continuity_items, patches_items, scratchpad_items] = await Promise.all([
+  const [canon_sel, continuity_sel, patches_sel, scratchpad_sel] = await Promise.all([
     getCanonMemory(gate.sanitized_input),
     getContinuityMemory(gate.sanitized_input),
     getPatchesMemory(gate.sanitized_input),
     getScratchpad(gate.sanitized_input),
   ]);
   const memory_context = buildContextFromMemory(
-    canon_items,
-    continuity_items,
-    patches_items,
-    scratchpad_items,
+    canon_sel.items,
+    continuity_sel.items,
+    patches_sel.items,
+    scratchpad_sel.items,
   );
-  // Audit metadata: per-layer item counts + the rendered section header
-  // names + a bounded preview. The header list is what regression tests
-  // assert against (truncating the rendered block can bury later headers
-  // when an upstream layer fills the preview window).
+  // Audit metadata: per-layer item counts + per-layer dropped counts +
+  // the rendered section header names + a bounded preview. The dropped
+  // counts answer "why didn't the AI use my note?" — when non-zero, an
+  // item ranked but did not fit the per-layer token budget. The header
+  // list is what regression tests assert against (truncating the
+  // rendered block can bury later headers when an upstream layer fills
+  // the preview window).
   const section_headers = (memory_context.match(/=== [A-Z ]+ ===/g) ?? []);
   await auditLog(task_id, "MEMORY_INJECTED", `Memory context built (${memory_context.length} chars)`, {
-    canon_items: canon_items.length,
-    continuity_items: continuity_items.length,
-    patches_items: patches_items.length,
-    scratchpad_items: scratchpad_items.length,
+    canon_items: canon_sel.items.length,
+    continuity_items: continuity_sel.items.length,
+    patches_items: patches_sel.items.length,
+    scratchpad_items: scratchpad_sel.items.length,
+    canon_dropped: canon_sel.dropped,
+    continuity_dropped: continuity_sel.dropped,
+    patches_dropped: patches_sel.dropped,
+    scratchpad_dropped: scratchpad_sel.dropped,
     memory_context_chars: memory_context.length,
     section_headers,
     memory_context_preview: memory_context.slice(0, 8000),
