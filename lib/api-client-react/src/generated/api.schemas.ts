@@ -180,6 +180,22 @@ export interface GeneratedImageRef {
 user / super_admin can read it.
  */
   storage_path: string;
+  /** Task #84 — image edit chain. When this image was produced
+by the image-edit bridge (rather than a fresh generation),
+this field carries the source generated_attachment id the
+user asked to refine. The chat UI uses it to render the
+original→edited pair side by side. Always omitted for
+vanilla generations.
+ */
+  parent_attachment_id?: string;
+  /** Task #84 — server-relative path to the parent attachment,
+mirroring storage_path. Omitted for vanilla generations.
+ */
+  parent_storage_path?: string;
+  /** Task #84 — mime type of the parent attachment. Omitted for
+vanilla generations.
+ */
+  parent_mime?: string;
 }
 
 export interface BosOutput {

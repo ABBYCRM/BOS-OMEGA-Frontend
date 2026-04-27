@@ -235,6 +235,24 @@ export const GetTaskResponse = zod.object({
               .describe(
                 "Server-relative path the chat UI uses to fetch the bytes\n(e.g. \/api\/uploads\/{id}\/raw). Auth-checked: only the owning\nuser \/ super_admin can read it.\n",
               ),
+            parent_attachment_id: zod
+              .string()
+              .optional()
+              .describe(
+                "Task #84 — image edit chain. When this image was produced\nby the image-edit bridge (rather than a fresh generation),\nthis field carries the source generated_attachment id the\nuser asked to refine. The chat UI uses it to render the\noriginal→edited pair side by side. Always omitted for\nvanilla generations.\n",
+              ),
+            parent_storage_path: zod
+              .string()
+              .optional()
+              .describe(
+                "Task #84 — server-relative path to the parent attachment,\nmirroring storage_path. Omitted for vanilla generations.\n",
+              ),
+            parent_mime: zod
+              .string()
+              .optional()
+              .describe(
+                "Task #84 — mime type of the parent attachment. Omitted for\nvanilla generations.\n",
+              ),
           }),
         )
         .optional()

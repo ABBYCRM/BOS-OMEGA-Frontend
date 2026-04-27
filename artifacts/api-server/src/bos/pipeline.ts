@@ -2,13 +2,13 @@ import { db } from "@workspace/db";
 import { tasksTable, triStateDecisionsTable, modelAttemptsTable, memoryItemsTable } from "@workspace/db";
 import { personaSlotId } from "./personaCanonSeed.js";
 import { buildPersonaOverlay } from "./personaOverlay.js";
-import { eq, sql, inArray } from "drizzle-orm";
+import { eq, sql, inArray, and, desc, isNotNull } from "drizzle-orm";
 import { randomUUID, createHash } from "crypto";
 import type { BosOutput, ExecutionMode, TaskContext, TriState } from "./types.js";
 import { runInputGate } from "./inputGate.js";
 import { classifyFrontDoorInput } from "./frontDoorInterpreter.js";
-import { detectImageIntent } from "./imageIntent.js";
-import { runImageGeneration } from "./imageProviderBridge.js";
+import { detectImageIntent, detectImageEditIntent } from "./imageIntent.js";
+import { runImageGeneration, runImageEdit } from "./imageProviderBridge.js";
 import { safeInputPreview } from "./frontDoorResponses.js";
 import { classifyTask } from "./taskClassifier.js";
 import { buildTriStateMetadata, type TriStateDisplayMetadata, type TriStateResult } from "./triState.js";
@@ -141,6 +141,64 @@ async function persistTriStateDecision(task_id: string, result: TriStateResult):
     confidence_score: result.confidence_score,
   });
   return id;
+}
+
+/**
+ * Task #84 — find the most recent generated_attachment in a conversation.
+ *
+ * Walks the most recent image_generation / image_edit tasks in this
+ * conversation (newest first), parses each row's `final_output` JSON, and
+ * returns the first attachment id we find on `generated_attachments[0].id`.
+ * When `user_id` is provided we additionally constrain by `tasks.user_id`
+ * so an unauthenticated edit request can never reach into another user's
+ * thread.
+ *
+ * Returns `null` when nothing is found, when the conversation has no
+ * image task yet, or when a JSON parse fails — the caller treats null
+ * as "fall through to text path" rather than failing.
+ */
+async function findMostRecentGeneratedAttachment(
+  conversation_id: string,
+  user_id: string | null,
+): Promise<string | null> {
+  try {
+    const where_clause = user_id
+      ? and(
+          eq(tasksTable.conversation_id, conversation_id),
+          eq(tasksTable.user_id, user_id),
+          inArray(tasksTable.task_type, ["image_generation", "image_edit"]),
+          isNotNull(tasksTable.final_output),
+        )
+      : and(
+          eq(tasksTable.conversation_id, conversation_id),
+          inArray(tasksTable.task_type, ["image_generation", "image_edit"]),
+          isNotNull(tasksTable.final_output),
+        );
+    const rows = await db
+      .select({ id: tasksTable.id, final_output: tasksTable.final_output })
+      .from(tasksTable)
+      .where(where_clause)
+      .orderBy(desc(tasksTable.created_at))
+      .limit(5);
+    for (const row of rows) {
+      if (!row.final_output) continue;
+      try {
+        const parsed = JSON.parse(row.final_output) as Partial<BosOutput>;
+        const attachments = parsed.generated_attachments;
+        if (Array.isArray(attachments) && attachments.length > 0) {
+          const first = attachments[0];
+          if (first && typeof first.id === "string" && first.id.length > 0) {
+            return first.id;
+          }
+        }
+      } catch {
+        // Malformed final_output — skip and look further back.
+      }
+    }
+  } catch (err) {
+    logger.warn({ err, conversation_id }, "findMostRecentGeneratedAttachment lookup failed");
+  }
+  return null;
 }
 
 export interface PipelineInput {
@@ -294,6 +352,126 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   // model. Canon governs whether the model labels its own output HOLD
   // and asks the user for the missing context. Runtime never blocks
   // for "model uncertainty" or "missing context" reasons.
+
+  // Task #84 — image-EDIT routing.
+  //
+  // Detect a follow-up "edit/refine" phrase ("make the sneaker blue",
+  // "remove the background", "edit my image", ...). Only intercept when
+  // we can resolve a parent generated_attachment in the active
+  // conversation; otherwise fall through to text path so a stray "make
+  // it blue" outside an image thread is answered conversationally.
+  // Edit detection runs BEFORE generation detection so an explicit
+  // "edit my image to add a hat" can never be misrouted to a fresh
+  // generation attempt.
+  const edit_intent = detectImageEditIntent(gate.sanitized_input);
+  const conv_id_for_edit =
+    pipelineInput.conversation_decision?.conversation_id ?? null;
+  if (edit_intent.is_image_edit && conv_id_for_edit) {
+    const parent_id = await findMostRecentGeneratedAttachment(
+      conv_id_for_edit,
+      pipelineInput.user_id ?? null,
+    );
+    if (parent_id) {
+      const outcome = await runImageEdit({
+        prompt: edit_intent.prompt,
+        size: "1024x1024",
+        user_id: pipelineInput.user_id ?? null,
+        task_id,
+        source_attachment_id: parent_id,
+        matched_phrase: edit_intent.matched_phrase,
+      });
+
+      const tri_state: TriState = outcome.success ? "GO" : "HOLD";
+      const final_status = outcome.success ? "DONE" : "HELD";
+      const provenance = outcome.attempts.find((a) => a.success);
+      const provider = provenance?.provider ?? "image_bridge";
+      const model = provenance?.model ?? "image_bridge";
+
+      const base: BosOutput = {
+        state: tri_state,
+        task_type: "image_edit",
+        answer: outcome.summary,
+        assumptions: outcome.mocked
+          ? ["Mock mode active — no live image API was called. Set IMAGE_GENERATION_LIVE=1 to enable live providers."]
+          : [],
+        uncertainties: [],
+        missing_inputs: [],
+        failure_modes: outcome.success
+          ? []
+          : outcome.attempts.filter((a) => !a.success).map((a) => `${a.provider}:${a.error_type ?? "unknown"}`),
+        recommended_next_action: outcome.success
+          ? "Compare the edited image to the original inline."
+          : "Configure an image provider (OpenAI gpt-image-1 or Gemini gemini-2.5-flash-image) and retry.",
+        generated_attachments: outcome.attachments,
+      };
+
+      const output = outcome.success
+        ? base
+        : attachDenial(base, "no_provider_available", outcome.summary);
+
+      await saveTask(
+        task_id,
+        pipelineInput.input,
+        "image_edit",
+        tri_state,
+        "single",
+        provider,
+        model,
+        final_status,
+        JSON.stringify(output),
+        pipelineInput.user_id ?? null,
+        pipelineInput.conversation_decision ?? null,
+      );
+
+      await persistTriStateDecision(
+        task_id,
+        buildTriStateMetadata({ state: tri_state, answer: outcome.summary }, 0),
+      );
+
+      await auditLog(task_id, "TASK_COMPLETED", `Task completed with state ${tri_state}`, {
+        mode: "single",
+        task_type: "image_edit",
+      });
+
+      // Continuity scratchpad — same authority tier as image_generation
+      // so a follow-up "what was the image you edited?" picks up this
+      // row's storage_path anchor in memory_context.
+      if (tri_state !== "ABORT") {
+        try {
+          const path_lines = outcome.attachments
+            .map((a) => `${a.storage_path} (${a.provider}${a.mock ? "/mock" : ""})`)
+            .join(" ");
+          const continuity_answer = path_lines
+            ? `Edited image at ${path_lines} (parent ${parent_id}). ${outcome.summary}`
+            : outcome.summary;
+          await writeAutoSummary({
+            task_id,
+            task_type: "image_edit",
+            state: tri_state,
+            answer: continuity_answer,
+            input_text: pipelineInput.input,
+            assumptions: output.assumptions,
+            uncertainties: output.uncertainties,
+            user_id: pipelineInput.user_id ?? null,
+            authority_level: 4,
+          });
+        } catch (err) {
+          logger.warn({ err, task_id }, "writeAutoSummary threw (non-fatal) for image_edit task");
+        }
+      }
+
+      return {
+        task_id,
+        tri_state,
+        task_type: "image_edit",
+        final_status,
+        bos_output: output,
+      };
+    }
+    // Edit intent matched but no parent attachment exists in this
+    // conversation — fall through so the text engines answer
+    // ("you haven't generated an image yet, ...").
+  }
 
   // Task #83 — image-generation routing.
   //

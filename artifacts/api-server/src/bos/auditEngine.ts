@@ -162,7 +162,24 @@ type AuditEventType =
   //     sees.
   | "IMAGE_REQUESTED"
   | "IMAGE_GENERATED"
-  | "IMAGE_GENERATION_FAILED";
+  | "IMAGE_GENERATION_FAILED"
+  // Task #84 — image-edit provider bridge.
+  //   IMAGE_EDIT_REQUESTED   — pipeline detected an image-edit intent
+  //     and resolved a parent generated_attachment to operate on.
+  //     Metadata records the parent attachment_id, the conversation_id,
+  //     the cleaned prompt hash, the provider/model order, and whether
+  //     mock mode is active. Emitted before any provider call.
+  //   IMAGE_EDIT_COMPLETED   — bytes returned and persisted via the
+  //     uploads pipeline. Metadata carries the new attachment_id, the
+  //     parent attachment_id (so the audit log alone reconstructs the
+  //     edit chain), provider, model, latency_ms, and bytes.
+  //   IMAGE_EDIT_FAILED      — every attempted provider failed (or
+  //     none were eligible). Metadata enumerates per-provider error
+  //     classes and includes the parent attachment_id so the failure
+  //     can be reproduced.
+  | "IMAGE_EDIT_REQUESTED"
+  | "IMAGE_EDIT_COMPLETED"
+  | "IMAGE_EDIT_FAILED";
 
 const AUDIT_QUEUE_DIR = process.env["AUDIT_QUEUE_DIR"] || path.resolve(process.cwd(), ".local", "audit-queue");
 const AUDIT_QUEUE_FILE = path.join(AUDIT_QUEUE_DIR, "pending.jsonl");

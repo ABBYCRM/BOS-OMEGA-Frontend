@@ -8,7 +8,7 @@ import { formatMs } from "@/lib/utils";
 import {
   Copy, Check, ChevronDown, ChevronUp, Loader2, Bot, User, Award,
   AlertTriangle, FileText, Image as ImageIcon, FileCode, FileSpreadsheet, Music, Video, File as FileIcon,
-  Pin,
+  Pin, Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
@@ -548,40 +548,105 @@ function AssistantBubble({ msg }: { msg: AssistantMessage }) {
                     impossible to confuse a deterministic mock-mode image
                     with a real provider response. */}
                 {(msg.task.bos_output?.generated_attachments?.length ?? 0) > 0 && (
-                  <div className="mt-3 grid gap-3 grid-cols-1 sm:grid-cols-2">
-                    {msg.task.bos_output!.generated_attachments!.map((ref) => (
-                      <figure
-                        key={ref.id}
-                        className="rounded-md border border-border bg-muted/30 overflow-hidden"
-                      >
-                        <a
-                          href={`/api/uploads/${ref.id}/raw`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="block bg-checker"
-                        >
-                          <img
-                            src={`/api/uploads/${ref.id}/raw`}
-                            alt={ref.original_name}
-                            width={ref.width ?? undefined}
-                            height={ref.height ?? undefined}
-                            loading="lazy"
-                            className="block w-full h-auto object-contain max-h-96 bg-white"
-                            style={{ imageRendering: ref.mock ? "pixelated" : "auto" }}
-                          />
-                        </a>
-                        <figcaption className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[10px] font-mono text-muted-foreground border-t border-border">
-                          <span className="truncate">
-                            {ref.provider}:{ref.model}
-                          </span>
-                          {ref.mock && (
-                            <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-semibold tracking-wider">
-                              MOCK
-                            </span>
-                          )}
-                        </figcaption>
-                      </figure>
-                    ))}
+                  <div className="mt-3 space-y-3">
+                    {msg.task.bos_output!.generated_attachments!.map((ref) => {
+                      // Task #84 — when this image was produced by the
+                      // image-edit bridge, the ref carries the source
+                      // attachment id so we can render the original →
+                      // edited pair side-by-side. The "Edit this"
+                      // affordance always renders so the user can
+                      // request a follow-up refinement on either the
+                      // edited result or a vanilla generation.
+                      const parent_id = ref.parent_attachment_id;
+                      const has_parent = Boolean(parent_id);
+                      return (
+                        <div key={ref.id} className="space-y-2">
+                          <div className={`grid gap-3 ${has_parent ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-2"}`}>
+                            {has_parent && parent_id && (
+                              <figure className="rounded-md border border-border bg-muted/30 overflow-hidden">
+                                <a
+                                  href={`/api/uploads/${parent_id}/raw`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="block bg-checker"
+                                >
+                                  <img
+                                    src={`/api/uploads/${parent_id}/raw`}
+                                    alt="Original image (before edit)"
+                                    loading="lazy"
+                                    className="block w-full h-auto object-contain max-h-96 bg-white"
+                                  />
+                                </a>
+                                <figcaption className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[10px] font-mono text-muted-foreground border-t border-border">
+                                  <span className="truncate">original</span>
+                                  <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 font-semibold tracking-wider">
+                                    BEFORE
+                                  </span>
+                                </figcaption>
+                              </figure>
+                            )}
+                            <figure className="rounded-md border border-border bg-muted/30 overflow-hidden">
+                              <a
+                                href={`/api/uploads/${ref.id}/raw`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block bg-checker"
+                              >
+                                <img
+                                  src={`/api/uploads/${ref.id}/raw`}
+                                  alt={ref.original_name}
+                                  width={ref.width ?? undefined}
+                                  height={ref.height ?? undefined}
+                                  loading="lazy"
+                                  className="block w-full h-auto object-contain max-h-96 bg-white"
+                                  style={{ imageRendering: ref.mock ? "pixelated" : "auto" }}
+                                />
+                              </a>
+                              <figcaption className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[10px] font-mono text-muted-foreground border-t border-border">
+                                <span className="truncate">
+                                  {ref.provider}:{ref.model}
+                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  {has_parent && (
+                                    <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-semibold tracking-wider">
+                                      EDITED
+                                    </span>
+                                  )}
+                                  {ref.mock && (
+                                    <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-semibold tracking-wider">
+                                      MOCK
+                                    </span>
+                                  )}
+                                </div>
+                              </figcaption>
+                            </figure>
+                          </div>
+                          <div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // Custom DOM event the parent page wires to
+                                // its composer. Keeps MessageList free of
+                                // tight coupling to the create-task hook
+                                // while still letting us prefill the prompt
+                                // for an edit follow-up.
+                                window.dispatchEvent(
+                                  new CustomEvent("bos:edit-image", {
+                                    detail: { attachment_id: ref.id, original_name: ref.original_name },
+                                  }),
+                                );
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-border text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                              data-testid={`button-edit-image-${ref.id}`}
+                              title="Refine this image with a follow-up prompt"
+                            >
+                              <Wand2 className="w-3 h-3" />
+                              Edit this
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
 

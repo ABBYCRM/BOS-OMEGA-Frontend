@@ -346,6 +346,39 @@ export function TaskConsole() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [resetSignal, setResetSignal] = useState(0);
 
+  // Task #84 — "Edit this" affordance on generated images dispatches a
+  // `bos:edit-image` window event from MessageList.tsx. We catch it here,
+  // prefill the composer with a starter edit prompt, and scroll the
+  // composer into focus so the user only has to type the desired change
+  // ("…to be in pastel colors") and press Send. The pipeline-side intent
+  // detector recognizes the leading "Edit this image" phrasing and the
+  // most-recent generated_attachment lookup will pick up the right parent.
+  useEffect(() => {
+    function handler(e: Event) {
+      const detail = (e as CustomEvent<{ attachment_id: string; original_name: string }>).detail;
+      if (!detail) return;
+      setInput((prev) => {
+        const stub = "Edit this image to ";
+        // Don't clobber user-typed text — only prefill when the composer
+        // is empty (or already starts with the same stub from a prior
+        // click) so consecutive clicks are idempotent.
+        if (!prev || prev.startsWith(stub)) return stub;
+        return prev;
+      });
+      // Defer focus to next tick so the textarea has the new value.
+      requestAnimationFrame(() => {
+        const ta = document.querySelector<HTMLTextAreaElement>("textarea[placeholder]");
+        if (ta) {
+          ta.focus();
+          const len = ta.value.length;
+          ta.setSelectionRange(len, len);
+        }
+      });
+    }
+    window.addEventListener("bos:edit-image", handler as EventListener);
+    return () => window.removeEventListener("bos:edit-image", handler as EventListener);
+  }, []);
+
   // Re-derive the active conversation id whenever EITHER the pathname
   // or the search string changes (sidebar nav rewrites only the search
   // string, "+ New" rewrites both). The memo keys off both so we don't

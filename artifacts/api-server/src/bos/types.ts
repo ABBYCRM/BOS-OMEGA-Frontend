@@ -114,6 +114,20 @@ export interface GeneratedImageRef {
   original_name: string;
   /** Server-relative path the chat UI uses to fetch the bytes (auth-checked). */
   storage_path: string;
+  /**
+   * Task #84 — image edit chain.
+   * When this image was produced by the image-EDIT bridge (rather than a
+   * fresh generation), `parent_attachment_id` references the source
+   * generated_attachment the user asked to refine. The chat UI uses this
+   * to render the original→edited pair side by side so the diff between
+   * the two passes is visible without scrolling. Always undefined for
+   * vanilla generations.
+   */
+  parent_attachment_id?: string;
+  /** Server-relative path to the parent attachment, mirroring storage_path. */
+  parent_storage_path?: string;
+  /** Mime of the parent attachment, used by the chat UI for layout decisions. */
+  parent_mime?: string;
 }
 
 export interface ParallelResponse {

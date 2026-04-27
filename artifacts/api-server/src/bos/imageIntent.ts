@@ -200,3 +200,92 @@ export function detectImageIntent(input: string): ImageIntent {
     size,
   };
 }
+
+// =====================================================================
+// Task #84 — image-EDIT intent detection.
+//
+// Detects follow-up phrases the user types after a previous generated
+// image landed in the chat ("make the sneaker blue", "remove the
+// background", "edit my image", etc.). Routing is handled in
+// `pipeline.ts`: if no recent generated_attachment is found in the
+// active conversation, the request falls through to the text engines
+// so a stray "make it blue" outside an image thread is answered
+// conversationally instead of failing loudly.
+//
+// The detector is conservative: every pattern requires either an
+// explicit image noun, an image-edit verb, or a specific
+// background/color anchor. This minimizes false positives that would
+// silently re-route a normal text request into the image-edit bridge
+// just because a stale image happens to exist further up the thread.
+// =====================================================================
+
+export interface ImageEditIntent {
+  /** True when the input matched the image-edit grammar. */
+  is_image_edit: boolean;
+  /** Original input — passed verbatim as the edit prompt. */
+  prompt: string;
+  /** Pattern fragment that matched, recorded for audit attribution. */
+  matched_phrase?: string;
+}
+
+const EDIT_PATTERNS: RegExp[] = [
+  // "edit/modify/refine/adjust/update/change/tweak/alter/retouch/redraw
+  // [this|that|my|the|it] [adjective?] (image|picture|photo|...)"
+  /\b(?:edit|modify|refine|adjust|update|change|tweak|alter|retouch|redraw)\s+(?:this|that|my|the|it)\s+(?:\w+\s+){0,2}(?:image|picture|photo|portrait|painting|drawing|illustration|artwork|banner|logo|icon|render|rendering|sketch|thumbnail|wallpaper|poster|scene)\b/i,
+  // "remove the background" / "remove background"
+  /\bremove\s+(?:the\s+)?background\b/i,
+  // "change/replace/swap/set/make the background ..."
+  /\b(?:change|replace|swap|set|make)\s+(?:the\s+)?background\b/i,
+  // "change/swap the color of X" / "change its color"
+  /\bchange\s+(?:its|their|the)\s+(?:color|colour|style|tone|lighting|background|foreground)\b/i,
+  // Command-form "make it X" / "make the sneaker blue" — anchored to
+  // start so it doesn't accidentally fire on a long sentence that
+  // contains the substring deep inside.
+  /^\s*make\s+(?:it|them|the\s+\w+(?:\s+\w+)?)\s+\w+(?:\s+\w+){0,3}[.!?]?\s*$/i,
+  // "make/turn it (bigger/smaller/brighter/more vibrant/...)" — image-
+  // adjectiveset that is unambiguously about a visual property.
+  /\b(?:make|turn)\s+(?:it|them|the\s+\w+)\s+(?:bigger|smaller|larger|tinier|brighter|darker|warmer|cooler|cleaner|sharper|crisper|softer|blurr(?:y|ier)|more\s+\w+|less\s+\w+)\b/i,
+  // "turn it into X" / "turn the sneaker into a sandal"
+  /\bturn\s+(?:it|the\s+\w+(?:\s+\w+)?)\s+into\b/i,
+  // "add X to (this|the|my) (image|picture|photo|...)"
+  /\badd\s+(?:a|an|some|the\s+)?\w+(?:\s+\w+){0,4}\s+to\s+(?:this|that|my|the)\s+\w*\s*(?:image|picture|photo|portrait|painting|drawing|illustration|artwork|banner|logo|icon|scene)\b/i,
+  // "in pastel/cartoon/anime style" follow-up — anchored to start
+  // so we only catch terse prompts like "in a watercolor style".
+  /^\s*(?:in\s+(?:a\s+)?(?:watercolor|pastel|cartoon|anime|cyberpunk|noir|sketch|oil\s+painting|charcoal|impressionist|minimalist|retro|vintage|cel[- ]shaded)\s+style)\b/i,
+];
+
+/**
+ * Detect whether `input` is a follow-up edit request that should be
+ * routed against the most recent generated_attachment in the active
+ * conversation. Returns a stable shape regardless of outcome.
+ */
+export function detectImageEditIntent(input: string): ImageEditIntent {
+  const text = (input ?? "").trim();
+  const fallback: ImageEditIntent = {
+    is_image_edit: false,
+    prompt: text,
+  };
+  if (!text) return fallback;
+
+  // "generate a picture of X" must never be misrouted to edit. The
+  // generation detector's verb+noun grammar takes precedence; we only
+  // treat the input as an edit when no edit pattern matches but a
+  // generation pattern does. (Generation's NEGATIVE_CONTEXT already
+  // excludes "edit my image", so the two paths cannot both fire on
+  // the same input.)
+  if (INTENT_REGEX.test(text) && !EDIT_PATTERNS.some((rx) => rx.test(text))) {
+    return fallback;
+  }
+
+  for (const rx of EDIT_PATTERNS) {
+    const m = text.match(rx);
+    if (m) {
+      return {
+        is_image_edit: true,
+        prompt: text,
+        matched_phrase: m[0],
+      };
+    }
+  }
+  return fallback;
+}
