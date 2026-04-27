@@ -908,6 +908,34 @@ async function main() {
         typeof meta.memory_context_preview === "string" && meta.memory_context_preview.length > 0,
         `memory_context_preview must be a non-empty string; got ${typeof meta.memory_context_preview}`,
       );
+
+      // Task #50: per-item provenance — array of {id, layer, title} the
+      // panel uses to render one clickable entry per injected memory row.
+      // Without this field the panel can only show layer counts, leaving
+      // the user unable to trace a snippet back to its source.
+      assert.ok(
+        Array.isArray(meta.injected_items),
+        `injected_items must be an array on the audit metadata; got ${typeof meta.injected_items}`,
+      );
+      assert.ok(
+        meta.injected_items.length > 0,
+        `injected_items must be non-empty when continuity_items > 0; got ${JSON.stringify(meta.injected_items)}`,
+      );
+      const seededRef = meta.injected_items.find((it) => it && it.id === seeded.id);
+      assert.ok(
+        seededRef,
+        `injected_items must include the seeded continuity row id (${seeded.id}); got ${JSON.stringify(meta.injected_items)}`,
+      );
+      assert.equal(
+        seededRef.layer,
+        "continuity",
+        `injected_items entry must carry the source layer; got layer=${seededRef.layer}`,
+      );
+      assert.equal(
+        seededRef.title,
+        seedTitle,
+        `injected_items entry must carry the source title verbatim; got title=${seededRef.title}`,
+      );
     } finally {
       try {
         await request("DELETE", `/api/memory/${seeded.id}`, undefined);

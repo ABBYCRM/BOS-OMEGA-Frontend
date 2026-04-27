@@ -37,8 +37,24 @@ export const MEMORY_TOKEN_BUDGETS = {
 export type MemoryLayer = keyof typeof MEMORY_TOKEN_BUDGETS;
 
 interface RankedItem {
+  id: string;
+  title: string;
   rendered: string;
   tokens: number;
+}
+
+/**
+ * Task #50: per-item provenance for an injected memory row. The panel on
+ * the task detail page renders one entry per `InjectedItemRef` so the user
+ * can click each title and jump back to the source row in the Memory
+ * Manager. `id` is the memory_items.id at the moment of injection — the UI
+ * cross-references it against the live list to mark deleted/edited rows
+ * as "no longer available" rather than silently producing a broken link.
+ */
+export interface InjectedItemRef {
+  id: string;
+  layer: MemoryLayer;
+  title: string;
 }
 
 export interface LayerSelection {
@@ -46,6 +62,8 @@ export interface LayerSelection {
   items: string[];
   /** Items that ranked but were dropped because they did not fit the budget. */
   dropped: number;
+  /** Per-item provenance for each rendered string in `items`, same order. */
+  injected: InjectedItemRef[];
 }
 
 async function selectLayer(
@@ -87,27 +105,43 @@ async function selectLayer(
   // my note?" with "it ranked below the budget cutoff" instead of silence.
   const { items, dropped } = selectWithinBudget(annotated, budget_tokens);
   return {
-    items: items.map((i) => ({ rendered: i.rendered, tokens: i.tokens })),
+    items: items.map((i) => ({
+      id: i.r.id,
+      title: i.r.title,
+      rendered: i.rendered,
+      tokens: i.tokens,
+    })),
     dropped,
   };
 }
 
+function toSelection(
+  layer: MemoryLayer,
+  picked: { items: RankedItem[]; dropped: number },
+): LayerSelection {
+  return {
+    items: picked.items.map((i) => i.rendered),
+    dropped: picked.dropped,
+    injected: picked.items.map((i) => ({ id: i.id, layer, title: i.title })),
+  };
+}
+
 export async function getCanonMemory(task_input = ""): Promise<LayerSelection> {
-  const { items, dropped } = await selectLayer("canon", task_input, MEMORY_TOKEN_BUDGETS.canon, "CANON", 50);
-  return { items: items.map((i) => i.rendered), dropped };
+  const picked = await selectLayer("canon", task_input, MEMORY_TOKEN_BUDGETS.canon, "CANON", 50);
+  return toSelection("canon", picked);
 }
 
 export async function getContinuityMemory(task_input = ""): Promise<LayerSelection> {
-  const { items, dropped } = await selectLayer("continuity", task_input, MEMORY_TOKEN_BUDGETS.continuity, "CONTINUITY", 50);
-  return { items: items.map((i) => i.rendered), dropped };
+  const picked = await selectLayer("continuity", task_input, MEMORY_TOKEN_BUDGETS.continuity, "CONTINUITY", 50);
+  return toSelection("continuity", picked);
 }
 
 export async function getPatchesMemory(task_input = ""): Promise<LayerSelection> {
-  const { items, dropped } = await selectLayer("patches", task_input, MEMORY_TOKEN_BUDGETS.patches, "PATCHES", 50);
-  return { items: items.map((i) => i.rendered), dropped };
+  const picked = await selectLayer("patches", task_input, MEMORY_TOKEN_BUDGETS.patches, "PATCHES", 50);
+  return toSelection("patches", picked);
 }
 
 export async function getScratchpad(task_input = ""): Promise<LayerSelection> {
-  const { items, dropped } = await selectLayer("scratchpad", task_input, MEMORY_TOKEN_BUDGETS.scratchpad, "SCRATCHPAD", 25);
-  return { items: items.map((i) => i.rendered), dropped };
+  const picked = await selectLayer("scratchpad", task_input, MEMORY_TOKEN_BUDGETS.scratchpad, "SCRATCHPAD", 25);
+  return toSelection("scratchpad", picked);
 }

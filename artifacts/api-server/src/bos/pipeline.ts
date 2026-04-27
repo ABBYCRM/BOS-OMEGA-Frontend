@@ -454,6 +454,19 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   // rendered block can bury later headers when an upstream layer fills
   // the preview window).
   const section_headers = (memory_context.match(/=== [A-Z ]+ ===/g) ?? []);
+  // Task #50: per-item provenance for the panel. Concatenated in the same
+  // layer order they appear in `memory_context` so the UI can render them
+  // top-down without having to re-derive ordering. Each entry carries the
+  // memory_items.id at the moment of injection so the panel can link back
+  // to the source row in the Memory Manager — and detect rows that were
+  // edited or deleted after the task ran (shown as "no longer available"
+  // instead of a broken link).
+  const injected_items = [
+    ...canon_sel.injected,
+    ...continuity_sel.injected,
+    ...patches_sel.injected,
+    ...scratchpad_sel.injected,
+  ];
   // Task #49: persist the full memory_context alongside the bounded preview.
   // The preview keeps the audit row cheap to render in the trace UI, while
   // memory_context_full is the un-truncated payload that "View full context"
@@ -474,6 +487,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     section_headers,
     memory_context_preview: memory_context.slice(0, 8000),
     memory_context_full: memory_context,
+    injected_items,
   });
 
   const ctx: TaskContext = {

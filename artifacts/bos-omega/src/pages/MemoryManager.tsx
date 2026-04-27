@@ -1,10 +1,21 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   useListMemory, useCreateMemory, useUpdateMemory, useDeleteMemory, getListMemoryQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatDate } from "@/lib/utils";
 import { Brain, Plus, Edit2, Save, X, Trash2, ShieldAlert, ShieldCheck } from "lucide-react";
+
+// Task #50: parse `#item-<id>` from the URL hash so the MemoryUsedPanel on
+// the task detail page can deep-link straight to the source row. We don't
+// pull useLocation() from wouter here — the hash is intentionally not part
+// of wouter's path-based routing, so reading window.location.hash directly
+// is the right escape hatch.
+function readHashItemId(): string | null {
+  if (typeof window === "undefined") return null;
+  const m = /^#item-(.+)$/.exec(window.location.hash);
+  return m && m[1] ? m[1] : null;
+}
 
 const LAYERS = ["canon", "patches", "continuity", "logs", "scratchpad"] as const;
 type Layer = typeof LAYERS[number];
@@ -43,8 +54,48 @@ export function MemoryManager() {
   const [editData, setEditData] = useState({
     layer: "scratchpad" as Layer, title: "", content: "", authority_level: 5,
   });
+  // Task #50: highlight + scroll-to behavior driven by `#item-<id>` in the
+  // URL. We track which id should currently be highlighted so the panel on
+  // the task detail page can deep-link here. The highlight clears after a
+  // short window so the page doesn't stay in a "selected" state forever.
+  const [highlightId, setHighlightId] = useState<string | null>(() => readHashItemId());
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: getListMemoryQueryKey() });
+
+  // Listen for hash changes so a second click on the same panel still
+  // re-triggers the highlight even if the hash didn't change between
+  // navigations (browsers do fire `hashchange` for identical-hash sets).
+  useEffect(() => {
+    function onHash() {
+      setHighlightId(readHashItemId());
+    }
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  // Once both the items list and the target id are known, scroll to the
+  // matching row. We force the active layer to "all" so the row is
+  // actually in the rendered list — otherwise a deep-link to a canon row
+  // while "scratchpad" is selected would scroll to nothing.
+  useEffect(() => {
+    if (!highlightId) return;
+    if (isLoading) return;
+    const target = items.find((i) => i.id === highlightId);
+    if (!target) return;
+    if (activeLayer !== "all" && activeLayer !== target.layer) {
+      setActiveLayer("all");
+      return; // re-run after the layer flip causes a re-render
+    }
+    const el = document.getElementById(`item-${highlightId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    // Clear the highlight after a few seconds so the page doesn't stay
+    // visually pinned forever. We keep the URL hash so a refresh still
+    // re-scrolls.
+    const t = window.setTimeout(() => setHighlightId(null), 3500);
+    return () => window.clearTimeout(t);
+  }, [highlightId, isLoading, items, activeLayer]);
 
   function handleCreate() {
     if (!newItem.title || !newItem.content) return;
@@ -244,8 +295,14 @@ export function MemoryManager() {
           filtered.map((item) => (
             <div
               key={item.id}
-              className={`bg-card border rounded-lg p-4 ${
+              id={`item-${item.id}`}
+              data-testid={`memory-item-${item.id}`}
+              className={`bg-card border rounded-lg p-4 transition-all ${
                 item.layer === "canon" ? "border-red-200" : "border-card-border"
+              } ${
+                highlightId === item.id
+                  ? "ring-2 ring-primary ring-offset-2 ring-offset-background"
+                  : ""
               }`}
             >
               {editId === item.id ? (

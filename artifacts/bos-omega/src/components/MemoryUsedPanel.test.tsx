@@ -223,6 +223,140 @@ describe("MemoryUsedPanel", () => {
     expect(screen.queryByTestId("memory-context-full")).toBeNull();
   });
 
+  // === Task #50: per-item provenance — clickable memory items ===
+
+  it("renders one entry per injected item with a deep-link to the Memory Manager", async () => {
+    // Stub /api/memory so the cross-reference query resolves; one of the
+    // injected ids is intentionally missing so the panel must mark it as
+    // "no longer available" instead of producing a broken link.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.endsWith("/api/memory") || url.includes("/api/memory?")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify([
+                {
+                  id: "mem-canon-1",
+                  layer: "canon",
+                  title: "BOS Safety Canon",
+                  content: "...",
+                  authority_level: 9,
+                  created_at: "2026-01-01T00:00:00.000Z",
+                  updated_at: "2026-01-01T00:00:00.000Z",
+                },
+                {
+                  id: "mem-cont-1",
+                  layer: "continuity",
+                  title: "Field log",
+                  content: "...",
+                  authority_level: 5,
+                  created_at: "2026-01-01T00:00:00.000Z",
+                  updated_at: "2026-01-01T00:00:00.000Z",
+                },
+                // mem-scratch-deleted intentionally absent
+              ]),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          );
+        }
+        return Promise.reject(new Error(`unexpected fetch: ${url}`));
+      }),
+    );
+
+    const entry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        injected_items: [
+          { id: "mem-canon-1", layer: "canon", title: "BOS Safety Canon" },
+          { id: "mem-cont-1", layer: "continuity", title: "Field log" },
+          { id: "mem-scratch-deleted", layer: "scratchpad", title: "Old note" },
+        ],
+      },
+    };
+
+    renderWithClient(<MemoryUsedPanel audit={[entry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    // The list itself renders synchronously off the audit metadata.
+    expect(screen.getByTestId("memory-injected-items")).toBeInTheDocument();
+    expect(screen.getByText(/ITEMS INJECTED \(3\)/)).toBeInTheDocument();
+
+    // Two ids exist in the live list → links rendered with /memory#item-<id> hrefs.
+    const canonLink = screen.getByTestId("memory-injected-link-mem-canon-1");
+    expect(canonLink.getAttribute("href")).toBe("/memory#item-mem-canon-1");
+    expect(canonLink.textContent).toContain("BOS Safety Canon");
+
+    const continuityLink = screen.getByTestId("memory-injected-link-mem-cont-1");
+    expect(continuityLink.getAttribute("href")).toBe("/memory#item-mem-cont-1");
+    expect(continuityLink.textContent).toContain("Field log");
+
+    // The deleted row resolves async — wait for the live list to load and
+    // mark the missing id as unavailable rather than rendering a link.
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("memory-injected-missing-mem-scratch-deleted"),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId("memory-injected-link-mem-scratch-deleted"),
+    ).toBeNull();
+    expect(
+      screen.getByTestId("memory-injected-missing-mem-scratch-deleted")
+        .textContent,
+    ).toContain("no longer available");
+  });
+
+  it("shows an inline notice when the live cross-reference lookup fails", async () => {
+    // /api/memory rejects → liveIds stays null and links render
+    // optimistically, but the panel must surface a small notice so users
+    // know "no longer available" markers may be missing for this view.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("network down"))),
+    );
+
+    const entry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        injected_items: [
+          { id: "mem-canon-1", layer: "canon", title: "BOS Safety Canon" },
+        ],
+      },
+    };
+
+    renderWithClient(<MemoryUsedPanel audit={[entry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    // Items still render with optimistic links (no false "unavailable").
+    expect(
+      screen.getByTestId("memory-injected-link-mem-canon-1"),
+    ).toBeInTheDocument();
+    // …but the "couldn't verify items" badge appears once the query errors.
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("memory-injected-lookup-failed"),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("hides the items section entirely on legacy tasks with no injected_items", () => {
+    // memoryInjectedEntry intentionally has no `injected_items` field —
+    // mirrors a task recorded before Task #50 shipped. The panel must
+    // continue to render the layer counts / sections / preview without
+    // showing an empty "ITEMS INJECTED" header.
+    renderWithClient(<MemoryUsedPanel audit={[memoryInjectedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+    expect(screen.queryByTestId("memory-injected-items")).toBeNull();
+    expect(screen.queryByText(/ITEMS INJECTED/)).toBeNull();
+    // Other sections still render.
+    expect(screen.getByTestId("memory-section-headers")).toBeInTheDocument();
+    expect(screen.getByTestId("memory-context-preview")).toBeInTheDocument();
+  });
+
   it("surfaces a fallback error message when the full-context fetch fails", async () => {
     vi.stubGlobal(
       "fetch",

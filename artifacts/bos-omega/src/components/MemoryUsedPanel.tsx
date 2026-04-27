@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Brain, Loader2 } from "lucide-react";
-import { useGetTaskMemoryContext } from "@workspace/api-client-react";
+import { Link } from "wouter";
+import { ChevronDown, ChevronRight, Brain, Loader2, ExternalLink, AlertCircle } from "lucide-react";
+import { useGetTaskMemoryContext, useListMemory } from "@workspace/api-client-react";
 
 type AuditEntry = {
   id: string;
@@ -8,6 +9,16 @@ type AuditEntry = {
   message: string;
   metadata?: unknown;
   created_at: string | Date;
+};
+
+// Task #50: per-item provenance the orchestrator records on MEMORY_INJECTED.
+// `id` is the memory_items.id at the moment of injection — we cross-reference
+// it against the live useListMemory() response so deleted/edited rows are
+// shown as "no longer available" instead of producing a broken link.
+type InjectedItem = {
+  id: string;
+  layer: string;
+  title: string;
 };
 
 type MemoryMeta = {
@@ -18,6 +29,7 @@ type MemoryMeta = {
   memory_context_chars?: number;
   section_headers?: string[];
   memory_context_preview?: string;
+  injected_items?: InjectedItem[];
 };
 
 const LAYER_COLORS: Record<string, string> = {
@@ -52,6 +64,22 @@ export function MemoryUsedPanel({
   const entry =
     [...audit].reverse().find((e) => e.event_type === "MEMORY_INJECTED");
 
+  const meta: MemoryMeta =
+    entry?.metadata && typeof entry.metadata === "object"
+      ? (entry.metadata as MemoryMeta)
+      : {};
+
+  const injected: InjectedItem[] = Array.isArray(meta.injected_items)
+    ? meta.injected_items.filter(
+        (i): i is InjectedItem =>
+          !!i &&
+          typeof i === "object" &&
+          typeof (i as InjectedItem).id === "string" &&
+          typeof (i as InjectedItem).title === "string" &&
+          typeof (i as InjectedItem).layer === "string",
+      )
+    : [];
+
   // Task #49: only fire the lazy fetch when the user has both opened the
   // panel AND clicked "View full context". Without the panel-open guard the
   // request would also be made for the collapsed state.
@@ -64,12 +92,28 @@ export function MemoryUsedPanel({
     },
   });
 
-  if (!entry) return null;
+  // Task #50: cross-reference injected ids against the live memory_items
+  // list so we can mark deleted rows as "no longer available". Gated on
+  // `open && injected.length > 0` so closed panels (and tasks recorded
+  // before this task that have no injected_items) make zero extra requests.
+  const liveMemoryQuery = useListMemory({
+    query: {
+      queryKey: ["/api/memory"],
+      enabled: open && injected.length > 0,
+      retry: false,
+      staleTime: 60_000,
+    },
+  });
+  const liveIds: Set<string> | null = liveMemoryQuery.data
+    ? new Set(liveMemoryQuery.data.map((m) => m.id))
+    : null;
+  // Surface a small inline notice if the cross-reference itself failed,
+  // so users know that "no longer available" markers may be missing —
+  // we still render links optimistically rather than mass-flagging items.
+  const liveLookupFailed =
+    open && injected.length > 0 && liveMemoryQuery.isError;
 
-  const meta: MemoryMeta =
-    entry.metadata && typeof entry.metadata === "object"
-      ? (entry.metadata as MemoryMeta)
-      : {};
+  if (!entry) return null;
 
   const layers = [
     { key: "CANON", count: meta.canon_items ?? 0 },
@@ -170,6 +214,86 @@ export function MemoryUsedPanel({
               </div>
             )}
           </div>
+
+          {/* Task #50: per-item provenance — each entry links to the source
+              row in the Memory Manager. Items not present in the live list
+              are rendered as "no longer available" instead of broken links.
+              Hidden entirely on legacy tasks (recorded before #50) so the
+              section doesn't show as empty next to a non-zero LAYERS grid. */}
+          {injected.length > 0 && (
+            <div>
+              <div className="text-[10px] font-mono text-muted-foreground tracking-wider mb-2 flex items-center gap-2">
+                <span>ITEMS INJECTED ({injected.length})</span>
+                {liveLookupFailed && (
+                  <span
+                    className="not-italic text-amber-700 inline-flex items-center gap-1"
+                    data-testid="memory-injected-lookup-failed"
+                    title="Couldn't verify which items still exist; links may be stale"
+                  >
+                    <AlertCircle className="w-3 h-3" />
+                    couldn't verify items
+                  </span>
+                )}
+              </div>
+              <ul
+                className="space-y-1.5"
+                data-testid="memory-injected-items"
+              >
+                {injected.map((item, i) => {
+                  const layer_key = item.layer.toUpperCase();
+                  const color =
+                    LAYER_COLORS[layer_key] ?? "text-muted-foreground";
+                  // Three states for the cross-reference:
+                  //   - liveIds === null   → live list still loading (or
+                  //     errored). Render a link optimistically; the Memory
+                  //     Manager will simply not auto-scroll if the row is
+                  //     gone, which is acceptable degradation.
+                  //   - liveIds.has(id)    → row exists, link is safe.
+                  //   - !liveIds.has(id)   → row was deleted after the task
+                  //     ran. Render as plain "(no longer available)" text
+                  //     so we don't ship a broken anchor.
+                  const available = liveIds === null || liveIds.has(item.id);
+                  return (
+                    <li
+                      key={`${item.id}-${i}`}
+                      className="flex items-start gap-2 font-mono text-[11px] leading-snug"
+                      data-testid={`memory-injected-item-${item.id}`}
+                    >
+                      <span
+                        className={`shrink-0 w-[88px] uppercase tracking-wide ${color}`}
+                      >
+                        {layer_key}
+                      </span>
+                      {available ? (
+                        <Link
+                          href={`/memory#item-${item.id}`}
+                          className="text-primary hover:underline inline-flex items-center gap-1 break-all"
+                          data-testid={`memory-injected-link-${item.id}`}
+                        >
+                          <span>{item.title || "(untitled)"}</span>
+                          <ExternalLink className="w-3 h-3 shrink-0" />
+                        </Link>
+                      ) : (
+                        <span
+                          className="text-muted-foreground italic inline-flex items-center gap-1 break-all"
+                          data-testid={`memory-injected-missing-${item.id}`}
+                          title="The source memory row was deleted after this task ran"
+                        >
+                          <AlertCircle className="w-3 h-3 shrink-0 text-amber-700" />
+                          <span className="line-through">
+                            {item.title || "(untitled)"}
+                          </span>
+                          <span className="not-italic text-[10px] text-amber-700">
+                            no longer available
+                          </span>
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
 
           <div>
             <div className="text-[10px] font-mono text-muted-foreground tracking-wider mb-2">
