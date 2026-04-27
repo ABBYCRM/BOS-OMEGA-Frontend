@@ -1,0 +1,154 @@
+Agreed — if memory/governance behavior is part of the system’s core cognition model, then treating the canon patch as a separate afterthought is the wrong architecture.
+
+The Front Door rule should land **with** the feature, not as an auxiliary note.
+
+Here is the corrected **10/10 version** with memory/governance integrated as part of the implementation, not separated conceptually:
+
+---
+
+```text
+PLAN MODE — TRACKED IMPLEMENTATION TASK CREATION
+
+OBJECTIVE:
+Create and queue the full production implementation task for BOS-OMEGA Front Door remediation, including governance/memory integration as part of the core deliverable.
+
+RATIONALE:
+Front Door behavior changes BOS-OMEGA cognitive routing.
+Therefore memory/governance updates are part of the implementation itself, not optional follow-up metadata.
+
+Implementation remains blocked only by active overlapping UI work (#47 / #48).
+
+======================================================================
+DEPENDENCY BLOCK
+======================================================================
+
+Blocked By:
+- Task #47 (Memory Provenance UI)
+- Task #48 (Memory Trim Visibility)
+
+Block Reason:
+Overlapping frontend / UX / memory-adjacent surfaces.
+Parallel work risks collision, regression, and merge churn.
+
+Unblock Condition:
+- #47 complete
+- #48 complete
+- Affected UI surfaces stabilized
+
+======================================================================
+CREATE TRACKED TASK
+======================================================================
+
+Task Name:
+BOP.FRONT_DOOR.v1_PRODUCTION
+
+Priority:
+HIGH
+
+Execution Order:
+Immediately after #47 / #48
+
+======================================================================
+FULL TASK SCOPE
+======================================================================
+
+1. Backend FrontDoorInterpreter
+- Confidence-based classification
+- Greeting / Empty / Under-Specified / Likely-Non-Task / Valid-Task routing
+- Low-confidence fallback-to-BOS safety rule
+
+2. UX Response Layer
+- Greeting response templates
+- Empty input response
+- Under-specified guidance
+- Non-task instructional response
+
+3. Frontend UX Improvements
+- Input placeholder
+- Example prompt cards
+- First-run / empty-state onboarding
+- Try-example actions if applicable
+
+4. Audit / Observability
+- Front-door audit event
+- input_hash
+- truncated/redacted preview
+- route
+- confidence
+- rationale
+- shouldInvokeBosEngine
+- timestamp
+
+5. Memory / Governance Integration (REQUIRED)
+Update canon/governance memory as part of implementation:
+
+Rule:
+BOS-OMEGA must classify greeting, empty, trivial, and vague non-task input through Front Door Interpreter before Tri-State reasoning.
+
+Only:
+- Valid task-shaped input
+- Or low-confidence ambiguous input
+
+may reach BOS reasoning.
+
+Memory/governance update must ship atomically with feature.
+Feature is incomplete without this.
+
+6. Test Matrix
+- Happy path
+- Edge cases
+- Misclassification tests
+- Low-confidence fallback tests
+- Regression tests for valid BOS prompts
+- Governance/memory integration verification
+
+======================================================================
+SEPARATE ROOT TASK
+======================================================================
+
+Task Name:
+BOP.HOLD_REASON.v1
+
+Objective:
+Modify BOS engine to emit structured HOLD rationales:
+- Missing objective
+- Missing facts
+- Missing criteria
+- Missing constraints
+- Missing output target
+
+Priority:
+Post Front Door unless reprioritized
+
+======================================================================
+TASK CREATION RULES
+======================================================================
+
+- Include dependency on #47/#48
+- Include full approved Front Door spec
+- Mark BLOCKED until dependencies clear
+- No partial implementation before unblock
+- No MVP / phased split without approval
+
+======================================================================
+FINAL DIRECTIVE
+======================================================================
+
+Proceed with formal task creation only.
+Do not implement yet.
+Queue for immediate execution after blockers clear.
+```
+
+---
+
+```ascii
+FRONT_DOOR_TASK
+├── Includes Feature Logic
+├── Includes UX
+├── Includes Audit
+├── Includes Memory/Governance Patch
+└── Ships Atomically
+```
+
+**Correct architectural principle:**
+If memory defines system behavior, then **behavioral changes without memory updates are incomplete implementation**.
