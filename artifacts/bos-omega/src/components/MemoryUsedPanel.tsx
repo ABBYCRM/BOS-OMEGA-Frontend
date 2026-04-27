@@ -316,8 +316,45 @@ export function MemoryUsedPanel({
                   <div className="text-[10px] font-mono text-muted-foreground">
                     {l.key}
                   </div>
+                  {/* Task #54: per-tile dropped counter so users see at a
+                      glance which specific layer cut items, without needing
+                      to scroll to the dropped notice below. Non-zero counts
+                      are amber to stand out against the muted tile chrome;
+                      zero collapses to a dim "0 dropped" label so the tile
+                      footprint stays consistent across layers. The title
+                      attribute explains what "dropped" means in plain
+                      English for the keyboard/hover audience. */}
+                  <div
+                    className={`mt-1 text-[10px] font-mono inline-flex items-center justify-center gap-1 ${
+                      l.dropped > 0
+                        ? "text-amber-700 font-bold"
+                        : "text-muted-foreground/60"
+                    }`}
+                    data-testid={`memory-layer-${l.key.toLowerCase()}-dropped`}
+                    title={
+                      l.dropped > 0
+                        ? `${l.dropped} ${LAYER_PLAIN_NAME[l.key]} note${
+                            l.dropped === 1 ? "" : "s"
+                          } ranked but didn't fit the ${MEMORY_TOKEN_BUDGETS[
+                            l.key
+                          ].toLocaleString()}-token ${LAYER_PLAIN_NAME[l.key]} budget for this task.`
+                        : `No ${LAYER_PLAIN_NAME[l.key]} notes were dropped — every ranked item fit the ${MEMORY_TOKEN_BUDGETS[
+                            l.key
+                          ].toLocaleString()}-token ${LAYER_PLAIN_NAME[l.key]} budget.`
+                    }
+                  >
+                    {l.dropped > 0 && <Scissors className="w-3 h-3" />}
+                    {l.dropped} dropped
+                  </div>
                 </div>
               ))}
+            </div>
+            {/* Task #54: short caption explaining the new per-tile counter
+                so users who don't hover (e.g. touch devices) still get the
+                meaning. Kept terse so it doesn't add visual noise on tasks
+                where nothing was dropped. */}
+            <div className="text-[10px] font-mono text-muted-foreground mt-2 italic">
+              "Dropped" = item was ranked relevant but didn't fit the layer's token budget.
             </div>
             {total === 0 && (
               <div className="text-[11px] font-mono text-muted-foreground mt-2">

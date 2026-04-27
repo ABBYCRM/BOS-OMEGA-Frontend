@@ -619,4 +619,103 @@ describe("MemoryUsedPanel", () => {
       "=== CANON CONTEXT ===",
     );
   });
+
+  // === Task #54: per-tile dropped counter on each layer tile ===
+
+  it("renders a per-tile dropped counter on every layer tile, defaulting to 0", () => {
+    // memoryInjectedEntry has no *_dropped fields → each tile must still
+    // render a "0 dropped" footer so the four tiles stay visually balanced
+    // and so users can confirm at a glance that nothing was cut.
+    renderWithClient(<MemoryUsedPanel audit={[memoryInjectedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    for (const layer of ["canon", "continuity", "patches", "scratchpad"]) {
+      const tile = screen.getByTestId(`memory-layer-${layer}-dropped`);
+      expect(tile).toBeInTheDocument();
+      expect(tile.textContent).toMatch(/0 dropped/);
+      // Zero-state is muted (not amber) so it doesn't draw attention.
+      expect(tile.className).not.toMatch(/text-amber-700/);
+      // Tooltip exists so hover users can read the plain-English explainer
+      // even when the count is zero (confirms "nothing was cut").
+      expect(tile.getAttribute("title")).toMatch(
+        /No .* notes were dropped/,
+      );
+    }
+
+    // Inline caption explains what "dropped" means for users who don't hover.
+    expect(
+      screen.getByText(
+        /"Dropped" = item was ranked relevant but didn't fit the layer's token budget\./,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("highlights non-zero per-tile dropped counts in amber with an explanatory tooltip", () => {
+    const droppedEntry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        canon_dropped: 3,
+        continuity_dropped: 1,
+        patches_dropped: 0,
+        scratchpad_dropped: 0,
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[droppedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    // Non-zero tiles: amber, bolded, count + word "dropped".
+    const canonDropped = screen.getByTestId("memory-layer-canon-dropped");
+    expect(canonDropped.textContent).toMatch(/3 dropped/);
+    expect(canonDropped.className).toMatch(/text-amber-700/);
+    expect(canonDropped.className).toMatch(/font-bold/);
+    // Tooltip gives the full plain-English explanation including the budget,
+    // so users get the answer to "why didn't the AI use my note?" on hover.
+    expect(canonDropped.getAttribute("title")).toMatch(
+      /3 canon notes ranked but didn't fit the 3,000-token canon budget/,
+    );
+
+    const continuityDropped = screen.getByTestId(
+      "memory-layer-continuity-dropped",
+    );
+    expect(continuityDropped.textContent).toMatch(/1 dropped/);
+    // Singular "note" when count == 1, plus the continuity budget value.
+    expect(continuityDropped.getAttribute("title")).toMatch(
+      /1 continuity note ranked but didn't fit the 1,500-token continuity budget/,
+    );
+
+    // Zero tiles stay muted so non-zero ones stand out in the row.
+    const patchesDropped = screen.getByTestId("memory-layer-patches-dropped");
+    expect(patchesDropped.textContent).toMatch(/0 dropped/);
+    expect(patchesDropped.className).not.toMatch(/text-amber-700/);
+
+    const scratchpadDropped = screen.getByTestId(
+      "memory-layer-scratchpad-dropped",
+    );
+    expect(scratchpadDropped.textContent).toMatch(/0 dropped/);
+    expect(scratchpadDropped.className).not.toMatch(/text-amber-700/);
+  });
+
+  it("shows a per-tile dropped counter even when the layer's items count is zero", () => {
+    // Edge case: a layer can drop items even if NONE fit (budget too small
+    // for any single ranked item). The tile still shows the count + 0 items
+    // so users know the budget cut everything, not that nothing was relevant.
+    const allDroppedEntry = {
+      ...memoryInjectedEntry,
+      metadata: {
+        ...memoryInjectedEntry.metadata,
+        scratchpad_items: 0,
+        scratchpad_dropped: 5,
+      },
+    };
+    renderWithClient(<MemoryUsedPanel audit={[allDroppedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+    const tile = screen.getByTestId("memory-layer-scratchpad-dropped");
+    expect(tile.textContent).toMatch(/5 dropped/);
+    expect(tile.className).toMatch(/text-amber-700/);
+    // Plural "notes" for count > 1 in the tooltip.
+    expect(tile.getAttribute("title")).toMatch(
+      /5 scratchpad notes ranked but didn't fit the 750-token scratchpad budget/,
+    );
+  });
 });
