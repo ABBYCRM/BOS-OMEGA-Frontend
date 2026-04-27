@@ -359,29 +359,23 @@ await test("Setup inline mock LLM provider (prov_generic → mock server)", asyn
 });
 
 /*
- * Preflight: confirm at least one LLM provider can resolve a key in
- * this environment BEFORE we submit any tasks. Without this check, a
- * fresh-clone dev environment that has no provider key wired and no
- * AI Integration provisioned would still get past steps 1-3, then
- * silently produce HOLD tasks (no model output → 0
- * SCRATCHPAD_AUTO_WRITTEN events), and finally fail at the audit-count
- * assertions with a confusing message that doesn't surface the real
- * cause. The keyResolver in artifacts/api-server/src/lib/keyResolver.ts
- * resolves provider keys in this priority:
- *   1. DB-stored encrypted key (Settings UI / PUT /api/providers/:id/api-key)
- *   2. provider.api_key_env env var
- *   3. legacy canonical env var (OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY)
- *   4. Replit AI Integrations proxy (AI_INTEGRATIONS_*_API_KEY + _BASE_URL)
+ * Ambient provider inventory — informational only. Walks the same
+ * 4-tier resolution chain that
+ * artifacts/api-server/src/lib/keyResolver.ts uses (DB key →
+ * provider.api_key_env → legacy canonical env → Replit AI
+ * Integrations proxy) and probes any enabled `Ollama` provider for
+ * service availability. Logs which (if any) ambient providers would
+ * have been resolvable BEFORE this spec injected its inline mock.
  *
- * This preflight checks all four paths at the spec level using only
- * the data the API exposes (has_api_key on the provider list) plus
- * env-var presence (we check existence, never read or print values).
- * It does NOT mutate any provider config — operators' carefully-set
- * provider rows remain untouched. If none of the four paths resolves
- * for any enabled provider, we fail fast with a one-shot remediation
- * message listing every option.
+ * Why this is non-fatal: the inline mock setup above already made
+ * prov_generic resolvable via the DB path, so the round-trip is
+ * guaranteed to have a working provider regardless of ambient
+ * wiring. This step exists purely to surface what the operator has
+ * configured (useful diagnostic for "did I forget to set MY key?")
+ * and to keep the resolution-chain inventory close to the spec for
+ * future maintainers — it is not a gate on the round-trip passing.
  */
-await test("Preflight: at least one LLM provider key is resolvable in this environment", async () => {
+await test("Ambient provider inventory (informational; not a gate)", async () => {
   const list = await request(adminJar, "GET", "/api/providers");
   assert.equal(list.status, 200, `provider list fetch failed: ${list.status}`);
   const providers = Array.isArray(list.data) ? list.data : [];
@@ -437,45 +431,17 @@ await test("Preflight: at least one LLM provider key is resolvable in this envir
     }
   }
 
+  // Note: the inline mock setup above just made `Generic API` resolvable
+  // via the DB path, so `resolved` will normally include at least that
+  // entry. Anything beyond it is genuine ambient operator wiring.
+  // Surface every resolution source so a future debug session has a
+  // one-line breadcrumb. We do not print the resolved key, env var
+  // value, or any prefix of either — only the resolution source.
   if (resolved.length === 0) {
-    // One actionable error message that lists every remediation path.
-    // Keep the legacy / proxy env-var names verbatim so an operator
-    // can grep their .env or environment for them directly.
-    throw new Error(
-      [
-        "No enabled LLM provider has a resolvable API key in this environment.",
-        "The lattice round-trip self-test needs a real model call to produce",
-        "SCRATCHPAD_AUTO_WRITTEN audit events; without a key, the post-export",
-        "tasks finish in HOLD and the round-trip cannot be proved.",
-        "",
-        "Pick ONE of the following remediations and re-run:",
-        "",
-        "  A. Paste an API key into a provider via Settings (or call",
-        "     PUT /api/providers/:id/api-key). Recommended.",
-        "",
-        "  B. Set a vendor env var that any seeded provider will pick up:",
-        "       OPENAI_API_KEY      → prov_openai",
-        "       ANTHROPIC_API_KEY   → prov_anthropic",
-        "       GEMINI_API_KEY      → prov_gemini",
-        "",
-        "  C. Provision the matching Replit AI Integration so the proxy",
-        "     fallback in keyResolver.proxyFor() resolves. The integration",
-        "     sets BOTH of:",
-        "       AI_INTEGRATIONS_OPENAI_API_KEY     + AI_INTEGRATIONS_OPENAI_BASE_URL",
-        "       AI_INTEGRATIONS_ANTHROPIC_API_KEY  + AI_INTEGRATIONS_ANTHROPIC_BASE_URL",
-        "       AI_INTEGRATIONS_GEMINI_API_KEY     + AI_INTEGRATIONS_GEMINI_BASE_URL",
-        "",
-        `  D. Run an Ollama instance locally (port 11434) — prov_ollama will pick it up.`,
-        "",
-        `Currently enabled providers: ${providers.filter(p => p.enabled).map(p => p.name).join(", ") || "(none)"}`,
-      ].join("\n"),
-    );
+    console.log("       (no providers resolvable — round-trip will fail; check provider config)");
+  } else {
+    console.log(`       (resolvable providers: ${resolved.map(r => `${r.name}→${r.via}`).join(", ")})`);
   }
-
-  // Surface which path won so a future debug session has a one-line
-  // breadcrumb. We do not print the resolved key, env var value, or
-  // any prefix of either — only the resolution source.
-  console.log(`       (resolvable providers: ${resolved.map(r => `${r.name}→${r.via}`).join(", ")})`);
 });
 
 let userAId = null;
@@ -773,7 +739,7 @@ await test("Write docs/lattice-continuity-verification.md", async () => {
     "",
     "| # | Step | Result |",
     "| --- | --- | --- |",
-    "| 0 | Preflight: at least one provider key is resolvable | PASS |",
+    "| 0 | Inline mock LLM provider setup + ambient inventory | PASS |",
     "| 1 | Provision one fresh user via `POST /api/users` (super_admin) | PASS |",
     "| 2 | Submit 3 related tasks + 1 manual pin in original session | PASS |",
     "| 3 | `GET /api/lattice/export` — blob, hash, fence, preamble | PASS |",
