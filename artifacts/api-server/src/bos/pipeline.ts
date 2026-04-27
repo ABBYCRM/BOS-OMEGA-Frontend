@@ -22,6 +22,7 @@ import {
   getScratchpad,
   buildContextFromMemory,
 } from "./memoryEngine.js";
+import { getEffectiveBudgets } from "./userBudgets.js";
 import { auditLog, complianceHoldRequired, clearComplianceFailure } from "./auditEngine.js";
 import { logger } from "../lib/logger.js";
 import { loadAttachmentBundle } from "../lib/uploads/loader.js";
@@ -370,12 +371,17 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   let continuity_sel: Awaited<ReturnType<typeof getContinuityMemory>>;
   let patches_sel: Awaited<ReturnType<typeof getPatchesMemory>>;
   let scratchpad_sel: Awaited<ReturnType<typeof getScratchpad>>;
+  // Task #59: resolve the user's per-layer budget overrides (or defaults
+  // when no row exists) BEFORE invoking the memory layer fetchers so each
+  // layer's greedy fit runs against the user's chosen ceiling. Anonymous
+  // / pre-user-id tasks fall through to defaults inside getEffectiveBudgets.
+  const effective_budgets = await getEffectiveBudgets(pipelineInput.user_id ?? null);
   try {
     [canon_sel, continuity_sel, patches_sel, scratchpad_sel] = await Promise.all([
-      getCanonMemory(gate.sanitized_input),
-      getContinuityMemory(gate.sanitized_input),
-      getPatchesMemory(gate.sanitized_input),
-      getScratchpad(gate.sanitized_input),
+      getCanonMemory(gate.sanitized_input, effective_budgets.canon),
+      getContinuityMemory(gate.sanitized_input, effective_budgets.continuity),
+      getPatchesMemory(gate.sanitized_input, effective_budgets.patches),
+      getScratchpad(gate.sanitized_input, effective_budgets.scratchpad),
     ]);
   } catch (err) {
     await auditLog(task_id, "CANON_LOAD_ERROR", "Canon memory load failed; refusing to call model without governance overlay", {
@@ -458,6 +464,17 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     memory_context_preview: memory_context.slice(0, 8000),
     memory_context_full: memory_context,
     injected_items,
+    // Task #59: persist the per-layer budgets that ran for THIS task so
+    // the Memory Used panel shows historically-accurate budget numbers in
+    // the dropped-notice copy and per-tile tooltips, even after the user
+    // edits their overrides. Without this, the panel would read the
+    // user's CURRENT budgets and show wrong numbers for older tasks.
+    budgets: {
+      canon: effective_budgets.canon,
+      continuity: effective_budgets.continuity,
+      patches: effective_budgets.patches,
+      scratchpad: effective_budgets.scratchpad,
+    },
   });
 
   const ctx: TaskContext = {

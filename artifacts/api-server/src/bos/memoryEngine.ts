@@ -146,22 +146,28 @@ function toSelection(
   };
 }
 
-export async function getCanonMemory(task_input = ""): Promise<LayerSelection> {
-  const picked = await selectLayer("canon", task_input, MEMORY_TOKEN_BUDGETS.canon, "CANON", 50);
+// Task #59: per-call budget override. Pipeline passes the user's effective
+// per-layer budget (resolved by `getEffectiveBudgets`) so a user who has
+// dialed canon up to 6 000 actually gets a 6 000-token canon block. When no
+// budget is supplied (callers other than the pipeline, e.g. ad-hoc helpers
+// or tests) we fall back to the engine defaults so legacy call sites keep
+// working unchanged.
+export async function getCanonMemory(task_input = "", budget?: number): Promise<LayerSelection> {
+  const picked = await selectLayer("canon", task_input, budget ?? MEMORY_TOKEN_BUDGETS.canon, "CANON", 50);
   return toSelection("canon", picked);
 }
 
-export async function getContinuityMemory(task_input = ""): Promise<LayerSelection> {
-  const picked = await selectLayer("continuity", task_input, MEMORY_TOKEN_BUDGETS.continuity, "CONTINUITY", 50);
+export async function getContinuityMemory(task_input = "", budget?: number): Promise<LayerSelection> {
+  const picked = await selectLayer("continuity", task_input, budget ?? MEMORY_TOKEN_BUDGETS.continuity, "CONTINUITY", 50);
   return toSelection("continuity", picked);
 }
 
-export async function getPatchesMemory(task_input = ""): Promise<LayerSelection> {
-  const picked = await selectLayer("patches", task_input, MEMORY_TOKEN_BUDGETS.patches, "PATCHES", 50);
+export async function getPatchesMemory(task_input = "", budget?: number): Promise<LayerSelection> {
+  const picked = await selectLayer("patches", task_input, budget ?? MEMORY_TOKEN_BUDGETS.patches, "PATCHES", 50);
   return toSelection("patches", picked);
 }
 
-export async function getScratchpad(task_input = ""): Promise<LayerSelection> {
-  const picked = await selectLayer("scratchpad", task_input, MEMORY_TOKEN_BUDGETS.scratchpad, "SCRATCHPAD", 25);
+export async function getScratchpad(task_input = "", budget?: number): Promise<LayerSelection> {
+  const picked = await selectLayer("scratchpad", task_input, budget ?? MEMORY_TOKEN_BUDGETS.scratchpad, "SCRATCHPAD", 25);
   return toSelection("scratchpad", picked);
 }

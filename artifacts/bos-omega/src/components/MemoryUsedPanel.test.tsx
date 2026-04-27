@@ -132,6 +132,94 @@ describe("MemoryUsedPanel", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
+  // === Task #59: per-user memory budget overrides ===
+  //
+  // The MEMORY_INJECTED audit row now carries the per-layer budgets that ran
+  // for THIS task (recorded in artifacts/api-server/src/bos/pipeline.ts). The
+  // panel reads them when rendering the per-tile tooltips, the dropped-notice
+  // list, and the dropped-notice footer copy, falling back to engine defaults
+  // for legacy tasks that have no `budgets` field.
+
+  it("renders the recorded per-task budgets in the dropped-notice copy when present", () => {
+    const overrideEntry = {
+      id: "audit-budget",
+      event_type: "MEMORY_INJECTED",
+      message: "Memory context built (123 chars)",
+      metadata: {
+        canon_items: 2,
+        continuity_items: 0,
+        patches_items: 0,
+        scratchpad_items: 0,
+        canon_dropped: 1,
+        continuity_dropped: 0,
+        patches_dropped: 0,
+        scratchpad_dropped: 0,
+        memory_context_chars: 1000,
+        section_headers: ["=== CANON CONTEXT ==="],
+        memory_context_preview: "=== CANON CONTEXT ===",
+        // The user's stored override at task time: 6 000 / 4 500 / 2 000 / 500.
+        budgets: {
+          canon: 6000,
+          continuity: 4500,
+          patches: 2000,
+          scratchpad: 500,
+        },
+      },
+      created_at: "2026-04-27T01:00:00.000Z",
+    };
+    renderWithClient(<MemoryUsedPanel audit={[overrideEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    // Dropped-notice list line cites the recorded canon budget (6 000),
+    // not the engine default (3 000).
+    const droppedRow = screen.getByTestId("memory-dropped-canon");
+    expect(droppedRow.textContent).toContain("6,000-token");
+    expect(droppedRow.textContent).not.toContain("3,000-token");
+
+    // Footer copy lists all four recorded values, not the defaults.
+    const notice = screen.getByTestId("memory-dropped-notice");
+    expect(notice.textContent).toMatch(/canon\s+6,000/);
+    expect(notice.textContent).toMatch(/continuity\s+4,500/);
+    expect(notice.textContent).toMatch(/patches\s+2,000/);
+    expect(notice.textContent).toMatch(/scratchpad\s+500/);
+  });
+
+  it("falls back to engine defaults when the audit row predates Task #59 (no budgets field)", () => {
+    // Same rendering path but no `budgets` in metadata — the panel must
+    // not crash, must not show NaN/undefined, and must surface the engine
+    // defaults so the dropped-notice copy still tells the user the right
+    // story for legacy tasks.
+    const legacyDroppedEntry = {
+      id: "audit-legacy",
+      event_type: "MEMORY_INJECTED",
+      message: "Memory context built (1000 chars)",
+      metadata: {
+        canon_items: 2,
+        continuity_items: 0,
+        patches_items: 0,
+        scratchpad_items: 0,
+        canon_dropped: 1,
+        continuity_dropped: 0,
+        patches_dropped: 0,
+        scratchpad_dropped: 0,
+        memory_context_chars: 1000,
+        section_headers: ["=== CANON CONTEXT ==="],
+        memory_context_preview: "=== CANON CONTEXT ===",
+        // No `budgets` here — simulates a task created before Task #59.
+      },
+      created_at: "2026-04-27T01:00:00.000Z",
+    };
+    renderWithClient(<MemoryUsedPanel audit={[legacyDroppedEntry]} />);
+    fireEvent.click(screen.getByTestId("memory-used-panel-toggle"));
+
+    const notice = screen.getByTestId("memory-dropped-notice");
+    // Defaults: canon=3000, continuity=1500, patches=1000, scratchpad=750.
+    expect(notice.textContent).toMatch(/canon\s+3,000/);
+    expect(notice.textContent).toMatch(/continuity\s+1,500/);
+    expect(notice.textContent).toMatch(/patches\s+1,000/);
+    expect(notice.textContent).toMatch(/scratchpad\s+750/);
+  });
+
   it("falls back gracefully when metadata fields are missing", () => {
     const minimalEntry = {
       id: "audit-x",

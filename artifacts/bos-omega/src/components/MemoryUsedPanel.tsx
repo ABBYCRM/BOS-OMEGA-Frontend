@@ -21,6 +21,18 @@ type InjectedItem = {
   title: string;
 };
 
+// Task #59: per-layer budgets the orchestrator actually used for THIS task,
+// recorded on MEMORY_INJECTED. The pipeline persists the resolved budgets
+// (user override or engine default) at injection time so the panel can
+// show historically-accurate budget numbers in dropped-notice copy and
+// per-tile tooltips even after the user later edits their overrides.
+type RecordedBudgets = {
+  canon?: number;
+  continuity?: number;
+  patches?: number;
+  scratchpad?: number;
+};
+
 type MemoryMeta = {
   canon_items?: number;
   continuity_items?: number;
@@ -38,21 +50,26 @@ type MemoryMeta = {
   section_headers?: string[];
   memory_context_preview?: string;
   injected_items?: InjectedItem[];
+  // Task #59: per-task budgets the orchestrator actually used. Optional
+  // so legacy MEMORY_INJECTED rows recorded before Task #59 keep working
+  // — they fall back to MEMORY_TOKEN_BUDGETS_DEFAULT below.
+  budgets?: RecordedBudgets;
 };
 
-// Mirror of MEMORY_TOKEN_BUDGETS from
-// artifacts/api-server/src/bos/memoryEngine.ts. Kept inline (rather than
-// imported) because the API server is a separate artifact; if those values
-// change there, update them here too. Tested values as of Task #51:
-// canon=3000, continuity=1500, patches=1000, scratchpad=750.
-const MEMORY_TOKEN_BUDGETS = {
+// Engine defaults used as a fallback when the audit row predates Task #59
+// or the budgets field is malformed. These mirror MEMORY_TOKEN_BUDGETS in
+// artifacts/api-server/src/bos/memoryEngine.ts; if those move there, this
+// constant becomes the worst-case display, not the truth — meta.budgets
+// always wins when present.
+const MEMORY_TOKEN_BUDGETS_DEFAULT = {
   CANON: 3000,
   CONTINUITY: 1500,
   PATCHES: 1000,
   SCRATCHPAD: 750,
 } as const;
+type LayerKey = keyof typeof MEMORY_TOKEN_BUDGETS_DEFAULT;
 
-const LAYER_PLAIN_NAME: Record<keyof typeof MEMORY_TOKEN_BUDGETS, string> = {
+const LAYER_PLAIN_NAME: Record<LayerKey, string> = {
   CANON: "canon",
   CONTINUITY: "continuity",
   PATCHES: "patches",
@@ -145,6 +162,20 @@ export function MemoryUsedPanel({
 
   if (!entry) return null;
 
+  // Task #59: pull recorded budgets out of the audit row so per-layer copy
+  // (per-tile tooltips, dropped-notice list, dropped-notice footer) reads
+  // the budgets that ran for THIS task. Anything missing or non-numeric
+  // falls back to the engine defaults so legacy rows (recorded before
+  // Task #59) still render sensibly.
+  const recorded = meta.budgets ?? {};
+  const pickBudget = (raw: unknown, fallback: number) =>
+    typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : fallback;
+  const liveBudgets: Record<LayerKey, number> = {
+    CANON: pickBudget(recorded.canon, MEMORY_TOKEN_BUDGETS_DEFAULT.CANON),
+    CONTINUITY: pickBudget(recorded.continuity, MEMORY_TOKEN_BUDGETS_DEFAULT.CONTINUITY),
+    PATCHES: pickBudget(recorded.patches, MEMORY_TOKEN_BUDGETS_DEFAULT.PATCHES),
+    SCRATCHPAD: pickBudget(recorded.scratchpad, MEMORY_TOKEN_BUDGETS_DEFAULT.SCRATCHPAD),
+  };
   const layers = [
     {
       key: "CANON" as const,
@@ -335,10 +366,10 @@ export function MemoryUsedPanel({
                       l.dropped > 0
                         ? `${l.dropped} ${LAYER_PLAIN_NAME[l.key]} note${
                             l.dropped === 1 ? "" : "s"
-                          } ranked but didn't fit the ${MEMORY_TOKEN_BUDGETS[
+                          } ranked but didn't fit the ${liveBudgets[
                             l.key
                           ].toLocaleString()}-token ${LAYER_PLAIN_NAME[l.key]} budget for this task.`
-                        : `No ${LAYER_PLAIN_NAME[l.key]} notes were dropped — every ranked item fit the ${MEMORY_TOKEN_BUDGETS[
+                        : `No ${LAYER_PLAIN_NAME[l.key]} notes were dropped — every ranked item fit the ${liveBudgets[
                             l.key
                           ].toLocaleString()}-token ${LAYER_PLAIN_NAME[l.key]} budget.`
                     }
@@ -396,17 +427,17 @@ export function MemoryUsedPanel({
                         </span>{" "}
                         of your {LAYER_PLAIN_NAME[l.key]} note
                         {l.dropped === 1 ? "" : "s"} ranked but didn't fit
-                        the {MEMORY_TOKEN_BUDGETS[l.key].toLocaleString()}-token{" "}
+                        the {liveBudgets[l.key].toLocaleString()}-token{" "}
                         {LAYER_PLAIN_NAME[l.key]} budget for this task.
                       </li>
                     ))}
                   </ul>
                   <div className="text-muted-foreground pt-1">
                     Each memory layer has its own token budget — canon{" "}
-                    {MEMORY_TOKEN_BUDGETS.CANON.toLocaleString()}, continuity{" "}
-                    {MEMORY_TOKEN_BUDGETS.CONTINUITY.toLocaleString()}, patches{" "}
-                    {MEMORY_TOKEN_BUDGETS.PATCHES.toLocaleString()}, scratchpad{" "}
-                    {MEMORY_TOKEN_BUDGETS.SCRATCHPAD.toLocaleString()}.
+                    {liveBudgets.CANON.toLocaleString()}, continuity{" "}
+                    {liveBudgets.CONTINUITY.toLocaleString()}, patches{" "}
+                    {liveBudgets.PATCHES.toLocaleString()}, scratchpad{" "}
+                    {liveBudgets.SCRATCHPAD.toLocaleString()}.
                     Items are picked top-ranked first; anything that pushed a
                     layer over its budget was cut. Trim or merge lower-priority
                     notes in{" "}

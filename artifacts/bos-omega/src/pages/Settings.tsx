@@ -4,12 +4,12 @@ import {
   useTestProvider, useDiscoverProviderModels,
   getListProvidersQueryKey,
 } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import {
   Plus, Key, Trash2, CheckCircle2, XCircle, Loader2,
   Eye, EyeOff, AlertCircle, Sparkles, Zap, ShieldCheck, Lock, Database,
-  Palette, Monitor,
+  Palette, Monitor, Brain, RotateCcw, Save,
 } from "lucide-react";
 import { ProviderStatusBadge } from "@/components/StatusBadge";
 import { useTheme, type ThemeId } from "@/lib/theme";
@@ -82,6 +82,324 @@ const DEFAULT_BASE_URLS: Record<string, string> = {
   "google gemini": "https://generativelanguage.googleapis.com",
   ollama: "http://localhost:11434",
 };
+
+// Task #59: per-user memory budget overrides.
+//
+// Shape returned by GET/PUT/DELETE /api/memory/budgets. Mirrors the server
+// response in artifacts/api-server/src/routes/memory.ts. Kept inline rather
+// than going through generated client codegen because the endpoints are
+// small and self-contained — adding them to openapi.yaml would force a
+// codegen regeneration step for every other consumer.
+type BudgetLayer = "canon" | "continuity" | "patches" | "scratchpad";
+type MemoryBudgets = Record<BudgetLayer, number>;
+type BudgetsResponse = {
+  budgets: MemoryBudgets;
+  defaults: MemoryBudgets;
+  has_override: boolean;
+  // `per_layer_min` (added in Task #59 follow-up) lets the UI enforce
+  // canon's hard floor (MIN_CANON_BUDGET) without bricking task execution
+  // when canon=0. Older servers that don't include the field fall back to
+  // `min_per_layer` for every layer.
+  limits: {
+    min_per_layer: number;
+    max_per_layer: number;
+    max_total: number;
+    per_layer_min?: Partial<Record<BudgetLayer, number>>;
+  };
+};
+
+const BUDGETS_QUERY_KEY = ["/api/memory/budgets"] as const;
+
+async function fetchBudgets(): Promise<BudgetsResponse> {
+  const r = await fetch("/api/memory/budgets", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!r.ok) throw new Error(`GET /api/memory/budgets failed: ${r.status}`);
+  return (await r.json()) as BudgetsResponse;
+}
+
+async function putBudgets(values: MemoryBudgets): Promise<BudgetsResponse> {
+  const r = await fetch("/api/memory/budgets", {
+    method: "PUT",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(values),
+  });
+  if (!r.ok) {
+    let detail = "";
+    try {
+      const body = (await r.json()) as { error?: string };
+      detail = body.error ?? "";
+    } catch {
+      /* keep default */
+    }
+    throw new Error(detail || `PUT /api/memory/budgets failed: ${r.status}`);
+  }
+  return (await r.json()) as BudgetsResponse;
+}
+
+async function deleteBudgets(): Promise<BudgetsResponse> {
+  const r = await fetch("/api/memory/budgets", {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!r.ok) throw new Error(`DELETE /api/memory/budgets failed: ${r.status}`);
+  return (await r.json()) as BudgetsResponse;
+}
+
+const LAYER_ROWS: { key: BudgetLayer; label: string; help: string }[] = [
+  { key: "canon",       label: "Canon",       help: "Behavior contract: Tri-State labels, greeting style, uncertainty handling." },
+  { key: "continuity",  label: "Continuity",  help: "Carry-over notes from prior tasks (project facts, decisions, recurring people)." },
+  { key: "patches",     label: "Patches",     help: "Targeted corrections that overlay canon (one-off rule fixes)." },
+  { key: "scratchpad",  label: "Scratchpad",  help: "Short-lived working notes the model may consult mid-task." },
+];
+
+function MemoryBudgetsCard() {
+  const queryClient = useQueryClient();
+  const { data, isLoading, error } = useQuery({
+    queryKey: BUDGETS_QUERY_KEY,
+    queryFn: fetchBudgets,
+    retry: false,
+  });
+
+  // Local draft state — initialized from the server response, only diffed
+  // on Save. Editing a field while a fetch is in flight does NOT clobber
+  // the user's typing because the effect below only seeds when draft is
+  // null (i.e. before first response).
+  const [draft, setDraft] = useState<MemoryBudgets | null>(null);
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  useEffect(() => {
+    if (!data) return;
+    setDraft((prev) => prev ?? { ...data.budgets });
+  }, [data]);
+
+  const saveMutation = useMutation({
+    mutationFn: (values: MemoryBudgets) => putBudgets(values),
+    onSuccess: (resp) => {
+      queryClient.setQueryData(BUDGETS_QUERY_KEY, resp);
+      setDraft({ ...resp.budgets });
+      setFeedback({ kind: "ok", text: "Memory budgets saved." });
+    },
+    onError: (err: Error) => {
+      setFeedback({ kind: "err", text: err.message || "Failed to save budgets." });
+    },
+  });
+
+  const resetMutation = useMutation({
+    mutationFn: () => deleteBudgets(),
+    onSuccess: (resp) => {
+      queryClient.setQueryData(BUDGETS_QUERY_KEY, resp);
+      setDraft({ ...resp.budgets });
+      setFeedback({ kind: "ok", text: "Reverted to engine defaults." });
+    },
+    onError: (err: Error) => {
+      setFeedback({ kind: "err", text: err.message || "Failed to reset budgets." });
+    },
+  });
+
+  // Auto-clear the success/error banner after a moment so it doesn't
+  // linger — matches the UX of similar inline feedback elsewhere on the
+  // page.
+  useEffect(() => {
+    if (!feedback) return;
+    const t = window.setTimeout(() => setFeedback(null), 3500);
+    return () => window.clearTimeout(t);
+  }, [feedback]);
+
+  const renderBody = () => {
+    if (isLoading) {
+      return (
+        <div className="flex items-center gap-2 text-[12.5px] text-muted-foreground" data-testid="memory-budgets-loading">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Loading budgets…
+        </div>
+      );
+    }
+    if (error || !data || !draft) {
+      return (
+        <div
+          className="text-[12.5px] text-amber-700 inline-flex items-center gap-2"
+          data-testid="memory-budgets-error"
+        >
+          <AlertCircle className="w-4 h-4" />
+          Couldn't load budgets — sign in is required to manage per-user budgets.
+        </div>
+      );
+    }
+
+    // Per-layer minimum: canon has a hard floor (MIN_CANON_BUDGET on the
+    // server) so a misconfiguration can't brick task execution. Other
+    // layers default to the global min (0 — disabled).
+    const minFor = (layer: BudgetLayer): number =>
+      data.limits.per_layer_min?.[layer] ?? data.limits.min_per_layer;
+
+    const total =
+      draft.canon + draft.continuity + draft.patches + draft.scratchpad;
+    const overTotal = total > data.limits.max_total;
+    const anyOutOfRange = LAYER_ROWS.some((row) => {
+      const v = draft[row.key];
+      return !Number.isFinite(v) || v < minFor(row.key) || v > data.limits.max_per_layer;
+    });
+    const dirty = LAYER_ROWS.some((row) => draft[row.key] !== data.budgets[row.key]);
+    const saveDisabled = saveMutation.isPending || overTotal || anyOutOfRange || !dirty;
+
+    return (
+      <>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {LAYER_ROWS.map((row) => {
+            const value = draft[row.key];
+            const def = data.defaults[row.key];
+            const min = minFor(row.key);
+            const oor =
+              !Number.isFinite(value) ||
+              value < min ||
+              value > data.limits.max_per_layer;
+            return (
+              <div key={row.key}>
+                <label className="text-[12px] font-medium text-foreground block mb-1.5 flex items-center justify-between">
+                  <span className="uppercase tracking-wide font-mono text-[11px]">
+                    {row.label}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground font-normal">
+                    default {def.toLocaleString()}
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  min={min}
+                  max={data.limits.max_per_layer}
+                  step={50}
+                  value={Number.isFinite(value) ? value : ""}
+                  onChange={(e) => {
+                    const next = e.target.value === "" ? NaN : Number(e.target.value);
+                    setDraft((d) =>
+                      d ? { ...d, [row.key]: Number.isFinite(next) ? Math.round(next) : NaN } : d,
+                    );
+                  }}
+                  data-testid={`input-budget-${row.key}`}
+                  className={`w-full bg-background border rounded-lg px-3 py-2 text-[13px] font-mono focus:ring-2 focus:ring-primary/10 focus:outline-none ${
+                    oor ? "border-amber-500 focus:border-amber-500" : "border-input focus:border-primary"
+                  }`}
+                />
+                <div className="text-[11px] text-muted-foreground mt-1">{row.help}</div>
+                {oor && (
+                  <div
+                    className="text-[11px] text-amber-700 mt-1"
+                    data-testid={`budget-error-${row.key}`}
+                  >
+                    Must be between {min.toLocaleString()} and{" "}
+                    {data.limits.max_per_layer.toLocaleString()}.
+                    {row.key === "canon" && min > 0 && (
+                      <> Canon can't go below {min.toLocaleString()} — at least one canon entry must fit.</>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-border">
+          <div className="text-[12px] font-mono" data-testid="memory-budgets-total">
+            <span className={overTotal ? "text-amber-700 font-bold" : "text-muted-foreground"}>
+              Total: {total.toLocaleString()}
+            </span>{" "}
+            <span className="text-muted-foreground">/ {data.limits.max_total.toLocaleString()} max</span>
+            {data.has_override && (
+              <span
+                className="ml-3 text-[10.5px] text-foreground bg-secondary border border-border px-2 py-0.5 rounded uppercase tracking-wide"
+                data-testid="memory-budgets-override-badge"
+              >
+                Override active
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {feedback && (
+              <span
+                className={`text-[11.5px] inline-flex items-center gap-1 ${
+                  feedback.kind === "ok" ? "text-emerald-700" : "text-amber-700"
+                }`}
+                data-testid={`memory-budgets-feedback-${feedback.kind}`}
+              >
+                {feedback.kind === "ok" ? (
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                ) : (
+                  <AlertCircle className="w-3.5 h-3.5" />
+                )}
+                {feedback.text}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => resetMutation.mutate()}
+              disabled={resetMutation.isPending || (!data.has_override && !dirty)}
+              data-testid="button-reset-budgets"
+              className="px-3 py-1.5 border border-border rounded-lg text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-all inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Delete your overrides; the orchestrator will use engine defaults."
+            >
+              {resetMutation.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="w-3.5 h-3.5" />
+              )}
+              Reset to defaults
+            </button>
+            <button
+              type="button"
+              onClick={() => draft && saveMutation.mutate(draft)}
+              disabled={saveDisabled}
+              data-testid="button-save-budgets"
+              className="px-4 py-1.5 bg-primary text-primary-foreground rounded-lg text-[12px] font-medium hover:bg-primary/90 transition-all shadow-card inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {saveMutation.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Save className="w-3.5 h-3.5" />
+              )}
+              Save budgets
+            </button>
+          </div>
+        </div>
+
+        {overTotal && (
+          <div
+            className="text-[11.5px] text-amber-700 inline-flex items-center gap-1.5"
+            data-testid="memory-budgets-over-total"
+          >
+            <AlertCircle className="w-3.5 h-3.5" />
+            Total exceeds the {data.limits.max_total.toLocaleString()}-token cap. Lower a layer to save.
+          </div>
+        )}
+      </>
+    );
+  };
+
+  return (
+    <section
+      className="bg-card border border-card-border rounded-xl p-6 shadow-card space-y-4"
+      data-testid="memory-budgets-card"
+    >
+      <div className="flex items-baseline justify-between">
+        <div>
+          <h2 className="text-[15px] font-serif font-semibold text-foreground tracking-tight inline-flex items-center gap-2">
+            <Brain className="w-4 h-4 text-primary" />
+            Memory budgets
+          </h2>
+          <p className="text-[12.5px] text-muted-foreground mt-0.5">
+            Per-layer token ceilings the orchestrator uses when packing memory into each task.
+            Raise a layer to fit more notes, lower it to leave more room for the model's reply.
+          </p>
+        </div>
+      </div>
+      {renderBody()}
+    </section>
+  );
+}
 
 function ProviderAvatar({ name }: { name: string }) {
   const brand = PROVIDER_BRAND[name.toLowerCase()] ?? { letter: name.charAt(0).toUpperCase(), bg: "bg-stone-100", fg: "text-stone-800" };
@@ -354,12 +672,16 @@ export function Settings() {
       <header className="space-y-1">
         <h1 className="text-2xl font-serif font-semibold text-foreground tracking-tight">Settings</h1>
         <p className="text-[13.5px] text-muted-foreground max-w-2xl">
-          Configure appearance, connect language model providers, manage API keys, and let BOS-Omega automatically test credentials and discover available models.
+          Configure appearance, tune per-layer memory budgets, connect language model providers,
+          manage API keys, and let BOS-Omega automatically test credentials and discover models.
         </p>
       </header>
 
       {/* Appearance / theme */}
       <ThemeToggle />
+
+      {/* Per-user memory budgets (Task #59) */}
+      <MemoryBudgetsCard />
 
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-4">
