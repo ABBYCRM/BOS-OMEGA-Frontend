@@ -395,6 +395,21 @@ export interface ProviderHealth {
   avg_latency_ms?: number;
 }
 
+/**
+ * Full memory context payload for a task. `memory_context` is the
+un-truncated text the orchestrator injected (or, for tasks created
+before this endpoint existed, the bounded preview). `chars` is the
+original full character count recorded at injection time.
+`truncated` is true only when the server could not return the full
+text (legacy tasks where the full payload was never persisted).
+
+ */
+export interface TaskMemoryContext {
+  memory_context: string;
+  chars: number;
+  truncated: boolean;
+}
+
 export type MemoryItemLayer =
   (typeof MemoryItemLayer)[keyof typeof MemoryItemLayer];
 

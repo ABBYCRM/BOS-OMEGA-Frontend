@@ -454,6 +454,13 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   // rendered block can bury later headers when an upstream layer fills
   // the preview window).
   const section_headers = (memory_context.match(/=== [A-Z ]+ ===/g) ?? []);
+  // Task #49: persist the full memory_context alongside the bounded preview.
+  // The preview keeps the audit row cheap to render in the trace UI, while
+  // memory_context_full is the un-truncated payload that "View full context"
+  // serves on demand via GET /api/tasks/:id/memory-context. Without storing
+  // the full text here we cannot faithfully reproduce what the AI saw —
+  // memory items mutate over time, so re-rendering at request time would
+  // show a different context than the one actually injected.
   await auditLog(task_id, "MEMORY_INJECTED", `Memory context built (${memory_context.length} chars)`, {
     canon_items: canon_sel.items.length,
     continuity_items: continuity_sel.items.length,
@@ -466,6 +473,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     memory_context_chars: memory_context.length,
     section_headers,
     memory_context_preview: memory_context.slice(0, 8000),
+    memory_context_full: memory_context,
   });
 
   const ctx: TaskContext = {

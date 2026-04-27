@@ -99,6 +99,7 @@ export * from "./synthesisReport";
 export * from "./task";
 export * from "./taskDetail";
 export * from "./taskListResponse";
+export * from "./taskMemoryContext";
 export * from "./taskStats";
 export * from "./taskStatsTasksByProvider";
 export * from "./taskStatsTasksByType";

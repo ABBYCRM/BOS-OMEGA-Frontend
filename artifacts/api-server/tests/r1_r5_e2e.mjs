@@ -917,6 +917,109 @@ async function main() {
     }
   });
 
+  // ---------------- Task #49: full memory_context endpoint contract ----------------
+  // Locks in the contract for GET /api/tasks/:id/memory-context:
+  //   1. Returns 200 with { memory_context, chars, truncated:false } for a
+  //      task the requester can see.
+  //   2. The returned text matches the orchestrator's recorded chars count
+  //      and is at least as long as the bounded 8000-char preview that
+  //      ships in the audit row.
+  //   3. The same task fetched via GET /api/tasks/:id no longer carries the
+  //      heavy memory_context_full field in its inline audit metadata
+  //      (proves the strip-on-read is in place; without it, /:id responses
+  //      would balloon by tens of KB per task).
+  //   4. Returns 404 for an unknown task id (visibilityFilter blocks
+  //      enumeration; super_admin sees real tasks but bogus ids are still
+  //      404).
+  await test("#49 memory-context endpoint: full payload, preview-strip on /:id, and 404 on unknown id", async () => {
+    const seedTitle = `task49-fullctx-${Date.now()}`;
+    const seeded = await request("POST", "/api/memory", {
+      layer: "continuity",
+      title: seedTitle,
+      content: "Field log: we counted twelve elephants at the watering hole this morning.",
+      authority_level: 9,
+    });
+    assert.ok(seeded?.id, `seed POST /api/memory must return an id; got ${JSON.stringify(seeded)}`);
+
+    try {
+      const { detail, created } = await submitTask({
+        input: "How many elephants did we see today?",
+        mode: "single",
+      });
+
+      // (3) /:id audit array MUST NOT carry the un-truncated full payload.
+      const injected = detail.audit.find((a) => a.event_type === "MEMORY_INJECTED");
+      assert.ok(injected, "/:id should still expose the MEMORY_INJECTED row");
+      const inlineMeta = parseMetadata(injected.metadata) || {};
+      assert.ok(
+        !("memory_context_full" in inlineMeta),
+        `/:id audit metadata must NOT contain memory_context_full (would inflate every TaskDetail load); got keys: ${Object.keys(inlineMeta).join(",")}`,
+      );
+      // Sanity: the recorded char count is preserved on the inline row so
+      // the panel can decide whether the preview is truncated.
+      assert.ok(
+        typeof inlineMeta.memory_context_chars === "number" && inlineMeta.memory_context_chars > 0,
+        `/:id audit metadata must preserve memory_context_chars; got ${inlineMeta.memory_context_chars}`,
+      );
+      const recordedChars = inlineMeta.memory_context_chars;
+      const previewLen = (inlineMeta.memory_context_preview || "").length;
+
+      // (1) Hit the new endpoint and validate the response shape.
+      const full = await request("GET", `/api/tasks/${created.id}/memory-context`, undefined);
+      assert.ok(
+        typeof full?.memory_context === "string" && full.memory_context.length > 0,
+        `memory-context must return a non-empty memory_context string; got ${JSON.stringify(full).slice(0, 200)}`,
+      );
+      assert.equal(typeof full.chars, "number", "chars must be a number");
+      assert.equal(typeof full.truncated, "boolean", "truncated must be a boolean");
+
+      // (2) Full payload covers the full recorded char count and is no
+      // shorter than the preview.
+      assert.equal(
+        full.chars,
+        recordedChars,
+        `chars must match the orchestrator's recorded memory_context_chars; got ${full.chars} vs recorded ${recordedChars}`,
+      );
+      assert.equal(
+        full.memory_context.length,
+        recordedChars,
+        `memory_context length (${full.memory_context.length}) must equal the recorded chars (${recordedChars}) — preview-only fallback would fail this`,
+      );
+      assert.ok(
+        full.memory_context.length >= previewLen,
+        `full memory_context must be at least as long as the inline preview (${previewLen}); got ${full.memory_context.length}`,
+      );
+      assert.equal(
+        full.truncated,
+        false,
+        `truncated must be false for tasks created after Task #49 (full payload was persisted)`,
+      );
+      // The full payload must contain the seeded continuity content,
+      // proving it really is the full text and not a truncated head.
+      assert.ok(
+        /elephant/i.test(full.memory_context),
+        `full memory_context should contain the seeded 'elephant' content; got: ${full.memory_context.slice(0, 400)}`,
+      );
+
+      // (4) Unknown task id → 404. Use a syntactically valid uuid-ish
+      // string so the route matches the :id param but the lookup misses.
+      let notFoundOk = false;
+      try {
+        await request("GET", `/api/tasks/00000000-0000-0000-0000-000000000000/memory-context`, undefined);
+      } catch (err) {
+        notFoundOk = /\b404\b/.test(err.message);
+        if (!notFoundOk) throw err;
+      }
+      assert.ok(notFoundOk, "GET memory-context on unknown task id must return 404");
+    } finally {
+      try {
+        await request("DELETE", `/api/memory/${seeded.id}`, undefined);
+      } catch (err) {
+        console.log(`       (warn: failed to delete seeded memory ${seeded.id}: ${err.message})`);
+      }
+    }
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);
 }

@@ -49,7 +49,22 @@ router.get("/", async (req, res) => {
     ? await db.select().from(auditLogsTable).where(where).orderBy(desc(auditLogsTable.created_at)).limit(limit)
     : await db.select().from(auditLogsTable).orderBy(desc(auditLogsTable.created_at)).limit(limit);
 
-  res.json(logs);
+  // Task #49: scrub the un-truncated memory_context_full out of generic
+  // audit-list responses too. The full payload is intentionally retrievable
+  // only via GET /api/tasks/:id/memory-context (which loads it on demand);
+  // returning it inline here would bloat audit-list responses by tens of
+  // KB per task and defeat the on-demand loading model.
+  const sanitized = logs.map((row) => {
+    if (row.event_type !== "MEMORY_INJECTED" || !row.metadata || typeof row.metadata !== "object") {
+      return row;
+    }
+    const meta = row.metadata as Record<string, unknown>;
+    if (!("memory_context_full" in meta)) return row;
+    const { memory_context_full: _omit, ...rest } = meta;
+    return { ...row, metadata: rest };
+  });
+
+  res.json(sanitized);
 });
 
 export default router;

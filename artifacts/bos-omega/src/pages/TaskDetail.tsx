@@ -83,7 +83,7 @@ export function TaskDetail() {
           and the bounded preview the orchestrator persisted on the
           MEMORY_INJECTED audit event. Collapsed by default to keep the
           trace compact. */}
-      <MemoryUsedPanel audit={audit} />
+      <MemoryUsedPanel audit={audit} taskId={id} />
 
       {/* Pipeline trace */}
       <div className="bg-card border border-card-border rounded-lg p-5">

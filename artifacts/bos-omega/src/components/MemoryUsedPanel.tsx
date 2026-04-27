@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Brain } from "lucide-react";
+import { ChevronDown, ChevronRight, Brain, Loader2 } from "lucide-react";
+import { useGetTaskMemoryContext } from "@workspace/api-client-react";
 
 type AuditEntry = {
   id: string;
@@ -26,13 +27,43 @@ const LAYER_COLORS: Record<string, string> = {
   SCRATCHPAD: "text-green-700",
 };
 
-export function MemoryUsedPanel({ audit }: { audit: AuditEntry[] }) {
+export function MemoryUsedPanel({
+  audit,
+  taskId,
+}: {
+  audit: AuditEntry[];
+  // Task #49: when provided, the panel offers a "View full context" affordance
+  // that lazy-loads the un-truncated memory_context from
+  // GET /api/tasks/:id/memory-context. The fetch is gated by the same task
+  // visibility filter as GET /api/tasks/:id, so the affordance is safe to
+  // wire from any task page that already passed the visibility check.
+  // Omitted in unit tests that exercise the rendering shell only.
+  taskId?: string;
+}) {
   const [open, setOpen] = useState(false);
+  const [showFull, setShowFull] = useState(false);
 
   // Find the orchestrator-level MEMORY_INJECTED event. Task #46's pipeline
-  // emits exactly one per task immediately after building the four-layer
-  // context, so picking the first match is sufficient.
-  const entry = audit.find((e) => e.event_type === "MEMORY_INJECTED");
+  // emits exactly one per task today, but if a future re-run produces more
+  // we want the most recent one so the panel stays consistent with the
+  // backend `/memory-context` route, which orders by `created_at desc`.
+  // findLast falls back to find() for any audit array shape; the audit
+  // array is already created_at-ascending so the last match is the newest.
+  const entry =
+    [...audit].reverse().find((e) => e.event_type === "MEMORY_INJECTED");
+
+  // Task #49: only fire the lazy fetch when the user has both opened the
+  // panel AND clicked "View full context". Without the panel-open guard the
+  // request would also be made for the collapsed state.
+  const fullQuery = useGetTaskMemoryContext(taskId ?? "", {
+    query: {
+      queryKey: [`/api/tasks/${taskId}/memory-context`],
+      enabled: !!taskId && open && showFull,
+      retry: false,
+      staleTime: 60_000,
+    },
+  });
+
   if (!entry) return null;
 
   const meta: MemoryMeta =
@@ -51,6 +82,16 @@ export function MemoryUsedPanel({ audit }: { audit: AuditEntry[] }) {
   const preview =
     typeof meta.memory_context_preview === "string" ? meta.memory_context_preview : "";
   const chars = typeof meta.memory_context_chars === "number" ? meta.memory_context_chars : 0;
+
+  // The bounded preview is capped at 8000 chars in the pipeline. If the
+  // recorded full size exceeds that, the preview is necessarily truncated
+  // and the affordance is meaningful. If chars <= preview.length, the
+  // preview already shows everything and we can hide the button to avoid
+  // a no-op fetch.
+  const previewIsTruncated = chars > preview.length;
+  const fullText = fullQuery.data?.memory_context ?? null;
+  const fullChars = fullQuery.data?.chars ?? null;
+  const fullTruncated = fullQuery.data?.truncated ?? false;
 
   return (
     <div
@@ -156,10 +197,75 @@ export function MemoryUsedPanel({ audit }: { audit: AuditEntry[] }) {
           </div>
 
           <div>
-            <div className="text-[10px] font-mono text-muted-foreground tracking-wider mb-2">
-              CONTEXT PREVIEW
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[10px] font-mono text-muted-foreground tracking-wider">
+                {showFull ? "FULL CONTEXT" : "CONTEXT PREVIEW"}
+                {!showFull && previewIsTruncated && (
+                  <span className="ml-2 text-amber-700 normal-case tracking-normal">
+                    (truncated to {preview.length} of {chars} chars)
+                  </span>
+                )}
+                {showFull && fullTruncated && (
+                  <span className="ml-2 text-amber-700 normal-case tracking-normal">
+                    (legacy task — only the {preview.length}-char preview was stored)
+                  </span>
+                )}
+              </div>
+              {/* Affordance only renders when we have a taskId to fetch
+                  against AND the preview is actually shorter than the
+                  recorded full size. */}
+              {taskId && previewIsTruncated && (
+                showFull ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowFull(false)}
+                    className="text-[10px] font-mono text-primary hover:underline"
+                    data-testid="memory-context-show-preview"
+                  >
+                    SHOW PREVIEW
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowFull(true)}
+                    className="text-[10px] font-mono text-primary hover:underline flex items-center gap-1"
+                    data-testid="memory-context-view-full"
+                  >
+                    VIEW FULL CONTEXT
+                  </button>
+                )
+              )}
             </div>
-            {preview ? (
+            {showFull ? (
+              fullQuery.isLoading ? (
+                <div
+                  className="bg-secondary border border-border rounded p-3 text-[11px] font-mono text-muted-foreground flex items-center gap-2"
+                  data-testid="memory-context-full-loading"
+                >
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Loading full context...
+                </div>
+              ) : fullQuery.isError ? (
+                <div
+                  className="bg-red-500/10 border border-red-500/30 rounded p-3 text-[11px] font-mono text-red-700"
+                  data-testid="memory-context-full-error"
+                >
+                  Failed to load full context. Showing preview instead.
+                  <pre className="mt-2 whitespace-pre-wrap text-foreground">{preview}</pre>
+                </div>
+              ) : fullText ? (
+                <pre
+                  className="bg-secondary border border-border rounded p-3 text-[11px] font-mono text-foreground overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto"
+                  data-testid="memory-context-full"
+                >
+                  {fullText}
+                </pre>
+              ) : (
+                <div className="text-[11px] font-mono text-muted-foreground">
+                  No context available.
+                </div>
+              )
+            ) : preview ? (
               <pre
                 className="bg-secondary border border-border rounded p-3 text-[11px] font-mono text-foreground overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto"
                 data-testid="memory-context-preview"
@@ -169,6 +275,11 @@ export function MemoryUsedPanel({ audit }: { audit: AuditEntry[] }) {
             ) : (
               <div className="text-[11px] font-mono text-muted-foreground">
                 No preview available.
+              </div>
+            )}
+            {showFull && fullText && fullChars !== null && (
+              <div className="text-[10px] font-mono text-muted-foreground mt-2">
+                Showing {fullText.length} of {fullChars} chars.
               </div>
             )}
           </div>

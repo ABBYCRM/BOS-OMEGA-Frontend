@@ -77,6 +77,7 @@ import type {
   Task,
   TaskDetail,
   TaskListResponse,
+  TaskMemoryContext,
   TaskStats,
   TriStateDecision,
   UnlockTaskBody,
@@ -2269,6 +2270,100 @@ export function useListModelAttempts<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getListModelAttemptsQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns the un-truncated memory_context the orchestrator injected for
+this task. The task-detail audit row only carries an 8000-char preview
+to keep the trace payload light; this endpoint serves the full payload
+on demand. Visibility is gated on the same role-aware filter as
+GET /api/tasks/{id}.
+
+ * @summary Get the full memory context the AI saw for a task
+ */
+export const getGetTaskMemoryContextUrl = (id: string) => {
+  return `/api/tasks/${id}/memory-context`;
+};
+
+export const getTaskMemoryContext = async (
+  id: string,
+  options?: RequestInit,
+): Promise<TaskMemoryContext> => {
+  return customFetch<TaskMemoryContext>(getGetTaskMemoryContextUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetTaskMemoryContextQueryKey = (id: string) => {
+  return [`/api/tasks/${id}/memory-context`] as const;
+};
+
+export const getGetTaskMemoryContextQueryOptions = <
+  TData = Awaited<ReturnType<typeof getTaskMemoryContext>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTaskMemoryContext>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetTaskMemoryContextQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getTaskMemoryContext>>
+  > = ({ signal }) => getTaskMemoryContext(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getTaskMemoryContext>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetTaskMemoryContextQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getTaskMemoryContext>>
+>;
+export type GetTaskMemoryContextQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Get the full memory context the AI saw for a task
+ */
+
+export function useGetTaskMemoryContext<
+  TData = Awaited<ReturnType<typeof getTaskMemoryContext>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTaskMemoryContext>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetTaskMemoryContextQueryOptions(id, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

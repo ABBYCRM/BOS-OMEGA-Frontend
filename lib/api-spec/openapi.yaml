@@ -574,6 +574,37 @@ paths:
                 items:
                   $ref: "#/components/schemas/ModelAttempt"
 
+  /tasks/{id}/memory-context:
+    get:
+      operationId: getTaskMemoryContext
+      tags: [tasks]
+      summary: Get the full memory context the AI saw for a task
+      description: |
+        Returns the un-truncated memory_context the orchestrator injected for
+        this task. The task-detail audit row only carries an 8000-char preview
+        to keep the trace payload light; this endpoint serves the full payload
+        on demand. Visibility is gated on the same role-aware filter as
+        GET /api/tasks/{id}.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Memory context payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskMemoryContext"
+        "404":
+          description: Task not found, or no memory context was recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /runs:
     get:
       operationId: listRuns
@@ -1720,6 +1751,24 @@ components:
         created_at:
           type: string
       required: [id, event_type, message, created_at]
+
+    TaskMemoryContext:
+      type: object
+      description: |
+        Full memory context payload for a task. `memory_context` is the
+        un-truncated text the orchestrator injected (or, for tasks created
+        before this endpoint existed, the bounded preview). `chars` is the
+        original full character count recorded at injection time.
+        `truncated` is true only when the server could not return the full
+        text (legacy tasks where the full payload was never persisted).
+      properties:
+        memory_context:
+          type: string
+        chars:
+          type: integer
+        truncated:
+          type: boolean
+      required: [memory_context, chars, truncated]
 
     MemoryItem:
       type: object

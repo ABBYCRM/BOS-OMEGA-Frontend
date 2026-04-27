@@ -224,8 +224,71 @@ router.get("/:id", async (req, res) => {
     if (task.final_output) bos_output = JSON.parse(task.final_output);
   } catch {}
 
+  // Task #49: scrub the un-truncated `memory_context_full` field out of the
+  // task-detail audit payload. The full context can be tens of KB per task
+  // and is fetched on demand via GET /api/tasks/:id/memory-context — keeping
+  // it in the inline trace would balloon every TaskDetail response and
+  // re-download it on every audit-list refresh.
+  const trimmed_audit = audit.map((row) => {
+    if (row.event_type !== "MEMORY_INJECTED" || !row.metadata || typeof row.metadata !== "object") {
+      return row;
+    }
+    const meta = row.metadata as Record<string, unknown>;
+    if (!("memory_context_full" in meta)) return row;
+    const { memory_context_full: _omit, ...rest } = meta;
+    return { ...row, metadata: rest };
+  });
+
   const run_id = runs[0]?.id ?? null;
-  res.json({ task, attempts, validation, fallbacks, audit, bos_output, run_id });
+  res.json({ task, attempts, validation, fallbacks, audit: trimmed_audit, bos_output, run_id });
+});
+
+// Task #49: return the un-truncated memory_context the orchestrator injected
+// for this task. Visibility is gated on the same role-aware filter as
+// GET /api/tasks/:id so a non-super user can never read the memory text of
+// another user's task. The full payload lives in the MEMORY_INJECTED audit
+// row's metadata (see pipeline.ts). For tasks created before Task #49 the
+// full payload is absent; we transparently fall back to the bounded preview
+// so the panel still shows something useful and reports `truncated: true`.
+router.get("/:id/memory-context", async (req, res) => {
+  const { id } = req.params;
+  if (!id) { res.status(400).json({ error: "Missing id" }); return; }
+
+  const where = visibilityFilter(req);
+  const [task] = where
+    ? await db.select({ id: tasksTable.id }).from(tasksTable).where(and(eq(tasksTable.id, id), where)).limit(1)
+    : await db.select({ id: tasksTable.id }).from(tasksTable).where(eq(tasksTable.id, id)).limit(1);
+  if (!task) { res.status(404).json({ error: "Task not found", code: "NOT_FOUND" }); return; }
+
+  // The orchestrator emits exactly one MEMORY_INJECTED event per task, but
+  // older tasks (or future re-runs) could have multiple — pick the most
+  // recent so the user sees what was injected for the current trace.
+  const [row] = await db
+    .select()
+    .from(auditLogsTable)
+    .where(and(eq(auditLogsTable.task_id, id), eq(auditLogsTable.event_type, "MEMORY_INJECTED")))
+    .orderBy(desc(auditLogsTable.created_at))
+    .limit(1);
+
+  if (!row) {
+    res.status(404).json({ error: "No memory context recorded for this task", code: "NOT_FOUND" });
+    return;
+  }
+
+  const meta = (row.metadata && typeof row.metadata === "object")
+    ? (row.metadata as Record<string, unknown>)
+    : {};
+  const full = typeof meta.memory_context_full === "string" ? meta.memory_context_full : null;
+  const preview = typeof meta.memory_context_preview === "string" ? meta.memory_context_preview : "";
+  const chars = typeof meta.memory_context_chars === "number" ? meta.memory_context_chars : (full?.length ?? preview.length);
+
+  if (full !== null) {
+    res.json({ memory_context: full, chars, truncated: false });
+    return;
+  }
+  // Legacy task — full payload was never persisted. Return the preview
+  // and signal that this is the most we can serve.
+  res.json({ memory_context: preview, chars, truncated: preview.length < chars });
 });
 
 router.get("/:id/attempts", async (req, res) => {

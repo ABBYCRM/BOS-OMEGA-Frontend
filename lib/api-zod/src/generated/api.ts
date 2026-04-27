@@ -734,6 +734,29 @@ export const ListModelAttemptsResponse = zod.array(
 );
 
 /**
+ * Returns the un-truncated memory_context the orchestrator injected for
+this task. The task-detail audit row only carries an 8000-char preview
+to keep the trace payload light; this endpoint serves the full payload
+on demand. Visibility is gated on the same role-aware filter as
+GET /api/tasks/{id}.
+
+ * @summary Get the full memory context the AI saw for a task
+ */
+export const GetTaskMemoryContextParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetTaskMemoryContextResponse = zod
+  .object({
+    memory_context: zod.string(),
+    chars: zod.number(),
+    truncated: zod.boolean(),
+  })
+  .describe(
+    "Full memory context payload for a task. `memory_context` is the\nun-truncated text the orchestrator injected (or, for tasks created\nbefore this endpoint existed, the bounded preview). `chars` is the\noriginal full character count recorded at injection time.\n`truncated` is true only when the server could not return the full\ntext (legacy tasks where the full payload was never persisted).\n",
+  );
+
+/**
  * @summary List recent execution runs
  */
 export const listRunsQueryLimitDefault = 50;
