@@ -300,6 +300,29 @@ export function TaskConsole() {
   const createTask = useCreateTask();
   const { data: stats } = useGetTaskStats();
 
+  // One-shot manual override for the conversation clusterer. When the
+  // user clicks "+ New chat" we set this to true; the next submit
+  // sends `force_new_conversation: true` to POST /api/tasks (so the
+  // server's heuristic is bypassed and a fresh thread is created even
+  // if the input would otherwise Jaccard-match an existing one), and
+  // then we consume the flag. This is the user-facing escape hatch
+  // when the auto-clusterer puts something in the wrong place.
+  const [forceNewConversation, setForceNewConversation] = useState(false);
+
+  // The sidebar's "+ New" link routes to /console?new=1 to arm the
+  // override from outside this component. Consume that flag once the
+  // page mounts (or the search string changes), then strip it from
+  // the URL so a hard refresh doesn't re-arm it.
+  useEffect(() => {
+    const sp = new URLSearchParams(search);
+    if (sp.get("new") === "1") {
+      setForceNewConversation(true);
+      sp.delete("new");
+      const next = sp.toString();
+      window.history.replaceState({}, "", next ? `/console?${next}` : "/console");
+    }
+  }, [search]);
+
   function setPersonaSlot(p: PersonaSlotKey | null) {
     setPersonaSlotState(p);
     writeStoredPersonaSlot(p);
@@ -355,8 +378,22 @@ export function TaskConsole() {
         agents_per_model: agentsPerModel,
         attachment_ids,
         ...(persona_slot ? { persona_slot } : {}),
-        ...(activeConversationId ? { conversation_id: activeConversationId } : {}),
+        // Conversation routing: an explicit `conversation_id` always
+        // wins server-side; otherwise, the one-shot manual override
+        // (`force_new_conversation`) bypasses the Jaccard heuristic
+        // for a single submit and forces a fresh thread. This is the
+        // user's escape hatch when the auto-clusterer guesses wrong.
+        ...(activeConversationId
+          ? { conversation_id: activeConversationId }
+          : forceNewConversation
+            ? { force_new_conversation: true }
+            : {}),
       } as unknown as Parameters<typeof createTask.mutate>[0]["data"];
+      // Consume the one-shot override now that we've baked it into
+      // the request body. If the server-side conversation creation
+      // fails the user can simply click "+ New chat" again.
+      if (forceNewConversation) setForceNewConversation(false);
+
       createTask.mutate(
         { data: body },
         {
@@ -405,6 +442,18 @@ export function TaskConsole() {
                   : m,
               ),
             );
+            // Every successful task creation can either bump
+            // last_active_at on an existing thread or create a brand
+            // new one (especially under force_new_conversation), so
+            // refresh both the sidebar and the active conversation
+            // detail. Without this the new thread doesn't surface in
+            // the sidebar until a manual reload.
+            void qc.invalidateQueries({ queryKey: ["conversations", "sidebar"] });
+            if (activeConversationId) {
+              void qc.invalidateQueries({
+                queryKey: ["conversation-detail", activeConversationId],
+              });
+            }
           },
           onError: (err: unknown) => {
             const message = err instanceof Error ? err.message : "Pipeline request failed";
@@ -444,10 +493,15 @@ export function TaskConsole() {
             type="button"
             onClick={() => {
               setMessages([]);
+              // Arm the one-shot manual override so the next submit is
+              // forced into a brand-new conversation, regardless of
+              // whether the input would have Jaccard-matched something
+              // that already exists. Clearing activeConversationId
+              // (via the URL param) PLUS arming the override is what
+              // makes "+ New chat" actually mean "new", not "maybe
+              // new, depends on similarity".
+              setForceNewConversation(true);
               if (activeConversationId) {
-                // Drop the URL param so the next task gets clustered
-                // fresh, then re-fetch the sidebar so the new thread
-                // appears the moment the task lands.
                 window.history.pushState({}, "", "/console");
                 void qc.invalidateQueries({ queryKey: ["conversations", "sidebar"] });
                 void qc.invalidateQueries({ queryKey: ["conversation-detail"] });
