@@ -93,6 +93,8 @@ import assert from "node:assert/strict";
 import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import http from "node:http";
+import { once } from "node:events";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..", "..");
@@ -138,7 +140,69 @@ async function request(jar, method, path, body, opts = {}) {
   return { status: r.status, data };
 }
 
+/*
+ * Inline mock LLM provider — makes the spec self-sufficient regardless
+ * of which (if any) real provider keys are wired in the surrounding
+ * environment. The mock implements the OpenAI-compatible
+ * /chat/completions surface (the format the seeded "Generic API"
+ * provider's adapter — `genericAdapter.callGenericOpenAI` — already
+ * speaks), returns a deterministic non-empty assistant message, and
+ * is funneled in via prov_generic so the existing modelRouter scoring
+ * picks it.
+ *
+ * Why this exists: a fresh-clone dev env with no API keys, no AI
+ * Integration provisioned, and no Ollama instance running would
+ * otherwise have no resolvable provider. Tasks would HOLD with
+ * `no_provider_available`, no SCRATCHPAD_AUTO_WRITTEN events would
+ * fire, and the audit-count assertions in step 8 would fail with
+ * a confusing message. The setup step disables every other enabled
+ * provider (snapshotting their state for restore in teardown), then
+ * configures prov_generic to point at this mock; the teardown step
+ * restores everything so operator-configured DBs are not mutated
+ * past the run.
+ */
+const mockServer = http.createServer(async (req, res) => {
+  // OpenAI-compatible chat-completions endpoint. We don't validate
+  // the request body shape — any POST to /chat/completions returns a
+  // canned valid response. The pipeline only cares that
+  // `choices[0].message.content` is a non-empty string.
+  if (req.method === "POST" && req.url && req.url.endsWith("/chat/completions")) {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    let parsed = {};
+    try { parsed = JSON.parse(body || "{}"); } catch (_e) { /* ignore */ }
+    const userMsg = Array.isArray(parsed.messages)
+      ? (parsed.messages.find((m) => m && m.role === "user")?.content ?? "")
+      : "";
+    // Echo a short prefix of the user input so a human inspecting
+    // logs can correlate request → response. The pipeline does not
+    // need any specific marker in the response — the round-trip's
+    // memory-context check (PIN_MARKER) lives on the prompt INPUT,
+    // not the completion output.
+    const reply = `lattice-rt mock ack — input preview: ${String(userMsg).slice(0, 200)}`;
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      id: `mock-cmpl-${Date.now()}`,
+      object: "chat.completion",
+      model: parsed.model ?? "lattice-rt-mock-model",
+      choices: [
+        { index: 0, message: { role: "assistant", content: reply }, finish_reason: "stop" },
+      ],
+      usage: { prompt_tokens: 100, completion_tokens: 40, total_tokens: 140 },
+    }));
+    return;
+  }
+  res.writeHead(404, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ error: { message: "not_found" } }));
+});
+mockServer.listen(0, "127.0.0.1");
+await once(mockServer, "listening");
+const mockAddr = mockServer.address();
+const MOCK_PORT = typeof mockAddr === "object" && mockAddr ? mockAddr.port : 0;
+const MOCK_BASE_URL = `http://127.0.0.1:${MOCK_PORT}`;
+
 console.log("lattice_round_trip: end-to-end continuity verification\n");
+console.log(`       (inline mock LLM listening on ${MOCK_BASE_URL})`);
 
 const stamp = Date.now();
 const adminJar = { cookie: "" };
@@ -188,6 +252,110 @@ await test("super_admin can log in", async () => {
     email: ADMIN_EMAIL, password: ADMIN_PASSWORD,
   });
   assert.equal(r.status, 200, `admin login failed: ${r.status} ${JSON.stringify(r.data)}`);
+});
+
+/*
+ * Setup the inline mock provider via the admin API. State captured
+ * here is restored in the teardown step at the bottom of the spec, so
+ * an operator-configured DB is left exactly as it was before the run
+ * (modulo a single disabled `lattice-rt-mock-model` row on prov_generic
+ * that we can't DELETE because /api/models exposes only POST/PATCH —
+ * disabled rows are inert with respect to the modelRouter).
+ */
+const teardown = {
+  // Snapshot of (provider_id → enabled) for every provider that was
+  // enabled before we touched anything. Used in the teardown step.
+  providersToReEnable: [],
+  // Snapshot of prov_generic's pre-run config so we can revert it.
+  provGenericOriginal: null,
+  // Created/reused mock model row id, used to disable on teardown.
+  mockModelId: null,
+  // Whether prov_generic had a stored api key BEFORE the run. If so,
+  // we leave it (because we'd lose the operator's encrypted key on
+  // a clear). If not, we DELETE the api key on teardown so we don't
+  // leave the literal string "mock-key" sitting in the DB.
+  provGenericHadKey: false,
+};
+await test("Setup inline mock LLM provider (prov_generic → mock server)", async () => {
+  const list = await request(adminJar, "GET", "/api/providers");
+  assert.equal(list.status, 200, `provider list failed: ${list.status}`);
+  const providers = Array.isArray(list.data) ? list.data : [];
+  const generic = providers.find((p) => p.id === "prov_generic");
+  assert.ok(generic, "prov_generic missing — db seed didn't run; cannot continue");
+
+  // Save snapshot for teardown.
+  teardown.provGenericOriginal = {
+    id: generic.id,
+    base_url: generic.base_url ?? null,
+    enabled: generic.enabled === true,
+    priority: generic.priority,
+  };
+  teardown.provGenericHadKey = generic.has_api_key === true;
+  teardown.providersToReEnable = providers
+    .filter((p) => p.id !== "prov_generic" && p.enabled === true)
+    .map((p) => ({ id: p.id, enabled: true }));
+
+  // Disable every other enabled provider so the modelRouter has no
+  // alternative — selectModel uses INNER JOIN with providers.enabled,
+  // so disabling the provider takes its models out of the candidate
+  // set even if their model rows remain enabled.
+  for (const p of teardown.providersToReEnable) {
+    const r = await request(adminJar, "PATCH", `/api/providers/${p.id}`, { enabled: false });
+    assert.equal(r.status, 200, `disable ${p.id} failed: ${r.status} ${JSON.stringify(r.data)}`);
+  }
+
+  // Point prov_generic at the mock server. PATCH supports base_url +
+  // enabled + priority. Priority 0 (highest) is purely defensive —
+  // every other provider is now disabled, but if a future code change
+  // re-enables them, prov_generic still wins routing.
+  const patchGen = await request(adminJar, "PATCH", `/api/providers/prov_generic`, {
+    base_url: MOCK_BASE_URL,
+    enabled: true,
+    priority: 0,
+  });
+  assert.equal(patchGen.status, 200, `patch prov_generic failed: ${patchGen.status}`);
+
+  // PUT the api key. The genericAdapter sends it as a Bearer token —
+  // the mock ignores it but the keyResolver requires a non-empty
+  // value to return source="db".
+  const putKey = await request(adminJar, "PUT", `/api/providers/prov_generic/api-key`, {
+    api_key: "lattice-rt-mock-key",
+  });
+  assert.equal(putKey.status, 200, `put api-key failed: ${putKey.status}`);
+
+  // Find or create the mock model row. POST /api/models has no idempotency,
+  // so we GET first to avoid creating duplicates across re-runs.
+  const models = await request(adminJar, "GET", "/api/models");
+  assert.equal(models.status, 200, `model list failed: ${models.status}`);
+  const existingMock = (Array.isArray(models.data) ? models.data : []).find(
+    (m) => m.provider_id === "prov_generic" && m.model_name === "lattice-rt-mock-model",
+  );
+  if (existingMock) {
+    teardown.mockModelId = existingMock.id;
+    if (!existingMock.enabled) {
+      const r = await request(adminJar, "PATCH", `/api/models/${existingMock.id}`, { enabled: true });
+      assert.equal(r.status, 200, `re-enable mock model failed: ${r.status}`);
+    }
+  } else {
+    // Capability tags cover every key in TASK_CAPABILITY_MATRIX so
+    // capability_match scores 1.0 regardless of the inferred task_type.
+    const create = await request(adminJar, "POST", "/api/models", {
+      provider_id: "prov_generic",
+      model_name: "lattice-rt-mock-model",
+      capability_tags: [
+        "reasoning", "fast", "cheap", "long_context", "structured_output",
+        "coding", "research", "legal", "safety", "creative", "extraction",
+      ],
+      context_window: 32000,
+      cost_input: 0,
+      cost_output: 0,
+      reliability_score: 1.0,
+      latency_score: 1.0,
+    });
+    assert.equal(create.status, 201, `create mock model failed: ${create.status} ${JSON.stringify(create.data)}`);
+    teardown.mockModelId = create.data?.id ?? null;
+  }
+  assert.ok(teardown.mockModelId, "mock model row was not created/found");
 });
 
 /*
@@ -251,11 +419,22 @@ await test("Preflight: at least one LLM provider key is resolvable in this envir
     if (proxy && process.env[proxy[0]] && process.env[proxy[1]]) {
       resolved.push({ name: p.name, via: `ai_integrations_proxy` }); continue;
     }
-    // Ollama is special: no key required (local server). If the
-    // provider is Ollama and the operator has it running locally,
-    // it counts. We don't probe the local port from the spec — the
-    // assumption is "operator wired this on purpose."
-    if (name === "ollama") { resolved.push({ name: p.name, via: "ollama_local" }); continue; }
+    // Ollama is special: no key required (local server). Only count
+    // it if a /api/version probe to the configured OLLAMA_HOST (default
+    // localhost:11434) actually responds — without this probe, a
+    // freshly-seeded DB with prov_ollama enabled would incorrectly
+    // pass preflight even with no Ollama process running, and the
+    // round-trip would later fail on missing audit events with no
+    // surfacing of the real cause.
+    if (name === "ollama") {
+      const ollamaHost = (process.env.OLLAMA_HOST || "http://localhost:11434").replace(/\/$/, "");
+      try {
+        const r = await fetch(`${ollamaHost}/api/version`, {
+          signal: AbortSignal.timeout(1000),
+        });
+        if (r.ok) { resolved.push({ name: p.name, via: `ollama_local:${ollamaHost}` }); continue; }
+      } catch (_e) { /* unreachable — fall through */ }
+    }
   }
 
   if (resolved.length === 0) {
@@ -777,6 +956,46 @@ await test("Write docs/lattice-continuity-verification.md", async () => {
 
   const out = autoBlock.join("\n") + "\n\n" + manualPart;
   writeFileSync(docPath, out, "utf8");
+});
+
+// ---- Step 10: teardown — restore provider state, close mock server -----
+//
+// Always runs (test failures only increment `fail`, they don't bail
+// the script), so an operator-configured DB is left as it was before
+// the run. We can't DELETE the mock model row because /api/models
+// exposes only POST and PATCH; disabling it (enabled=false) is the
+// next-best — disabled rows are inert with respect to selectModel's
+// INNER JOIN scoring. Re-runs of this spec reuse that same row by
+// (provider_id, model_name) so disabled rows don't accumulate.
+await test("Teardown: restore original provider config and close mock server", async () => {
+  if (teardown.mockModelId) {
+    const r = await request(adminJar, "PATCH", `/api/models/${teardown.mockModelId}`, { enabled: false });
+    if (r.status !== 200) console.log(`       (teardown: disable mock model returned ${r.status} — non-fatal)`);
+  }
+  if (teardown.provGenericOriginal) {
+    const o = teardown.provGenericOriginal;
+    // UpdateProviderBody validates `base_url` as `z.string().optional()`
+    // — null is rejected. If the original value was null we cannot
+    // restore it via the API; we omit the field so the route's
+    // `if (parsed.data.base_url !== undefined)` guard leaves the DB
+    // value alone. With the api-key cleared and the mock server closed,
+    // prov_generic becomes unusable until reconfigured anyway.
+    const body = { enabled: o.enabled, priority: o.priority };
+    if (typeof o.base_url === "string" && o.base_url.length > 0) body.base_url = o.base_url;
+    const r = await request(adminJar, "PATCH", `/api/providers/prov_generic`, body);
+    if (r.status !== 200) console.log(`       (teardown: restore prov_generic returned ${r.status} — non-fatal)`);
+  }
+  if (!teardown.provGenericHadKey) {
+    const r = await request(adminJar, "DELETE", `/api/providers/prov_generic/api-key`);
+    if (r.status !== 200 && r.status !== 204) {
+      console.log(`       (teardown: clear mock api key returned ${r.status} — non-fatal)`);
+    }
+  }
+  for (const p of teardown.providersToReEnable) {
+    const r = await request(adminJar, "PATCH", `/api/providers/${p.id}`, { enabled: p.enabled });
+    if (r.status !== 200) console.log(`       (teardown: re-enable ${p.id} returned ${r.status} — non-fatal)`);
+  }
+  await new Promise((res) => mockServer.close(() => res(null)));
 });
 
 console.log(`\n  ${pass} passed, ${fail} failed`);
