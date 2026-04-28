@@ -18,6 +18,7 @@ import uploadsRouter from "./uploads.js";
 import usersRouter from "./users.js";
 import overridesRouter from "./overrides.js";
 import imageQuotaRouter from "./imageQuota.js";
+import powershellRouter from "./powershell.js";
 import v1Router from "./v1/index.js";
 import { requireAuth } from "../lib/security/auth.js";
 import { readLimiter, writeLimiter } from "../lib/security/rateLimit.js";
@@ -72,5 +73,9 @@ router.use("/uploads", uploadsRouter);
 router.use("/users", usersRouter);
 router.use("/overrides", overridesRouter);
 router.use("/image-quota", imageQuotaRouter);
+// Host PowerShell shell — opt-in via POWERSHELL_ENDPOINT_ENABLED=1,
+// gated to super_admin only inside the router itself, audit-logged.
+// See routes/powershell.ts for the full security posture.
+router.use("/powershell", powershellRouter);
 
 export default router;
