@@ -10,7 +10,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:r1r5:unit": "node --experimental-strip-types tests/r1_r5_unit.mjs",
     "test:r1r5:e2e": "node tests/r1_r5_e2e.mjs",
-    "test:r1r5:e2e:harness": "node tests/run-r1-r5-e2e.mjs"
+    "test:r1r5:e2e:harness": "node tests/run-r1-r5-e2e.mjs",
+    "test:powershell:unit": "node --experimental-strip-types tests/powershell_unit.mjs",
+    "test:powershell:e2e": "node tests/powershell_e2e.mjs",
+    "test": "pnpm run test:powershell:unit && pnpm run test:powershell:e2e"
   },
   "dependencies": {
     "@workspace/api-zod": "workspace:*",
