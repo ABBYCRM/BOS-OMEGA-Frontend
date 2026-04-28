@@ -730,4 +730,221 @@ describe("AuditLog page", () => {
     expect(screen.queryByTestId("audit-pagination-status")).toBeNull();
     expect(screen.queryByTestId("audit-load-more")).toBeNull();
   });
+
+  // ----- Task #107: host-command (PowerShell) rendering + filter chip -----
+  //
+  // Server side: POST /api/powershell writes POWERSHELL_EXECUTED on
+  // success and POWERSHELL_FAILED on rejection (see
+  // artifacts/api-server/src/routes/powershell.ts). The audit row carries
+  //   - actor_user_id / actor_email / role / ip
+  //   - command_preview (≤ 120 chars)
+  //   - command_sha256
+  //   - command_bytes (and output_bytes on success)
+  //   - outcome ("ok" | "error") and `error` for failures
+  // The audit-viewer must surface that summary inline (no expand click)
+  // and let operators narrow the feed to PS rows only via a filter chip.
+
+  const powerShellExecutedRow = {
+    id: "audit-ps-ok",
+    task_id: null,
+    event_type: "POWERSHELL_EXECUTED",
+    message: "super_admin ran PowerShell command",
+    metadata: {
+      actor_user_id: "user-1",
+      actor_email: "ops@example.com",
+      role: "super_admin",
+      ip: "10.0.0.4",
+      command_preview: "Get-Process | Select-Object -First 5",
+      command_sha256:
+        "deadbeefcafebabe0011223344556677deadbeefcafebabe0011223344556677",
+      command_bytes: 38,
+      output_bytes: 1024,
+      outcome: "ok",
+    },
+    created_at: "2026-04-27T01:02:00.000Z",
+  };
+
+  const powerShellFailedRow = {
+    id: "audit-ps-fail",
+    task_id: null,
+    event_type: "POWERSHELL_FAILED",
+    message: "PowerShell command rejected",
+    metadata: {
+      actor_user_id: "user-1",
+      actor_email: "ops@example.com",
+      role: "super_admin",
+      ip: "10.0.0.4",
+      command_preview: "Stop-Computer -Force",
+      command_sha256:
+        "0011223344556677deadbeefcafebabe0011223344556677deadbeefcafebabe",
+      command_bytes: 20,
+      outcome: "error",
+      error: "PowerShell exit code 1: not allowed",
+    },
+    created_at: "2026-04-27T01:01:00.000Z",
+  };
+
+  it("renders PowerShell rows with their distinct event-type colour and an inline summary visible without expanding the metadata blob", async () => {
+    vi.stubGlobal(
+      "fetch",
+      makeFetch([powerShellExecutedRow, powerShellFailedRow]),
+    );
+    renderWithClient(<AuditLog />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("audit-row-audit-ps-ok")).toBeInTheDocument(),
+    );
+
+    // Inline summary strips render for both rows without any user
+    // interaction — the metadata blob stays collapsed by default.
+    const okSummary = screen.getByTestId("powershell-summary-audit-ps-ok");
+    const failSummary = screen.getByTestId("powershell-summary-audit-ps-fail");
+    expect(okSummary).toBeInTheDocument();
+    expect(failSummary).toBeInTheDocument();
+    expect(screen.queryByTestId("audit-row-body-audit-ps-ok")).toBeNull();
+    expect(screen.queryByTestId("audit-row-body-audit-ps-fail")).toBeNull();
+
+    // Outcome badges call out OK vs FAILED in their respective colours.
+    expect(
+      screen.getByTestId("powershell-outcome-audit-ps-ok").textContent,
+    ).toBe("OK");
+    expect(
+      screen.getByTestId("powershell-outcome-audit-ps-fail").textContent,
+    ).toBe("FAILED");
+
+    // Command preview, sha256, byte counts, and (success-only) stdout
+    // bytes are visible in the summary strip without expanding metadata.
+    expect(
+      screen.getByTestId("powershell-preview-audit-ps-ok").textContent,
+    ).toContain("Get-Process | Select-Object -First 5");
+    expect(
+      screen.getByTestId("powershell-sha256-audit-ps-ok").textContent,
+    ).toContain("deadbeefcafe");
+    expect(
+      screen.getByTestId("powershell-cmd-bytes-audit-ps-ok").textContent,
+    ).toContain("38 B");
+    expect(
+      screen.getByTestId("powershell-output-bytes-audit-ps-ok").textContent,
+    ).toContain("1.0 KB");
+
+    // FAILED row carries the redacted error message inline (no
+    // output_bytes, since none was produced) and surfaces the command
+    // preview so operators can see what was attempted.
+    expect(
+      screen.getByTestId("powershell-error-audit-ps-fail").textContent,
+    ).toContain("PowerShell exit code 1: not allowed");
+    expect(
+      screen.getByTestId("powershell-preview-audit-ps-fail").textContent,
+    ).toContain("Stop-Computer -Force");
+    expect(
+      screen.queryByTestId("powershell-output-bytes-audit-ps-fail"),
+    ).toBeNull();
+
+    // Row's event-type column gets the dedicated PowerShell colour
+    // class so it stands out against TASK_RECEIVED / TASK_COMPLETED rows.
+    const okToggle = screen.getByTestId("audit-row-toggle-audit-ps-ok");
+    expect(okToggle.querySelector(".text-green-700")).not.toBeNull();
+    const failToggle = screen.getByTestId("audit-row-toggle-audit-ps-fail");
+    expect(failToggle.querySelector(".text-red-700")).not.toBeNull();
+
+    // Terminal icon is rendered next to the event-type label so the
+    // row type is recognisable at a glance — the leading-column
+    // chevron is preserved for the open/closed expansion signal.
+    expect(
+      screen.getByTestId("powershell-icon-audit-ps-ok"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("powershell-icon-audit-ps-fail"),
+    ).toBeInTheDocument();
+  });
+
+  it("filter chip narrows the visible rows to PowerShell events and the empty state explains why a non-empty log is showing zero rows", async () => {
+    vi.stubGlobal(
+      "fetch",
+      makeFetch([powerShellExecutedRow, taskReceivedRow, noMetaRow]),
+    );
+    renderWithClient(<AuditLog />);
+
+    // All three rows render by default.
+    await waitFor(() =>
+      expect(screen.getByTestId("audit-row-audit-ps-ok")).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("audit-row-audit-tr")).toBeInTheDocument();
+    expect(screen.getByTestId("audit-row-audit-nm")).toBeInTheDocument();
+
+    // Toggle on: only the PowerShell row remains visible.
+    const chip = screen.getByTestId("audit-filter-powershell");
+    expect(chip).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute("aria-pressed", "true");
+
+    expect(screen.getByTestId("audit-row-audit-ps-ok")).toBeInTheDocument();
+    expect(screen.queryByTestId("audit-row-audit-tr")).toBeNull();
+    expect(screen.queryByTestId("audit-row-audit-nm")).toBeNull();
+
+    // Header counter reflects the narrowed view but still mentions the
+    // unfiltered loaded/total counts so the operator sees the full
+    // audit volume.
+    expect(screen.getByTestId("audit-count").textContent).toContain(
+      "showing 1 PowerShell of 3 loaded",
+    );
+
+    // Toggle off: every row visible again.
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("audit-row-audit-tr")).toBeInTheDocument();
+    expect(screen.getByTestId("audit-row-audit-nm")).toBeInTheDocument();
+  });
+
+  it("filter-on with no PowerShell rows in the loaded window shows the filter-aware empty state, not the generic 'No audit entries yet'", async () => {
+    vi.stubGlobal("fetch", makeFetch([taskReceivedRow, noMetaRow]));
+    renderWithClient(<AuditLog />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("audit-row-audit-tr")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByTestId("audit-filter-powershell"));
+
+    const empty = screen.getByTestId("audit-empty");
+    expect(empty.textContent).toContain(
+      "No PowerShell events in the loaded window.",
+    );
+    expect(empty.textContent).not.toContain("No audit entries yet");
+  });
+
+  it("PowerShell summary strip degrades gracefully when optional metadata fields are missing (e.g. legacy or trimmed rows)", async () => {
+    // Bare-minimum POWERSHELL_EXECUTED row — only event_type + message.
+    // Outcome should still default to OK (event-type implies success),
+    // and missing fields should simply not render their respective slot
+    // rather than crash the page.
+    const sparseRow = {
+      id: "audit-ps-sparse",
+      task_id: null,
+      event_type: "POWERSHELL_EXECUTED",
+      message: "super_admin ran PowerShell command",
+      metadata: {},
+      created_at: "2026-04-27T01:03:00.000Z",
+    };
+    vi.stubGlobal("fetch", makeFetch([sparseRow]));
+    renderWithClient(<AuditLog />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("powershell-summary-audit-ps-sparse"),
+      ).toBeInTheDocument(),
+    );
+
+    expect(
+      screen.getByTestId("powershell-outcome-audit-ps-sparse").textContent,
+    ).toBe("OK");
+    expect(screen.queryByTestId("powershell-preview-audit-ps-sparse")).toBeNull();
+    expect(screen.queryByTestId("powershell-sha256-audit-ps-sparse")).toBeNull();
+    expect(
+      screen.queryByTestId("powershell-cmd-bytes-audit-ps-sparse"),
+    ).toBeNull();
+    expect(
+      screen.queryByTestId("powershell-output-bytes-audit-ps-sparse"),
+    ).toBeNull();
+  });
 });
