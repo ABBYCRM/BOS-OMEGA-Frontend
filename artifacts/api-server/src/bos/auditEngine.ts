@@ -187,7 +187,19 @@ type AuditEventType =
   //     just observed, and the effective caps in force at the time
   //     (so the audit chain alone explains the HOLD verdict the user
   //     sees, without the operator having to re-derive the cap).
-  | "IMAGE_QUOTA_BLOCKED";
+  | "IMAGE_QUOTA_BLOCKED"
+  // Task #110 — super-admin host-command (PowerShell) bridge.
+  //   POWERSHELL_EXECUTED — a super-admin successfully ran a host
+  //     PowerShell command. Metadata records the actor, ip, a 120-char
+  //     command preview, the sha256 of the full command, and the
+  //     command/output byte counts so the row is forensically useful
+  //     without ever persisting the raw command bytes or output.
+  //   POWERSHELL_FAILED — the host bridge rejected or failed the
+  //     command (timeout, overflow, non-zero exit, missing binary, or
+  //     authz/feature-flag denial). Metadata mirrors the success row
+  //     plus a redacted, category-level failure message.
+  | "POWERSHELL_EXECUTED"
+  | "POWERSHELL_FAILED";
 
 const AUDIT_QUEUE_DIR = process.env["AUDIT_QUEUE_DIR"] || path.resolve(process.cwd(), ".local", "audit-queue");
 const AUDIT_QUEUE_FILE = path.join(AUDIT_QUEUE_DIR, "pending.jsonl");
