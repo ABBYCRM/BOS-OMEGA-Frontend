@@ -997,10 +997,7 @@ function ProviderCard({ provider }: { provider: any }) {
   const queryClient = useQueryClient();
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getListProvidersQueryKey() });
-    // Also bust the preflight cache so the no-provider banner in
-    // Layout.tsx clears the moment a working key is saved (or
-    // re-appears immediately when the last key is cleared). Without
-    // this the banner would lag by up to ~staleTime (5s).
+    // Bust preflight too so the no-provider banner clears on save.
     queryClient.invalidateQueries({ queryKey: ["/api/providers/preflight"] });
   };
 
