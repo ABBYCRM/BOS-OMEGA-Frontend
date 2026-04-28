@@ -5,6 +5,7 @@ import { fetchAuthState, logout, roleLabel, type AuthUser } from "@/lib/auth";
 import { ConversationsList } from "@/components/ConversationsList";
 import { LatticeMenu } from "@/components/LatticeMenu";
 import { CorporateLogo } from "@/components/CorporateLogo";
+import { ProviderPreflightBanner } from "@/components/ProviderPreflightBanner";
 import { useTheme } from "@/lib/theme";
 import {
   Terminal,
@@ -290,6 +291,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
             )}
           </div>
         </div>
+
+        {/* No-provider warning — only renders when /api/providers/preflight
+            reports no reachable LLM key. Hidden on /settings to avoid
+            duplicating the affordance the user is already looking at. */}
+        <ProviderPreflightBanner />
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">

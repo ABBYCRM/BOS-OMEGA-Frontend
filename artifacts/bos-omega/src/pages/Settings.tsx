@@ -995,7 +995,14 @@ function ProviderAvatar({ name }: { name: string }) {
 
 function ProviderCard({ provider }: { provider: any }) {
   const queryClient = useQueryClient();
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: getListProvidersQueryKey() });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: getListProvidersQueryKey() });
+    // Also bust the preflight cache so the no-provider banner in
+    // Layout.tsx clears the moment a working key is saved (or
+    // re-appears immediately when the last key is cleared). Without
+    // this the banner would lag by up to ~staleTime (5s).
+    queryClient.invalidateQueries({ queryKey: ["/api/providers/preflight"] });
+  };
 
   const setKey = useSetProviderApiKey();
   const clearKey = useClearProviderApiKey();
@@ -1077,7 +1084,11 @@ function ProviderCard({ provider }: { provider: any }) {
   }
 
   return (
-    <div className="bg-card border border-card-border rounded-xl shadow-card overflow-hidden">
+    <div
+      id={`provider-${provider.id}`}
+      data-testid={`provider-card-${provider.id}`}
+      className="bg-card border border-card-border rounded-xl shadow-card overflow-hidden scroll-mt-24 transition-shadow target:ring-2 target:ring-amber-400 target:ring-offset-2 target:ring-offset-background"
+    >
       {/* Header */}
       <div className="px-6 py-4 border-b border-border flex items-center gap-4">
         <ProviderAvatar name={provider.name} />
@@ -1255,6 +1266,21 @@ export function Settings() {
   const totalProviders = providers.length;
   const configuredKeys = providers.filter((p: any) => p.has_api_key).length;
   const healthy = providers.filter((p: any) => p.last_test_status === "OK").length;
+
+  // Deep-link support: `/settings#provider-prov_openai` (used by the
+  // ProviderPreflightBanner) should scroll the matching ProviderCard
+  // into view once the providers list has hydrated. The browser's
+  // built-in hash-jump fires before the cards render, so we re-do it
+  // here. Re-runs whenever the provider count changes so a freshly
+  // added provider is also reachable by hash.
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.location.hash) return;
+    if (totalProviders === 0) return;
+    const id = window.location.hash.slice(1);
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [totalProviders]);
 
   function handleAddProvider() {
     if (!newProvider.name) return;
