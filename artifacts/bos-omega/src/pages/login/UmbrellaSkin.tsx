@@ -7,6 +7,7 @@ import {
   useTransform,
 } from "framer-motion";
 import type { LoginSkinProps } from "./types";
+import { RedQueenHologram } from "./RedQueenHologram";
 
 export function UmbrellaSkin(props: LoginSkinProps) {
   const {
@@ -220,6 +221,13 @@ export function UmbrellaSkin(props: LoginSkinProps) {
             RED QUEEN ONLINE
           </span>
         </div>
+      </div>
+
+      {/* Red Queen AI core — abstract holographic silhouette in the
+          upper-right. Hidden on narrow viewports so it never overlaps
+          the centered login card. */}
+      <div className="hidden lg:block absolute top-12 right-6 z-10">
+        <RedQueenHologram />
       </div>
 
       {/* Centered card stage with perspective so child rotateX/Y reads as 3D */}
