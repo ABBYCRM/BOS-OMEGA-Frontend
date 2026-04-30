@@ -64,7 +64,12 @@ Users live in the `users` table with role (`user` | `admin` | `super_admin`) and
 - `POST /api/auth/signup` — public self-signup. Creates `role:user` / `status:active` accounts immediately. Validates email format + password length (≥ 8 chars). Returns `400 INVALID_EMAIL` / `400 WEAK_PASSWORD` / `409 EMAIL_TAKEN`. Auto-issues session cookie on success. Rate-limited 5/hour/IP via `signupLimiter`. Audit events: `AUTH_SIGNUP_SUCCESS` / `AUTH_SIGNUP_FAILED`.
 - `POST /api/auth/logout` — clears the cookie.
 
-The login page (`artifacts/bos-omega/src/pages/Login.tsx`) is rendered with an Umbrella Corporation skin: mouse-tracked 3D card tilt (framer-motion + CSS perspective), animated octagonal logo with red bloom, CRT scanlines, biohazard watermark, terminal-style typography, and an in-page `AUTHENTICATE` / `REQUEST CLEARANCE` tab that switches between sign-in (email + password) and sign-up (email + password + confirm) flows.
+The login page is a thin container (`artifacts/bos-omega/src/pages/Login.tsx`) that owns form state + auth mutations and renders one of two visual skins from `artifacts/bos-omega/src/pages/login/`:
+
+- **`CleanSkin.tsx` (default)** — ultra-minimalist: centered card, "BOS · Omega" wordmark, sentence-case `Sign in` / `Create account` tabs, standard shadcn-themed inputs and primary button. Inherits the active app theme tokens.
+- **`UmbrellaSkin.tsx`** — Umbrella Corporation: mouse-tracked 3D card tilt (framer-motion + CSS perspective), animated octagonal logo with red bloom, CRT scanlines, biohazard watermark, terminal-style typography, and `AUTHENTICATE` / `REQUEST CLEARANCE` tabs.
+
+Skin selection is persisted in `localStorage["bos:loginSkin"]`. The default is `clean`. After a successful login, the container calls `skinForRole(user.role)` and writes the result back to storage — `super_admin` flips the device to `umbrella`, every other role resets it to `clean`. Both skins also expose a discreet "switch theme" button (`data-testid="button-switch-skin"`) so anyone can toggle manually for the current session/device. Behaviour is locked down by `Login.test.tsx` (5 tests covering: default skin, stored umbrella preference, manual flip persistence, super_admin → umbrella, regular user → clean).
 
 ### Host PowerShell Capability + OpenClaw Notes
 
