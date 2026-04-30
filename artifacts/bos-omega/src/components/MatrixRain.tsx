@@ -4,9 +4,9 @@ const GLYPHS =
   "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン" +
   "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*[]<>|/\\=+~";
 
-const FONT_SIZE = 13;
-const TRAIL = 14;
-const INTERVAL_MS = 70;
+const FONT_SIZE = 14;
+const TRAIL = 18;
+const INTERVAL_MS = 55;
 
 export function MatrixRain() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -61,11 +61,11 @@ export function MatrixRain() {
           const yPx = (col.y - t) * FONT_SIZE;
           if (yPx < -FONT_SIZE || yPx > canvas.height) continue;
 
-          const brightness = t === 0 ? 1 : (1 - t / TRAIL) * 0.7;
+          const brightness = t === 0 ? 1 : (1 - t / TRAIL) * 0.85;
           ctx.fillStyle =
             t === 0
-              ? `rgba(255, 60, 60, ${brightness})`
-              : `rgba(160, 0, 0, ${brightness})`;
+              ? `rgba(255, 80, 80, ${brightness})`
+              : `rgba(200, 10, 10, ${brightness})`;
           ctx.fillText(col.chars[t], x, yPx);
         }
 
@@ -95,7 +95,7 @@ export function MatrixRain() {
       ref={canvasRef}
       aria-hidden
       className="absolute inset-0 w-full h-full pointer-events-none"
-      style={{ opacity: 0.18, zIndex: 0 }}
+      style={{ opacity: 0.45, zIndex: 0 }}
     />
   );
 }
