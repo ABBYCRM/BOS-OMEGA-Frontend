@@ -5,8 +5,9 @@ import {
   clearSessionCookie,
   readSessionCookie,
   getUserById,
+  signupUser,
 } from "../lib/security/auth.js";
-import { loginLimiter } from "../lib/security/rateLimit.js";
+import { loginLimiter, signupLimiter } from "../lib/security/rateLimit.js";
 import { logger } from "../lib/logger.js";
 import { auditLog } from "../bos/auditEngine.js";
 
@@ -66,6 +67,44 @@ router.post("/login", loginLimiter, async (req, res) => {
   res.json({
     ok: true,
     user: { id: user.id, email: user.email, role: user.role },
+  });
+});
+
+router.post("/signup", signupLimiter, async (req, res) => {
+  const body = req.body as { email?: unknown; password?: unknown } | undefined;
+  const ip = req.ip ?? "unknown";
+  const result = await signupUser(body?.email, body?.password);
+
+  if (!result.ok) {
+    const status = result.error.kind === "email_taken" ? 409 : 400;
+    const code =
+      result.error.kind === "email_taken"
+        ? "EMAIL_TAKEN"
+        : result.error.kind === "invalid_email"
+          ? "INVALID_EMAIL"
+          : "WEAK_PASSWORD";
+    void auditLog(undefined, "AUTH_SIGNUP_FAILED", `Signup rejected (${code})`, {
+      ip,
+      email: typeof body?.email === "string" ? body.email : null,
+      reason: code,
+    });
+    res.status(status).json({ error: code, code });
+    return;
+  }
+
+  issueSessionCookie(res, result.user);
+  logger.info(
+    { ip, ua: req.headers["user-agent"] ?? null, uid: result.user.id, event: "AUTH_SIGNUP_SUCCESS" },
+    "Signup success",
+  );
+  void auditLog(undefined, "AUTH_SIGNUP_SUCCESS", `User ${result.user.email} signed up`, {
+    actor_user_id: result.user.id,
+    role: result.user.role,
+    ip,
+  });
+  res.status(201).json({
+    ok: true,
+    user: { id: result.user.id, email: result.user.email, role: result.user.role },
   });
 });
 

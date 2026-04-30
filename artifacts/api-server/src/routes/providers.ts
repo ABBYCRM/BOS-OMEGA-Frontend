@@ -15,8 +15,16 @@ import { testProviderKey, discoverModels } from "../lib/providerAgent.js";
 import { auditLog } from "../bos/auditEngine.js";
 import { logger } from "../lib/logger.js";
 import { expensiveLimiter } from "../lib/security/rateLimit.js";
+import { requireRole } from "../lib/security/auth.js";
 
 const router = Router();
+
+// Provider configuration is admin-only. The mounting layer in routes/index.ts
+// already runs requireAuth, so a self-signed-up `user` lands here with a
+// valid session and is rejected at this gate — they cannot read provider
+// rows, save the OpenAI API key, or trigger discovery / test calls. Only
+// admin and super_admin can configure the LLM backbone.
+router.use(requireRole("admin", "super_admin"));
 
 // Strip secrets before returning provider rows
 function sanitize(p: typeof llmProvidersTable.$inferSelect) {

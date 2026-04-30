@@ -43,6 +43,31 @@ export async function login(email: string, password: string): Promise<LoginResul
   return { ok: false, error: `Login failed (HTTP ${r.status}).` };
 }
 
+export type SignupResult =
+  | { ok: true; user: AuthUser }
+  | { ok: false; error: string };
+
+export async function signup(email: string, password: string): Promise<SignupResult> {
+  const r = await fetch(`${API_BASE}/auth/signup`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (r.ok) {
+    const data = (await r.json()) as { user: AuthUser };
+    return { ok: true, user: data.user };
+  }
+  if (r.status === 429) return { ok: false, error: "Too many attempts. Try again later." };
+  if (r.status === 409) return { ok: false, error: "An account with that email already exists." };
+  if (r.status === 400) {
+    const data = (await r.json().catch(() => ({}))) as { code?: string };
+    if (data.code === "INVALID_EMAIL") return { ok: false, error: "That email address is not valid." };
+    if (data.code === "WEAK_PASSWORD") return { ok: false, error: "Password must be at least 8 characters." };
+  }
+  return { ok: false, error: `Signup failed (HTTP ${r.status}).` };
+}
+
 export async function logout(): Promise<void> {
   await fetch(`${API_BASE}/auth/logout`, {
     method: "POST",

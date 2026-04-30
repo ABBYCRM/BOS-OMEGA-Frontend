@@ -4,8 +4,11 @@ import { llmModelsTable, llmProvidersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { CreateModelBody, UpdateModelBody } from "@workspace/api-zod";
+import { requireRole } from "../lib/security/auth.js";
 
 const router = Router();
+
+router.use(requireRole("admin", "super_admin"));
 
 router.get("/", async (req, res) => {
   const rows = await db

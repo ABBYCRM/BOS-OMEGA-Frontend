@@ -29,6 +29,13 @@ export const loginLimiter = rateLimit({
   skipSuccessfulRequests: true,
 });
 
+export const signupLimiter = rateLimit({
+  ...standard,
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  message: { error: "Too many signup attempts. Try again later.", code: "RATE_LIMITED" },
+});
+
 export const writeLimiter = rateLimit({
   ...standard,
   windowMs: 60 * 1000,

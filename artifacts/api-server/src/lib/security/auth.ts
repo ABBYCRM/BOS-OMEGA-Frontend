@@ -392,6 +392,74 @@ export async function verifyUserCredentials(
   return toAuthUser(user);
 }
 
+/**
+ * Public self-signup. Validates email + password length, refuses duplicate
+ * emails, hashes the password, inserts a row with role:user / status:active
+ * so the new user can log in immediately. The caller (the /auth/signup
+ * route) is responsible for rate-limiting and audit logging — this helper
+ * only owns the DB write.
+ *
+ * Returns the created user, or a discriminated error so the route can map
+ * it to the right HTTP status (400 for validation, 409 for duplicate).
+ */
+export type SignupError =
+  | { kind: "invalid_email" }
+  | { kind: "weak_password" }
+  | { kind: "email_taken" };
+
+export type SignupResult =
+  | { ok: true; user: AuthenticatedUser }
+  | { ok: false; error: SignupError };
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_PASSWORD_LEN = 8;
+
+export async function signupUser(
+  email: unknown,
+  password: unknown,
+): Promise<SignupResult> {
+  if (typeof email !== "string" || !EMAIL_RE.test(email) || email.length > 320) {
+    return { ok: false, error: { kind: "invalid_email" } };
+  }
+  if (typeof password !== "string" || password.length < MIN_PASSWORD_LEN || password.length > 256) {
+    return { ok: false, error: { kind: "weak_password" } };
+  }
+
+  const norm = normalizeEmail(email);
+  const [existing] = await db
+    .select({ id: usersTable.id })
+    .from(usersTable)
+    .where(eq(usersTable.email, norm))
+    .limit(1);
+  if (existing) return { ok: false, error: { kind: "email_taken" } };
+
+  const password_hash = await hashPassword(password);
+  const id = randomUUID();
+  try {
+    await db.insert(usersTable).values({
+      id,
+      email: norm,
+      password_hash,
+      role: "user",
+      status: "active",
+    });
+  } catch (err) {
+    // Two concurrent signups for the same email can both pass the
+    // pre-check above and race to insert. The second one trips the
+    // users_email_unique index (Postgres SQLSTATE 23505). Surface that
+    // as the same email_taken error the pre-check returns, so the
+    // route maps it to a clean 409 instead of a 500.
+    const code = (err as { code?: string } | null)?.code;
+    if (code === "23505") return { ok: false, error: { kind: "email_taken" } };
+    throw err;
+  }
+
+  return {
+    ok: true,
+    user: { id, email: norm, role: "user", status: "active" },
+  };
+}
+
 export async function getUserById(id: string): Promise<AuthenticatedUser | null> {
   if (typeof id !== "string" || id.length === 0) return null;
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);

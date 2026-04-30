@@ -55,6 +55,17 @@ The UI ships eleven instantly-swappable themes registered in `artifacts/bos-omeg
 - **Security Posture**: Defense-in-depth measures include single-admin authentication, HMAC-SHA256-signed cookies, `helmet` for HTTP hardening, strict CSP, rate limiting, body limits, SSRF protection, input validation, sanitized errors, and AES-256-GCM encryption for API keys at rest.
 - **Governance Controls**: Hardening features include extended `BosOutput` with denial explanations, stricter tri-state evaluation, improved repair engine, deterministic model routing, per-layer token budgets for memory, robust audit engine with durable queuing, budget governors, and compliance-mode pipeline gating. Attachment content is prefixed with `[UNTRUSTED ATTACHMENT CONTENT]` and checked for injection patterns.
 
+### Authentication & Self-Signup
+
+Users live in the `users` table with role (`user` | `admin` | `super_admin`) and status (`active` | `disabled`). The auth router (`artifacts/api-server/src/routes/auth.ts`) exposes:
+
+- `GET /api/auth/me` — returns current session user; `{ authenticated: false }` for pollers without a cookie (does not 401, so the SPA's poller doesn't loop).
+- `POST /api/auth/login` — bcrypt verify + HMAC-SHA256-signed cookie. Rate-limited 10/15min/IP via `loginLimiter`.
+- `POST /api/auth/signup` — public self-signup. Creates `role:user` / `status:active` accounts immediately. Validates email format + password length (≥ 8 chars). Returns `400 INVALID_EMAIL` / `400 WEAK_PASSWORD` / `409 EMAIL_TAKEN`. Auto-issues session cookie on success. Rate-limited 5/hour/IP via `signupLimiter`. Audit events: `AUTH_SIGNUP_SUCCESS` / `AUTH_SIGNUP_FAILED`.
+- `POST /api/auth/logout` — clears the cookie.
+
+The login page (`artifacts/bos-omega/src/pages/Login.tsx`) is rendered with an Umbrella Corporation skin: mouse-tracked 3D card tilt (framer-motion + CSS perspective), animated octagonal logo with red bloom, CRT scanlines, biohazard watermark, terminal-style typography, and an in-page `AUTHENTICATE` / `REQUEST CLEARANCE` tab that switches between sign-in (email + password) and sign-up (email + password + confirm) flows.
+
 ### Host PowerShell Capability + OpenClaw Notes
 
 `POST /api/powershell` lets a `super_admin` operator run a PowerShell expression on the host (`pwsh` preferred, `powershell.exe` fallback). The endpoint is OFF by default and only mounts when `POWERSHELL_ENDPOINT_ENABLED=1` is set in the environment; without the flag it returns `404 POWERSHELL_DISABLED`. When enabled it stays behind `requireAuth` + `requireRole("super_admin")`, inherits the platform's `writeLimiter` (60/min/IP), caps the command body at 4 KB, the output buffer at 1 MB, and the wall-clock at 30 s, and writes a `POWERSHELL_EXECUTED` / `POWERSHELL_FAILED` row to the audit chain (with actor `user_id`, role, IP, command summary, byte counts) on every invocation. Helper at `artifacts/api-server/src/tools/runPowerShell.ts`; route at `artifacts/api-server/src/routes/powershell.ts`; tests at `artifacts/api-server/tests/powershell_unit.mjs`. Companion notes for the OpenClaw reference project (MIT, upstream-only — not vendored into this repo) live in `docs/openclaw-integration.md`.
