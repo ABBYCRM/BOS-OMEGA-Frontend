@@ -11,17 +11,11 @@ import { MatrixRain } from "@/components/MatrixRain";
 import {
   Terminal,
   Server,
-  Cpu,
-  List,
-  GitBranch,
   Brain,
-  HardDrive,
-  ScrollText,
   Settings,
   Users as UsersIcon,
   ShieldCheck,
   LogOut,
-  Laptop,
 } from "lucide-react";
 
 function LogoutButton() {
@@ -57,27 +51,16 @@ type NavSection = {
 
 const navSections: NavSection[] = [
   {
-    label: "Operate",
+    label: "Intel",
     items: [
-      { href: "/console", label: "Task Console", icon: Terminal },
-      { href: "/tasks", label: "Task Logs", icon: List },
-      { href: "/fallbacks", label: "Fallback Events", icon: GitBranch },
+      { href: "/console", label: "Console", icon: Terminal },
+      { href: "/memory", label: "Memory", icon: Brain },
     ],
   },
   {
-    label: "Infrastructure",
+    label: "System",
     items: [
       { href: "/providers", label: "Providers", icon: Server },
-      { href: "/models", label: "Model Registry", icon: Cpu },
-      { href: "/memory", label: "Memory", icon: Brain },
-      { href: "/local-memory", label: "Local Memory", icon: HardDrive },
-      { href: "/local-agent", label: "Local Agent", icon: Laptop },
-    ],
-  },
-  {
-    label: "Governance",
-    items: [
-      { href: "/audit", label: "Audit Log", icon: ScrollText },
       { href: "/users", label: "Users", icon: UsersIcon, superAdminOnly: true },
       { href: "/settings", label: "Settings", icon: Settings },
     ],
@@ -213,7 +196,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               </div>
               {/* Lattice continuity (Task #68): conversations belong with
                   the Operate group since they scope the Task Console. */}
-              {section.label === "Operate" && user && <ConversationsList />}
+              {section.label === "Intel" && user && <ConversationsList />}
             </div>
           ))}
         </nav>

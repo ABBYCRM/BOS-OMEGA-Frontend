@@ -69,8 +69,9 @@ export function MatrixRain() {
     };
 
     const resize = () => {
-      canvas.width = canvas.offsetWidth;
-      canvas.height = canvas.offsetHeight;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width > 0 ? rect.width : window.innerWidth;
+      canvas.height = rect.height > 0 ? rect.height : window.innerHeight;
       init();
     };
 
