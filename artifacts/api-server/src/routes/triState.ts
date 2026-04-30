@@ -12,10 +12,13 @@ const ListQuery = z.object({
 });
 
 // Mirrors the visibility model used across tasks/runs/audit:
-// super_admin sees everything; everyone else sees rows for tasks they
-// own (user_id = self). Legacy NULL-tagged tasks are admin-only — see
-// artifacts/api-server/src/routes/tasks.ts (visibilityFilter) for the
-// rationale (closed by the self-signup data-leak fix).
+// super_admin sees everything via the unfiltered branch; every other
+// role (admin, user, ...) sees rows for tasks they own (user_id = self).
+// By existing codebase convention `admin` is filtered the same way as
+// `user` here. Legacy NULL-tagged tasks are reachable only by
+// super_admin — see artifacts/api-server/src/routes/tasks.ts
+// (visibilityFilter) for the rationale (closed by the self-signup
+// data-leak fix).
 function visibilityFilter(req: { user?: { id: string; role: string } }) {
   if (req.user?.role === "super_admin") return undefined;
   const uid = req.user?.id ?? "";

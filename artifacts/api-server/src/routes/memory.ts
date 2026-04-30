@@ -118,7 +118,10 @@ router.delete("/budgets", async (req, res) => {
 });
 
 // Memory visibility mirrors task visibility: super_admin sees the whole
-// memory store; non-super users see ONLY their own items.
+// memory store via the unfiltered branch; every other role (admin,
+// user, ...) sees ONLY their own items. By existing codebase convention
+// `admin` is filtered the same way as `user` here — only super_admin is
+// privileged for visibility, which matches the pre-fix shape.
 //
 // Pre-self-signup, this filter also returned legacy NULL-owned rows
 // (single-admin-era global canon, currently 15 rows in production)
@@ -126,7 +129,8 @@ router.delete("/budgets", async (req, res) => {
 // landed, that NULL fallback meant any new account could read AND, via
 // `loadOwnedMemory` below, PATCH/DELETE the global canon. Both the read
 // filter and the mutation auth now require user_id === req.user.id for
-// non-super_admin callers.
+// non-super_admin callers; NULL-owned rows are reachable only by
+// super_admin.
 function memoryVisibility(req: { user?: { id: string; role: string } }) {
   if (req.user?.role === "super_admin") return undefined;
   const uid = req.user?.id ?? "";

@@ -271,17 +271,22 @@ router.get("/stats", async (req, res) => {
 });
 
 // Role-aware visibility:
-//  - super_admin sees every task in the system (unfiltered).
-//  - everyone else sees only tasks they created (user_id = req.user.id).
+//  - super_admin sees every task in the system (unfiltered branch).
+//  - every other role (admin, user, ...) sees only tasks they created
+//    (user_id = req.user.id).
+//
+// Note: by existing convention in this codebase, only super_admin gets
+// the unfiltered branch — the `admin` role is currently filtered the
+// same way as `user`. The pre-fix code had the same shape; this fix
+// did not change `admin`'s effective view.
 //
 // Pre-self-signup, this filter also returned tasks where user_id IS NULL
 // so the original single-admin workspace wouldn't go dark after the
 // user-tagging migration. That was safe when the only authenticated
-// account was the admin. Once self-signup landed (anyone on the
-// internet can become a `user`), keeping the NULL clause leaked all
-// 69 legacy admin-era tasks to every new account. NULL-tagged rows are
-// now admin-and-up only — admins still see them via the unfiltered
-// branch, regular users see only the rows they actually own.
+// account was the bootstrap super_admin. Once self-signup landed (anyone
+// on the internet can become a `user`), keeping the NULL clause leaked
+// all 69 legacy admin-era tasks to every new account. NULL-tagged rows
+// are now visible only via the super_admin unfiltered branch.
 function visibilityFilter(req: { user?: { id: string; role: string } }) {
   if (req.user?.role === "super_admin") return undefined;
   const uid = req.user?.id ?? "";
