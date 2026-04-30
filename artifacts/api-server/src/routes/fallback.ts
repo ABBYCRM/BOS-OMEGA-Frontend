@@ -20,10 +20,15 @@ router.get("/", async (req, res) => {
   }
 
   const uid = req.user?.id ?? "";
+  // Only the user's own tagged tasks (no legacy NULL fallback — see
+  // tasks.ts/visibilityFilter for the rationale). NULL-task fallback
+  // events are still surfaced to non-admin users in the next clause,
+  // since they're orphaned telemetry not attributable to anyone and
+  // currently 0 rows in production.
   const visibleTasks = await db
     .select({ id: tasksTable.id })
     .from(tasksTable)
-    .where(or(eq(tasksTable.user_id, uid), isNull(tasksTable.user_id)));
+    .where(eq(tasksTable.user_id, uid));
   const ids = visibleTasks.map((t) => t.id);
   const where = ids.length > 0
     ? or(inArray(fallbackEventsTable.task_id, ids), isNull(fallbackEventsTable.task_id))

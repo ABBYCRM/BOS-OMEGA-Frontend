@@ -17,11 +17,17 @@ const router = Router();
 async function audienceFilter(req: { user?: { id: string; role: string } }) {
   if (req.user?.role === "super_admin") return undefined;
   const uid = req.user?.id ?? "";
+  // Tagged-task visibility: only the user's own tasks. The legacy NULL
+  // fallback was removed when self-signup opened the door to arbitrary
+  // accounts — see tasks.ts/visibilityFilter for the full rationale.
   const visibleTasks = await db
     .select({ id: tasksTable.id })
     .from(tasksTable)
-    .where(or(eq(tasksTable.user_id, uid), isNull(tasksTable.user_id)));
+    .where(eq(tasksTable.user_id, uid));
   const ids = visibleTasks.map((r) => r.id);
+  // NULL-task audit rows (login attempts, password resets, etc.) are
+  // still surfaced when the actor or target is the requester themselves
+  // — they need to see their own auth events.
   const nullTaskSelfClause = and(
     isNull(auditLogsTable.task_id),
     or(

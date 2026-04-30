@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { memoryItemsTable } from "@workspace/db";
-import { eq, desc, or, isNull } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { CreateMemoryBody, UpdateMemoryBody } from "@workspace/api-zod";
 import {
@@ -118,12 +118,19 @@ router.delete("/budgets", async (req, res) => {
 });
 
 // Memory visibility mirrors task visibility: super_admin sees the whole
-// memory store; non-super users see their own items plus legacy untagged
-// rows from before user_id existed.
+// memory store; non-super users see ONLY their own items.
+//
+// Pre-self-signup, this filter also returned legacy NULL-owned rows
+// (single-admin-era global canon, currently 15 rows in production)
+// so the original admin's workspace stayed populated. Once self-signup
+// landed, that NULL fallback meant any new account could read AND, via
+// `loadOwnedMemory` below, PATCH/DELETE the global canon. Both the read
+// filter and the mutation auth now require user_id === req.user.id for
+// non-super_admin callers.
 function memoryVisibility(req: { user?: { id: string; role: string } }) {
   if (req.user?.role === "super_admin") return undefined;
   const uid = req.user?.id ?? "";
-  return or(eq(memoryItemsTable.user_id, uid), isNull(memoryItemsTable.user_id));
+  return eq(memoryItemsTable.user_id, uid);
 }
 
 router.get("/", async (req, res) => {
@@ -156,12 +163,18 @@ router.post("/", async (req, res) => {
 // Authorization helper for object-by-id mutations on memory items.
 // Returns null + 404 (treat unauthorized as not-found to avoid leaking
 // existence) when the requesting user can't see the item.
+//
+// Tightened by the self-signup data-leak fix: NULL-owned rows are
+// treated as legacy admin-era global canon and may only be mutated by
+// super_admin. Previously any signed-in account could PATCH/DELETE
+// them, which let arbitrary self-signed-up users tamper with shared
+// canon (15 such rows in production at the time of the fix).
 async function loadOwnedMemory(req: { user?: { id: string; role: string } }, id: string) {
   const [row] = await db.select().from(memoryItemsTable).where(eq(memoryItemsTable.id, id)).limit(1);
   if (!row) return null;
   if (req.user?.role === "super_admin") return row;
   const uid = req.user?.id ?? "";
-  if (row.user_id === uid || row.user_id === null) return row;
+  if (row.user_id === uid) return row;
   return null;
 }
 

@@ -9,7 +9,7 @@ import {
   attachmentsTable,
   executionRunsTable,
 } from "@workspace/db";
-import { eq, desc, count, sql, and, or, isNull, inArray } from "drizzle-orm";
+import { eq, desc, count, sql, and, inArray } from "drizzle-orm";
 import { runBosPipeline } from "../bos/pipeline.js";
 import { CreateTaskBody, ListTasksQueryParams } from "@workspace/api-zod";
 import { logger } from "../lib/logger.js";
@@ -272,13 +272,20 @@ router.get("/stats", async (req, res) => {
 
 // Role-aware visibility:
 //  - super_admin sees every task in the system (unfiltered).
-//  - everyone else sees only tasks they created (user_id = req.user.id) plus
-//    legacy tasks that pre-date user tagging (user_id is NULL), so existing
-//    workspaces don't go dark after the migration.
+//  - everyone else sees only tasks they created (user_id = req.user.id).
+//
+// Pre-self-signup, this filter also returned tasks where user_id IS NULL
+// so the original single-admin workspace wouldn't go dark after the
+// user-tagging migration. That was safe when the only authenticated
+// account was the admin. Once self-signup landed (anyone on the
+// internet can become a `user`), keeping the NULL clause leaked all
+// 69 legacy admin-era tasks to every new account. NULL-tagged rows are
+// now admin-and-up only — admins still see them via the unfiltered
+// branch, regular users see only the rows they actually own.
 function visibilityFilter(req: { user?: { id: string; role: string } }) {
   if (req.user?.role === "super_admin") return undefined;
   const uid = req.user?.id ?? "";
-  return or(eq(tasksTable.user_id, uid), isNull(tasksTable.user_id));
+  return eq(tasksTable.user_id, uid);
 }
 
 router.get("/", async (req, res) => {

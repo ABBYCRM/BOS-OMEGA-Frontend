@@ -18,10 +18,14 @@ const router = Router();
 async function visibleRunIds(req: { user?: { id: string; role: string } }): Promise<string[] | "ALL"> {
   if (req.user?.role === "super_admin") return "ALL";
   const uid = req.user?.id ?? "";
+  // Only the user's own tagged tasks — the legacy NULL fallback was
+  // removed when self-signup opened the route to arbitrary accounts.
+  // See artifacts/api-server/src/routes/tasks.ts (visibilityFilter) for
+  // the full rationale.
   const tasks = await db
     .select({ id: tasksTable.id })
     .from(tasksTable)
-    .where(or(eq(tasksTable.user_id, uid), isNull(tasksTable.user_id)));
+    .where(eq(tasksTable.user_id, uid));
   const taskIds = tasks.map((t) => t.id);
   if (taskIds.length === 0) {
     const orphanRuns = await db

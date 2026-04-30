@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { triStateDecisionsTable, tasksTable } from "@workspace/db";
-import { eq, desc, and, or, isNull } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { z } from "zod";
 
 const router = Router();
@@ -11,13 +11,15 @@ const ListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
-// Mirrors the visibility model used across tasks/runs/memory/audit:
-// super_admin sees everything; everyone else sees rows for tasks they own
-// (user_id = self) plus legacy tasks with no owner stamped.
+// Mirrors the visibility model used across tasks/runs/audit:
+// super_admin sees everything; everyone else sees rows for tasks they
+// own (user_id = self). Legacy NULL-tagged tasks are admin-only — see
+// artifacts/api-server/src/routes/tasks.ts (visibilityFilter) for the
+// rationale (closed by the self-signup data-leak fix).
 function visibilityFilter(req: { user?: { id: string; role: string } }) {
   if (req.user?.role === "super_admin") return undefined;
   const uid = req.user?.id ?? "";
-  return or(eq(tasksTable.user_id, uid), isNull(tasksTable.user_id));
+  return eq(tasksTable.user_id, uid);
 }
 
 router.get("/by-task/:task_id", async (req, res) => {
