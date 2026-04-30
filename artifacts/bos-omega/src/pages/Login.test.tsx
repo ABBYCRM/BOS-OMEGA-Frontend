@@ -2,21 +2,21 @@
  * Login page — skin selection contract.
  *
  * The login page has two visual skins:
- *   - "clean":    the default ultra-minimalist look every visitor sees.
- *   - "umbrella": the Resident-Evil flavoured skin, surfaced for super_admin
- *                 accounts (and to anyone who manually enables it).
+ *   - "umbrella": the Resident-Evil flavoured skin every fresh visitor
+ *                 sees by default.
+ *   - "clean":    an ultra-minimalist alternative anyone can opt into
+ *                 via the in-page "switch theme" button.
  *
  * The container persists the choice in localStorage (`bos:loginSkin`) so:
- *   1. A fresh visitor with no stored preference lands on "clean".
- *   2. A stored "umbrella" preference is respected on subsequent loads.
+ *   1. A fresh visitor with no stored preference lands on "umbrella".
+ *   2. A stored "clean" preference is respected on subsequent loads.
  *   3. Clicking the in-page "switch theme" affordance flips the skin and
  *      persists the new value.
- *   4. Logging in as a super_admin auto-sets the preference to "umbrella";
- *      logging in as a regular user resets it to "clean".
+ *   4. Logging in does NOT change the skin — the user's manual choice
+ *      always wins (regardless of role).
  *
- * These four behaviours are what the task ("clean by default, umbrella for
- * super_admin / personal account") actually asserts, so they're worth
- * locking down with a real test.
+ * These four behaviours lock down the "Umbrella as the default skin"
+ * decision, so they're worth a real test.
  */
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import {
@@ -59,41 +59,41 @@ afterEach(() => {
 });
 
 describe("Login skin selection", () => {
-  it("defaults to the clean skin when nothing is stored", () => {
+  it("defaults to the Umbrella skin when nothing is stored", () => {
     renderLogin();
-    // Clean skin uses sentence-case copy and the BOS · Omega wordmark
-    expect(screen.getByText("BOS · Omega")).toBeTruthy();
-    expect(screen.getByTestId("button-login")).toBeTruthy();
-    // Umbrella-only chrome should not be present
-    expect(screen.queryByText("UMBRELLA")).toBeNull();
-    expect(screen.queryByText("RED QUEEN ONLINE")).toBeNull();
-  });
-
-  it("renders the Umbrella skin when localStorage opts in", () => {
-    window.localStorage.setItem("bos:loginSkin", "umbrella");
-    renderLogin();
+    // Umbrella skin uses the UMBRELLA wordmark + "RED QUEEN ONLINE" status pill.
     expect(screen.getByText("UMBRELLA")).toBeTruthy();
     expect(screen.getByText("RED QUEEN ONLINE")).toBeTruthy();
+    // Clean-skin chrome should not be present.
     expect(screen.queryByText("BOS · Omega")).toBeNull();
+  });
+
+  it("renders the Clean skin when localStorage opts in", () => {
+    window.localStorage.setItem("bos:loginSkin", "clean");
+    renderLogin();
+    expect(screen.getByText("BOS · Omega")).toBeTruthy();
+    expect(screen.getByTestId("button-login")).toBeTruthy();
+    expect(screen.queryByText("UMBRELLA")).toBeNull();
   });
 
   it("flips skins when the switch-theme button is clicked, and persists", () => {
     renderLogin();
-    expect(screen.getByText("BOS · Omega")).toBeTruthy();
+    expect(screen.getByText("UMBRELLA")).toBeTruthy();
 
     fireEvent.click(screen.getByTestId("button-switch-skin"));
 
-    expect(screen.getByText("UMBRELLA")).toBeTruthy();
-    expect(screen.queryByText("BOS · Omega")).toBeNull();
-    expect(window.localStorage.getItem("bos:loginSkin")).toBe("umbrella");
+    expect(screen.getByText("BOS · Omega")).toBeTruthy();
+    expect(screen.queryByText("UMBRELLA")).toBeNull();
+    expect(window.localStorage.getItem("bos:loginSkin")).toBe("clean");
 
     // Flip back
     fireEvent.click(screen.getByTestId("button-switch-skin"));
-    expect(screen.getByText("BOS · Omega")).toBeTruthy();
-    expect(window.localStorage.getItem("bos:loginSkin")).toBe("clean");
+    expect(screen.getByText("UMBRELLA")).toBeTruthy();
+    expect(window.localStorage.getItem("bos:loginSkin")).toBe("umbrella");
   });
 
-  it("auto-switches to Umbrella skin after a super_admin signs in", async () => {
+  it("preserves the stored 'clean' preference even after a super_admin signs in", async () => {
+    window.localStorage.setItem("bos:loginSkin", "clean");
     vi.mocked(mockLogin).mockResolvedValue({
       ok: true,
       user: {
@@ -104,6 +104,9 @@ describe("Login skin selection", () => {
     });
 
     renderLogin();
+    // Sanity: starts on Clean because storage said so.
+    expect(screen.getByText("BOS · Omega")).toBeTruthy();
+
     fireEvent.change(screen.getByTestId("input-email"), {
       target: { value: "boss@example.com" },
     });
@@ -112,13 +115,14 @@ describe("Login skin selection", () => {
     });
     fireEvent.click(screen.getByTestId("button-login"));
 
+    // Wait for the mutation to resolve, then assert the skin choice is unchanged.
     await waitFor(() => {
-      expect(window.localStorage.getItem("bos:loginSkin")).toBe("umbrella");
+      expect(mockLogin).toHaveBeenCalled();
     });
+    expect(window.localStorage.getItem("bos:loginSkin")).toBe("clean");
   });
 
-  it("auto-switches back to Clean skin after a regular user signs in (even from Umbrella)", async () => {
-    window.localStorage.setItem("bos:loginSkin", "umbrella");
+  it("preserves the default Umbrella skin after a regular user signs in", async () => {
     vi.mocked(mockLogin).mockResolvedValue({
       ok: true,
       user: {
@@ -129,7 +133,7 @@ describe("Login skin selection", () => {
     });
 
     renderLogin();
-    // Sanity: starts on Umbrella because storage said so
+    // Sanity: starts on Umbrella (default).
     expect(screen.getByText("UMBRELLA")).toBeTruthy();
 
     fireEvent.change(screen.getByTestId("input-email"), {
@@ -141,7 +145,8 @@ describe("Login skin selection", () => {
     fireEvent.click(screen.getByTestId("button-login"));
 
     await waitFor(() => {
-      expect(window.localStorage.getItem("bos:loginSkin")).toBe("clean");
+      expect(mockLogin).toHaveBeenCalled();
     });
+    expect(window.localStorage.getItem("bos:loginSkin")).toBe("umbrella");
   });
 });

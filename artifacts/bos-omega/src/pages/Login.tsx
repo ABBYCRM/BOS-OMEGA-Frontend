@@ -9,18 +9,20 @@ type Skin = "clean" | "umbrella";
 
 const SKIN_STORAGE_KEY = "bos:loginSkin";
 
-// Default is the ultra-clean skin. The Umbrella skin is automatically
-// selected after a super_admin successfully logs in once on this device,
-// and persists in localStorage for subsequent visits. Anyone can also
-// flip between skins manually via the "switch theme" / "// STANDARD MODE"
-// button in the corner of the page.
+// Default is the Umbrella Corporation skin — every fresh visitor sees
+// it, regardless of role. Anyone who prefers the minimalist look can
+// flip to "clean" via the in-page "switch theme" / "// STANDARD MODE"
+// button; that choice is persisted in localStorage and respected on
+// subsequent loads. The skin is intentionally NOT changed by login —
+// the user's manual preference always wins, so signing in does not
+// override it.
 function readStoredSkin(): Skin {
-  if (typeof window === "undefined") return "clean";
+  if (typeof window === "undefined") return "umbrella";
   try {
     const raw = window.localStorage.getItem(SKIN_STORAGE_KEY);
-    return raw === "umbrella" ? "umbrella" : "clean";
+    return raw === "clean" ? "clean" : "umbrella";
   } catch {
-    return "clean";
+    return "umbrella";
   }
 }
 
@@ -31,13 +33,6 @@ function writeStoredSkin(skin: Skin) {
   } catch {
     /* localStorage can throw in private mode / quota — silent ignore is fine */
   }
-}
-
-function skinForRole(role: AuthUser["role"]): Skin {
-  // Super admins get the Umbrella skin remembered on this device. Everyone
-  // else stays on the clean skin (and any prior umbrella preference is
-  // reset when they log in, so a shared device falls back to clean).
-  return role === "super_admin" ? "umbrella" : "clean";
 }
 
 export function Login() {
@@ -61,12 +56,11 @@ export function Login() {
     window.setTimeout(() => setGlitch(false), 600);
   };
 
-  const onAuthSuccess = (user: AuthUser) => {
+  const onAuthSuccess = (_user: AuthUser) => {
     setError(null);
-    // Pick the skin that matches the authenticated user's role. This is
-    // what flips a fresh super_admin from the clean skin to Umbrella on
-    // their next visit, and resets the device for non-admin users.
-    setSkin(skinForRole(user.role));
+    // The user's manual skin preference always wins — login does not
+    // override it. Just refresh the auth-state query so the rest of the
+    // app picks up the new session.
     void qc.invalidateQueries({ queryKey: ["auth-state"] });
   };
 
