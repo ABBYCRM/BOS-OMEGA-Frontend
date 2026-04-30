@@ -1411,6 +1411,92 @@
    it can be rolled back without touching others.
    ──────────────────────────────────────────────────────────────────── */
 
+/* ── Lethal-force warning strip (upper-left sidebar) ─────────────── */
+.uc-lethal-warning {
+  display: none;
+}
+:root.theme-umbrella-corp .uc-lethal-warning {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 10px 7px;
+  border-bottom: 1px solid rgba(212,20,20,0.55);
+  background: linear-gradient(180deg, rgba(140,8,8,0.28) 0%, rgba(60,0,0,0.45) 100%);
+  box-shadow: inset 0 0 0 1px rgba(212,20,20,0.2), 0 2px 12px rgba(212,20,20,0.2);
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  text-align: center;
+  color: #ff3333;
+  text-shadow: 0 0 10px rgba(255,51,51,0.7);
+  position: relative;
+  overflow: hidden;
+}
+/* Animated red sweep behind the warning */
+:root.theme-umbrella-corp .uc-lethal-warning::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(212,20,20,0.06) 0px,
+    rgba(212,20,20,0.06) 2px,
+    transparent 2px,
+    transparent 18px
+  );
+  pointer-events: none;
+}
+:root.theme-umbrella-corp .uc-lethal-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #ff3333;
+  box-shadow: 0 0 6px rgba(255,51,51,0.9);
+  animation: uc-blink 0.8s steps(2, end) infinite;
+  margin-bottom: 2px;
+}
+:root.theme-umbrella-corp .uc-lethal-sub {
+  font-size: 8.5px;
+  letter-spacing: 0.18em;
+  color: #cc2222;
+  font-weight: 600;
+  text-shadow: 0 0 6px rgba(212,20,20,0.5);
+}
+
+/* ── Clean main content area — no pattern bleed ──────────────────── */
+/* Ensure the main area and scrollable content have solid opaque
+   backgrounds so the body hex-grid never bleeds through read/write
+   fields. The aside overflow-hidden (set in JSX) stops the RESTRICTED
+   watermark from spilling into this area too. */
+:root.theme-umbrella-corp main {
+  background-color: var(--bg-root) !important;
+}
+:root.theme-umbrella-corp main .flex-1.overflow-y-auto {
+  background-color: var(--bg-root) !important;
+  background-image: none !important;
+}
+/* Cards and panels inside the content: keep the dark gradient but
+   no body-pattern inheritance. */
+:root.theme-umbrella-corp .bg-card,
+:root.theme-umbrella-corp [data-slot="card"] {
+  background-image: none !important;
+  background: linear-gradient(180deg, #0e0e10 0%, #050505 100%) !important;
+}
+/* Inputs / textareas / selects: dead flat, no texture whatsoever. */
+:root.theme-umbrella-corp input,
+:root.theme-umbrella-corp textarea,
+:root.theme-umbrella-corp select {
+  background: #0a0a0c !important;
+  background-image: none !important;
+  border-color: rgba(212,20,20,0.35) !important;
+  color: #f0f0f0 !important;
+}
+
 
 /* Sidebar: slightly more opaque carbon panel + a double border effect on
    the right edge for a "security door frame" look. */

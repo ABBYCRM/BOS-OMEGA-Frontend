@@ -135,7 +135,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen bg-background overflow-hidden text-foreground">
       {/* Sidebar */}
-      <aside className="w-64 flex-shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col">
+      <aside className="w-64 flex-shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col overflow-hidden">
         {/* Brand */}
         <div className="h-16 flex items-center px-5 border-b border-sidebar-border">
           <Link href="/console">
@@ -155,6 +155,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
               </div>
             )}
           </Link>
+        </div>
+
+        {/* Scary upper-left warning — only visible under umbrella-corp theme */}
+        <div className="uc-lethal-warning" data-testid="lethal-warning">
+          <span className="uc-lethal-dot" aria-hidden />
+          <span>⚠ THREAT LEVEL: CRITICAL</span>
+          <div className="uc-lethal-sub">LETHAL FORCE AUTHORIZED</div>
+          <div className="uc-lethal-sub">TERMINATE ON SIGHT</div>
         </div>
 
         {/* Status pill */}
