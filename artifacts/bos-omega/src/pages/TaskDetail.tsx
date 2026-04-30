@@ -1,7 +1,6 @@
 import { useRoute } from "wouter";
 import { useGetTask } from "@workspace/api-client-react";
-import { TriStateBadge, TaskStatusBadge } from "@/components/StatusBadge";
-import { OverrideActions } from "@/components/OverrideActions";
+import { TaskStatusBadge } from "@/components/StatusBadge";
 import { MemoryUsedPanel } from "@/components/MemoryUsedPanel";
 import { ActivePersonaPanel } from "@/components/ActivePersonaPanel";
 import { ScratchpadPanel } from "@/components/ScratchpadPanel";
@@ -34,18 +33,6 @@ export function TaskDetail() {
   }
 
   const { task, attempts = [], validation = [], fallbacks = [], audit = [], bos_output } = data;
-  // Prefer the top-level run_id surfaced by GET /api/tasks/:id (the latest
-  // execution_run for this task). Fall back to scraping audit metadata for
-  // older tasks created before the field existed, so the reset-run override
-  // remains usable on legacy data.
-  const runId =
-    (data as { run_id?: string | null }).run_id ??
-    (audit
-      .map((e) => (e.metadata as Record<string, unknown> | null | undefined)?.["run_id"])
-      .filter((v): v is string => typeof v === "string" && v.length > 0)
-      .pop()) ??
-    null;
-
   return (
     <div className="max-w-5xl mx-auto space-y-5">
       {/* Header */}
@@ -97,7 +84,6 @@ export function TaskDetail() {
       {/* Task summary */}
       <div className="bg-card border border-card-border rounded-lg p-5">
         <div className="flex items-center gap-4 mb-4">
-          <TriStateBadge state={task.tri_state} />
           <TaskStatusBadge status={task.final_status} />
           <span className="font-mono text-xs text-muted-foreground">TYPE: <span className="text-foreground">{task.task_type}</span></span>
           <span className="font-mono text-xs text-muted-foreground">MODE: <span className="text-foreground">{task.mode || "single"}</span></span>
@@ -112,9 +98,6 @@ export function TaskDetail() {
           </div>
         )}
       </div>
-
-      {/* Super-admin overrides */}
-      <OverrideActions taskId={id} runId={runId} />
 
       {/* Memory used (Task #47): per-layer counts, rendered section list,
           and the bounded preview the orchestrator persisted on the

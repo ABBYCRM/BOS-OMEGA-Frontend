@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { BosOutput } from "@workspace/api-client-react";
 import { useGetRunSeriesPasses, useGetRunParallelAgents, useGetRunSynthesis, useGetRun } from "@workspace/api-client-react";
 import type { UploadedAttachment } from "@/lib/uploads";
-import { TriStateBadge, FrontDoorGuidanceBadge } from "@/components/StatusBadge";
-import { TriStateVector } from "@/components/TriStateVector";
+import { FrontDoorGuidanceBadge } from "@/components/StatusBadge";
 import { formatMs } from "@/lib/utils";
 import {
   Copy, Check, ChevronDown, ChevronUp, Loader2, Bot, User, Award,
@@ -103,7 +102,6 @@ function SeriesTrace({ run_id }: { run_id: string }) {
             <span className="text-[10px] font-mono text-muted-foreground w-6">{pass.pass_number}</span>
             <span className={`text-xs font-mono font-bold ${SERIES_ROLE_COLORS[pass.role] ?? "text-foreground"}`}>{pass.role}</span>
             <span className="text-[10px] font-mono text-muted-foreground">{pass.provider}/{pass.model}</span>
-            {pass.state && <TriStateBadge state={pass.state} />}
             <span className="ml-auto text-[10px] font-mono text-muted-foreground">{formatMs(pass.latency_ms)}</span>
           </div>
           {pass.validation_score != null && <ScoreBar score={pass.validation_score} />}
@@ -149,7 +147,6 @@ function AgentsTrace({ run_id }: { run_id: string }) {
                 </div>
                 {agent.status === "completed" ? (
                   <>
-                    {agent.state && <TriStateBadge state={agent.state} />}
                     <ScoreBar score={agent.score} />
                     <div className="text-[9px] font-mono text-muted-foreground mt-1">{formatMs(agent.latency_ms)}</div>
                   </>
@@ -176,7 +173,6 @@ function SynthesisTrace({ run_id }: { run_id: string }) {
       {omega.state && (
         <div className="flex items-center gap-4 flex-wrap">
           <div className="text-[10px] font-mono text-muted-foreground">OMEGA VALIDATION</div>
-          <TriStateBadge state={omega.state} />
           <div className="flex gap-3 text-[10px] font-mono">
             <span className={omega.schema_pass ? "text-green-700" : "text-red-700"}>SCHEMA {omega.schema_pass ? "✓" : "✗"}</span>
             <span className={omega.safety_pass ? "text-green-700" : "text-red-700"}>SAFETY {omega.safety_pass ? "✓" : "✗"}</span>
@@ -500,10 +496,8 @@ function AssistantBubble({ msg, prevUserText }: { msg: AssistantMessage; prevUse
           <div className="flex items-center gap-2 px-4 py-2 border-b border-card-border bg-secondary/40 flex-wrap">
             <span className="text-[10px] font-mono font-bold text-primary tracking-wider">BOS-OMEGA</span>
             <span className="text-[10px] font-mono text-muted-foreground uppercase">{msg.mode.replace("_", " ")}</span>
-            {msg.task?.bos_output?.front_door_route ? (
+            {msg.task?.bos_output?.front_door_route && (
               <FrontDoorGuidanceBadge route={msg.task.bos_output.front_door_route} />
-            ) : (
-              msg.task?.tri_state && <TriStateBadge state={msg.task.tri_state} />
             )}
             {msg.task?.selected_provider && (
               <span className="text-[10px] font-mono text-muted-foreground">
@@ -760,8 +754,6 @@ function AssistantBubble({ msg, prevUserText }: { msg: AssistantMessage; prevUse
 
                 {showDetails && msg.task.bos_output && (
                   <div className="mt-3 space-y-4">
-                    <TriStateVector task_id={msg.task.task_id} />
-
                     {(msg.task.bos_output.parallel_responses?.length ?? 0) > 0 && msg.task.execution_mode !== "series_pass" && (
                       <div>
                         <div className="text-[10px] font-mono text-muted-foreground mb-2 tracking-wider">
@@ -781,7 +773,6 @@ function AssistantBubble({ msg, prevUserText }: { msg: AssistantMessage; prevUse
                                 {pr.selected && <span className="text-[9px] text-primary font-mono shrink-0 ml-1">SELECTED</span>}
                               </div>
                               <div className="flex gap-2 mb-1.5">
-                                <TriStateBadge state={pr.state} />
                                 {pr.confidence_score != null && <ScoreBar score={pr.confidence_score} />}
                               </div>
                               <p className="text-muted-foreground text-[10px] leading-relaxed line-clamp-3 select-text">{pr.answer}</p>

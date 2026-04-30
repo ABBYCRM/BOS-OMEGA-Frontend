@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useListTasks } from "@workspace/api-client-react";
 import { Link } from "wouter";
-import { TriStateBadge, TaskStatusBadge } from "@/components/StatusBadge";
+import { TaskStatusBadge } from "@/components/StatusBadge";
 import { formatDate, formatMs, truncate } from "@/lib/utils";
 import { List, ChevronLeft, ChevronRight, Play } from "lucide-react";
 
@@ -47,16 +47,16 @@ export function TaskLogs() {
         <table className="w-full text-xs font-mono">
           <thead>
             <tr className="border-b border-border">
-              {["TASK ID", "INPUT", "TYPE", "TRI-STATE", "PROVIDER/MODEL", "STATUS", "MODE", "CREATED", "RESUME"].map((h) => (
+              {["TASK ID", "INPUT", "TYPE", "PROVIDER/MODEL", "STATUS", "MODE", "CREATED", "RESUME"].map((h) => (
                 <th key={h} className="px-3 py-2.5 text-left text-[10px] text-muted-foreground tracking-wider font-normal">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={9} className="px-3 py-8 text-muted-foreground text-center">Loading tasks...</td></tr>
+              <tr><td colSpan={8} className="px-3 py-8 text-muted-foreground text-center">Loading tasks...</td></tr>
             ) : tasks.length === 0 ? (
-              <tr><td colSpan={9} className="px-3 py-8 text-muted-foreground text-center">No tasks yet. Submit one from the Task Console.</td></tr>
+              <tr><td colSpan={8} className="px-3 py-8 text-muted-foreground text-center">No tasks yet. Submit one from the Task Console.</td></tr>
             ) : (
               tasks.map((t) => (
                 <tr key={t.id} className="border-b border-border/50 hover:bg-secondary transition-colors cursor-pointer group">
@@ -73,7 +73,6 @@ export function TaskLogs() {
                   <td className="px-3 py-2.5">
                     <span className="px-1.5 py-0.5 bg-muted/40 border border-border rounded text-[10px] text-muted-foreground">{t.task_type}</span>
                   </td>
-                  <td className="px-3 py-2.5"><TriStateBadge state={t.tri_state} /></td>
                   <td className="px-3 py-2.5 text-muted-foreground">
                     {t.selected_provider ? `${t.selected_provider}/${t.selected_model}` : "—"}
                   </td>

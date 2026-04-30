@@ -1,29 +1,9 @@
 import { cn } from "@/lib/utils";
 
-type TriState = "GO" | "HOLD" | "ABORT";
 type ProviderStatus = "HEALTHY" | "DEGRADED" | "OPEN_CIRCUIT" | "RECOVERY_TEST";
 
 const baseBadge =
   "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-medium tracking-tight";
-
-export function TriStateBadge({ state }: { state: TriState | string }) {
-  const classes: Record<string, string> = {
-    GO: "bg-green-50 text-green-800 border-green-200",
-    HOLD: "bg-amber-50 text-amber-800 border-amber-200",
-    ABORT: "bg-red-50 text-red-800 border-red-200",
-  };
-  const dots: Record<string, string> = {
-    GO: "bg-green-600",
-    HOLD: "bg-amber-600",
-    ABORT: "bg-red-600",
-  };
-  return (
-    <span className={cn(baseBadge, classes[state] || "bg-muted text-muted-foreground border-border")}>
-      <span className={cn("w-1.5 h-1.5 rounded-full", dots[state] || "bg-muted-foreground")} />
-      {state}
-    </span>
-  );
-}
 
 /**
  * BOP.FRONT_DOOR.v1 — friendly "GUIDANCE" pill rendered when the BOS
