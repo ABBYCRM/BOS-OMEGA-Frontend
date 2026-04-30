@@ -1195,35 +1195,128 @@
   font-weight: 600;
 }
 
-/* Confidential footer block in the sidebar (only rendered for this theme) */
+/* ── Classified-document confidential footer ─────────────────────────
+   Only rendered under the umbrella-corp theme. Every sub-element is
+   deliberately un-styled by default; styles only kick in under
+   :root.theme-umbrella-corp so no other theme is affected.
+   ──────────────────────────────────────────────────────────────────── */
 .umbrella-corp-confidential {
   display: none;
 }
+
+@keyframes uc-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
 :root.theme-umbrella-corp .umbrella-corp-confidential {
   display: block;
-  border: 1px solid var(--border-red);
-  background: linear-gradient(180deg, #0a0000 0%, #050000 100%);
-  padding: 8px 10px;
   font-family: var(--app-font-mono);
-  font-size: 10.5px;
-  line-height: 1.55;
-  color: var(--accent-red);
+  font-size: 10px;
+  line-height: 1.6;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.10em;
   text-align: center;
-  box-shadow: inset 0 0 0 1px rgba(212,20,20,0.25), 0 0 12px rgba(212,20,20,0.18);
+  color: #c44;
+  border: 1px solid rgba(212,20,20,0.55);
+  border-top: 2px solid rgba(212,20,20,0.75);
+  border-bottom: 2px solid rgba(212,20,20,0.75);
+  background: #050000;
+  box-shadow:
+    inset 0 0 0 1px rgba(212,20,20,0.15),
+    0 0 18px rgba(212,20,20,0.18),
+    inset 0 0 28px rgba(212,20,20,0.06);
+  overflow: hidden;
 }
-.umbrella-corp-confidential strong {
+
+/* Top/bottom danger stripe — black and red diagonal hatching */
+:root.theme-umbrella-corp .umbrella-corp-confidential .uc-danger-stripe {
   display: block;
-  color: #fff;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  margin-bottom: 2px;
+  height: 7px;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(212,20,20,0.75) 0px,
+    rgba(212,20,20,0.75) 4px,
+    rgba(0,0,0,0.9) 4px,
+    rgba(0,0,0,0.9) 9px
+  );
 }
-.umbrella-corp-confidential .uc-divider {
+
+/* Clearance level row */
+:root.theme-umbrella-corp .umbrella-corp-confidential .uc-clearance-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 10px 2px;
+  font-size: 9px;
+  letter-spacing: 0.13em;
+  color: #b33;
+}
+:root.theme-umbrella-corp .umbrella-corp-confidential .uc-blink-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent-red);
+  animation: uc-blink 1.2s steps(2, end) infinite;
+  flex-shrink: 0;
+}
+:root.theme-umbrella-corp .umbrella-corp-confidential .uc-clearance-code {
+  margin-left: auto;
+  font-size: 8.5px;
+  color: #733;
+  letter-spacing: 0.06em;
+}
+
+/* Main classification stamp */
+:root.theme-umbrella-corp .umbrella-corp-confidential .uc-stamp-row {
+  padding: 5px 8px 2px;
+}
+:root.theme-umbrella-corp .umbrella-corp-confidential .uc-stamp-row strong {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  color: #fff;
+  text-shadow:
+    0 0 12px rgba(212,20,20,0.9),
+    0 0 28px rgba(212,20,20,0.55);
+  padding: 2px 10px;
+  border: 1px solid rgba(212,20,20,0.7);
+  background: linear-gradient(180deg, rgba(212,20,20,0.22) 0%, rgba(80,0,0,0.35) 100%);
+}
+
+/* SCI sub-classification line */
+:root.theme-umbrella-corp .umbrella-corp-confidential .uc-classification-sub {
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  color: #833;
+  padding: 2px 8px 4px;
+}
+
+/* Divider between stamp and restrictions */
+:root.theme-umbrella-corp .umbrella-corp-confidential .uc-divider {
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(212,20,20,0.6), transparent);
-  margin: 4px 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(212,20,20,0.7) 30%, rgba(212,20,20,0.7) 70%, transparent 100%);
+  margin: 0 8px 3px;
+}
+
+/* Access restriction lines */
+:root.theme-umbrella-corp .umbrella-corp-confidential .uc-restriction-line {
+  font-size: 9px;
+  letter-spacing: 0.11em;
+  color: #a33;
+  padding: 1px 8px;
+}
+
+/* Warning line — slightly brighter, bold */
+:root.theme-umbrella-corp .umbrella-corp-confidential .uc-warning-line {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  color: #e22;
+  padding: 2px 8px;
 }
 
 /* Tactical header chips that only appear under umbrella-corp. */
@@ -1311,4 +1404,126 @@
 }
 :root.theme-umbrella-corp ::-webkit-scrollbar-thumb:hover {
   background: var(--accent-red);
+}
+
+/* ── Enhanced "top-secret facility" chrome ───────────────────────────
+   Scoped to .theme-umbrella-corp only. Each block is independent so
+   it can be rolled back without touching others.
+   ──────────────────────────────────────────────────────────────────── */
+
+
+/* Sidebar: slightly more opaque carbon panel + a double border effect on
+   the right edge for a "security door frame" look. */
+:root.theme-umbrella-corp aside.bg-sidebar {
+  background: linear-gradient(180deg, #040404 0%, #070707 100%) !important;
+  border-right: 2px solid var(--border-red) !important;
+  box-shadow:
+    inset -3px 0 0 0 rgba(212,20,20,0.12),
+    4px 0 16px rgba(0,0,0,0.6) !important;
+  position: relative;
+}
+
+/* Sidebar: faint "RESTRICTED" diagonal watermark via pseudo */
+:root.theme-umbrella-corp aside.bg-sidebar::after {
+  content: "RESTRICTED";
+  position: absolute;
+  bottom: 220px;
+  left: -28px;
+  right: 0;
+  text-align: center;
+  font-family: var(--app-font-mono);
+  font-size: 36px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  color: rgba(212,20,20,0.04);
+  text-transform: uppercase;
+  transform: rotate(-30deg);
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
+/* Nav section labels: look like classified document section headings.
+   Add a red left bar and "> " prefix via ::before. */
+:root.theme-umbrella-corp nav .text-\[10px\] {
+  font-family: var(--app-font-mono) !important;
+  font-size: 9px !important;
+  letter-spacing: 0.22em !important;
+  color: rgba(180, 40, 40, 0.85) !important;
+  padding-left: 4px !important;
+  border-left: 2px solid rgba(212,20,20,0.55) !important;
+  text-shadow: 0 0 8px rgba(212,20,20,0.4);
+}
+
+/* Nav active items: stronger red glow + heavier left bar */
+:root.theme-umbrella-corp nav .bg-card {
+  background: linear-gradient(135deg, rgba(212,20,20,0.16) 0%, rgba(80,0,0,0.28) 100%) !important;
+  border-left: 3px solid var(--accent-red) !important;
+  color: #fff !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(212,20,20,0.3),
+    0 0 16px rgba(212,20,20,0.12) !important;
+}
+
+/* Nav hover: subtle red wash */
+:root.theme-umbrella-corp nav .hover\:bg-sidebar-accent:hover {
+  background: rgba(212,20,20,0.08) !important;
+  border-left: 1px solid rgba(212,20,20,0.3) !important;
+}
+
+/* Top bar: add a red top-edge accent line so it looks like a classified
+   header bar on a document viewer. */
+:root.theme-umbrella-corp main > div.h-16 {
+  background: linear-gradient(180deg, #0c0a0a 0%, #060404 100%) !important;
+  border-bottom: 1px solid var(--border-red) !important;
+  border-top: 2px solid rgba(212,20,20,0.65) !important;
+  box-shadow:
+    inset 0 1px 0 0 rgba(255,255,255,0.03),
+    0 0 0 1px rgba(212,20,20,0.12),
+    0 4px 12px rgba(0,0,0,0.5) !important;
+}
+
+/* Header tagline: more aggressive classification feel */
+:root.theme-umbrella-corp .umbrella-corp-tagline {
+  font-family: var(--app-font-mono) !important;
+  color: var(--accent-red) !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.38em !important;
+  text-shadow: 0 0 10px rgba(212,20,20,0.7) !important;
+  border-left: 1px solid rgba(212,20,20,0.5) !important;
+  padding-left: 12px !important;
+}
+
+/* Status chips: upgrade to look like facility control-panel indicators */
+:root.theme-umbrella-corp .umbrella-corp-chip {
+  border: 1px solid rgba(212,20,20,0.6) !important;
+  background: linear-gradient(180deg, rgba(12,4,4,0.95) 0%, rgba(4,0,0,0.98) 100%) !important;
+  box-shadow: inset 0 0 0 1px rgba(212,20,20,0.10), 0 0 8px rgba(212,20,20,0.12) !important;
+  font-size: 9.5px !important;
+  letter-spacing: 0.13em !important;
+  padding: 3px 8px !important;
+}
+
+/* Sidebar footer status rows: monospaced + red dot, slightly tactical */
+:root.theme-umbrella-corp aside .text-\[10\.5px\] {
+  font-family: var(--app-font-mono) !important;
+  letter-spacing: 0.07em !important;
+  font-size: 10px !important;
+}
+
+/* Logout button: blend into the tactical chrome */
+:root.theme-umbrella-corp aside button[data-testid="button-logout"] {
+  font-family: var(--app-font-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: 0.10em !important;
+  text-transform: uppercase !important;
+  border-top-color: rgba(212,20,20,0.3) !important;
+  color: rgba(180,40,40,0.85) !important;
+  transition: color 0.15s, border-color 0.15s !important;
+}
+:root.theme-umbrella-corp aside button[data-testid="button-logout"]:hover {
+  color: #ff3333 !important;
+  border-top-color: rgba(212,20,20,0.6) !important;
+  text-shadow: 0 0 8px rgba(212,20,20,0.5);
 }

@@ -218,12 +218,36 @@ export function Layout({ children }: { children: React.ReactNode }) {
             className="umbrella-corp-confidential mb-2"
             data-testid="confidential-footer"
           >
-            <strong>CONFIDENTIAL</strong>
-            RESTRICTED ACCESS
+            {/* Warning stripe at top */}
+            <div className="uc-danger-stripe" aria-hidden />
+
+            {/* Clearance level row */}
+            <div className="uc-clearance-row">
+              <span className="uc-blink-dot" aria-hidden />
+              <span>CLEARANCE: ALPHA-7</span>
+              <span className="uc-clearance-code">UC-SEC-0</span>
+            </div>
+
+            {/* Classification stamp */}
+            <div className="uc-stamp-row">
+              <strong>⬛ CONFIDENTIAL ⬛</strong>
+            </div>
+            <div className="uc-classification-sub">SCI // NOFORN // ORCON</div>
+
+            {/* Divider */}
             <div className="uc-divider" />
-            UNAUTHORIZED ACCESS IS PROHIBITED
-            <br />
-            ALL ACTIVITY IS LOGGED AND MONITORED
+
+            {/* Access restrictions */}
+            <div className="uc-restriction-line">▶ RESTRICTED ACCESS</div>
+            <div className="uc-warning-line">
+              ⚠ UNAUTHORIZED ACCESS IS PROHIBITED
+            </div>
+            <div className="uc-restriction-line">
+              ALL ACTIVITY IS LOGGED AND MONITORED
+            </div>
+
+            {/* Warning stripe at bottom */}
+            <div className="uc-danger-stripe" aria-hidden />
           </div>
           <div className="flex items-center gap-2 text-[10.5px] text-muted-foreground">
             <span className="w-1.5 h-1.5 rounded-full bg-green-600" />
