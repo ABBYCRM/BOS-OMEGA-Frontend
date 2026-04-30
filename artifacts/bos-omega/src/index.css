@@ -1469,14 +1469,21 @@
 }
 
 /* ── Clean main content area — no pattern bleed ──────────────────── */
-/* Ensure the main area and scrollable content have solid opaque
-   backgrounds so the body hex-grid never bleeds through read/write
-   fields. The aside overflow-hidden (set in JSX) stops the RESTRICTED
-   watermark from spilling into this area too. */
+/* Matrix rain sits at z-index:0 behind main (z-index:10). Main and its
+   scroll container are transparent so the canvas shows through the
+   gutters between cards. The topbar retains a solid coat so the header
+   chrome stays readable. Cards / inputs stay fully opaque (rules below)
+   so the matrix never bleeds through read/write surfaces. */
 :root.theme-umbrella-corp main {
-  background-color: var(--bg-root) !important;
+  background-color: transparent !important;
+  background-image: none !important;
 }
 :root.theme-umbrella-corp main .flex-1.overflow-y-auto {
+  background-color: transparent !important;
+  background-image: none !important;
+}
+/* Top-bar: keep a solid base so header text stays crisp */
+:root.theme-umbrella-corp main > div.h-16 {
   background-color: var(--bg-root) !important;
   background-image: none !important;
 }
@@ -1501,7 +1508,8 @@
 /* Sidebar: slightly more opaque carbon panel + a double border effect on
    the right edge for a "security door frame" look. */
 :root.theme-umbrella-corp aside.bg-sidebar {
-  background: linear-gradient(180deg, #040404 0%, #070707 100%) !important;
+  /* Slightly translucent so the matrix canvas bleeds through very faintly */
+  background: linear-gradient(180deg, rgba(4,4,4,0.88) 0%, rgba(7,7,7,0.90) 100%) !important;
   border-right: 2px solid var(--border-red) !important;
   box-shadow:
     inset -3px 0 0 0 rgba(212,20,20,0.12),
