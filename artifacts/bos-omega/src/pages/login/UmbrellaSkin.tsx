@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef } from "react";
-import { motion, useMotionValue, useSpring, useTransform } from "framer-motion";
+import {
+  motion,
+  useMotionValue,
+  useReducedMotion,
+  useSpring,
+  useTransform,
+} from "framer-motion";
 import type { LoginSkinProps } from "./types";
 
 export function UmbrellaSkin(props: LoginSkinProps) {
@@ -20,6 +26,10 @@ export function UmbrellaSkin(props: LoginSkinProps) {
   } = props;
 
   const cardRef = useRef<HTMLDivElement | null>(null);
+  // Honor the OS-level "reduce motion" preference. When true, all
+  // cursor-driven transforms (card tilt + biohazard parallax) stay at
+  // their neutral 0 values so the page is visually static.
+  const prefersReducedMotion = useReducedMotion();
 
   // Mouse-tracked 3D tilt. Mouse position is normalised to [-0.5, 0.5] over
   // the card's bounding rect; spring smoothing avoids jittery tracking.
@@ -34,6 +44,21 @@ export function UmbrellaSkin(props: LoginSkinProps) {
   const glareX = useTransform(sx, (v) => `${50 + v * 80}%`);
   const glareY = useTransform(sy, (v) => `${50 + v * 80}%`);
 
+  // Viewport-normalised mouse position [-0.5, 0.5] for the background
+  // biohazard parallax. Kept separate from the card-tilt values above so
+  // neither effect distorts the other. The biohazard drifts COUNTER to
+  // the cursor (typical depth-parallax: distant things move opposite to
+  // the camera) and counter-rotates a few degrees for extra "watching
+  // you" feel.
+  const bx = useMotionValue(0);
+  const by = useMotionValue(0);
+  const bsx = useSpring(bx, { stiffness: 40, damping: 22, mass: 1.2 });
+  const bsy = useSpring(by, { stiffness: 40, damping: 22, mass: 1.2 });
+  const bioTranslateX = useTransform(bsx, (v) => v * -60);
+  const bioTranslateY = useTransform(bsy, (v) => v * -60);
+  const bioRotate = useTransform(bsx, (v) => v * -8);
+  const bioScale = useTransform(bsy, (v) => 1 + Math.abs(v) * 0.04);
+
   // Random terminal id displayed in the chrome — stable per mount, looks like
   // an Umbrella sector code.
   const terminalId = useMemo(() => {
@@ -45,15 +70,25 @@ export function UmbrellaSkin(props: LoginSkinProps) {
   }, []);
 
   useEffect(() => {
+    // Reduced-motion users: leave all cursor-driven motion values at
+    // their neutral 0 baseline (already initialised that way) and skip
+    // attaching the listener entirely.
+    if (prefersReducedMotion) return;
     const onMove = (e: MouseEvent) => {
       const rect = cardRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      mx.set((e.clientX - rect.left) / rect.width - 0.5);
-      my.set((e.clientY - rect.top) / rect.height - 0.5);
+      if (rect) {
+        mx.set((e.clientX - rect.left) / rect.width - 0.5);
+        my.set((e.clientY - rect.top) / rect.height - 0.5);
+      }
+      // Viewport-normalised position for the biohazard parallax layer.
+      const vw = window.innerWidth || 1;
+      const vh = window.innerHeight || 1;
+      bx.set(e.clientX / vw - 0.5);
+      by.set(e.clientY / vh - 0.5);
     };
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
-  }, [mx, my]);
+  }, [mx, my, bx, by, prefersReducedMotion]);
 
   const clearError = () => {
     /* errors auto-clear on input change in the container */
@@ -130,14 +165,24 @@ export function UmbrellaSkin(props: LoginSkinProps) {
           backgroundRepeat: "no-repeat, repeat",
         }}
       />
-      {/* Layer 2: faint biohazard watermark, very large, behind everything */}
-      <div
+      {/* Layer 2: faint biohazard watermark, very large, behind everything.
+          Parallax-drifts opposite the cursor to feel like a distant object
+          behind the UI. Uses spring-smoothed motion values so the drift
+          reads as inertia, not 1:1 tracking. */}
+      <motion.div
         aria-hidden
         className="absolute inset-0 flex items-center justify-center pointer-events-none"
-        style={{ opacity: 0.04 }}
+        style={{
+          opacity: 0.04,
+          x: bioTranslateX,
+          y: bioTranslateY,
+          rotate: bioRotate,
+          scale: bioScale,
+          willChange: "transform",
+        }}
       >
         <BiohazardSVG className="w-[110vmin] h-[110vmin] text-[#dc1e28]" />
-      </div>
+      </motion.div>
       {/* Layer 3: animated red scanline */}
       <div
         aria-hidden
