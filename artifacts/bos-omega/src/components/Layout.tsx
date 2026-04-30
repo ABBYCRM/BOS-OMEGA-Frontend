@@ -120,7 +120,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <div className="relative flex h-screen bg-background overflow-hidden text-foreground">
       {umbrellaCorp && <MatrixRain />}
       {/* Sidebar */}
-      <aside className="relative w-64 flex-shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col overflow-hidden z-10">
+      <aside className="relative w-52 flex-shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col overflow-hidden z-10">
         {/* Brand */}
         <div className="h-16 flex items-center px-5 border-b border-sidebar-border">
           <Link href="/console">
@@ -258,7 +258,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {/* Main */}
       <main className="relative flex-1 overflow-hidden flex flex-col z-10">
         {/* Top bar */}
-        <div className="h-16 border-b border-border flex items-center px-8 gap-4 flex-shrink-0 bg-background">
+        <div className="h-16 border-b border-border flex items-center px-6 gap-4 flex-shrink-0 bg-background">
           <h1 className="text-[15px] font-serif font-semibold text-foreground tracking-tight">
             {currentItem?.label || "BOS-Omega"}
           </h1>
@@ -316,7 +316,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
-          <div className="px-8 py-8 max-w-[1400px] mx-auto">
+          <div className="px-6 py-6 max-w-[1600px] mx-auto">
             {children}
           </div>
         </div>
