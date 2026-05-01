@@ -36,3 +36,9 @@ id = "TwIxGOqKnH0NvJFbPxYNZ"
 uri = "file://BOS-OMEGA.tar.gz"
 type = "unspecified"
 title = "BOS-OMEGA Source Code"
+
+[[outputs]]
+id = "YF3-23xIlFv89w24_UyA5"
+uri = "file://BOS-OMEGA-Brief.pdf"
+type = "pdf"
+title = "BOS-OMEGA Technical Brief"
