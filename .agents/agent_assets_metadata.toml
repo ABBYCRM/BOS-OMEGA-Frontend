@@ -24,3 +24,9 @@ id = "WimROT8rt8eXK5bjIESUk"
 uri = "file://exports/bos-omega-source-20260427-220305.tar.gz"
 type = "unspecified"
 title = "BOS-OMEGA full source code (15M tarball)"
+
+[[outputs]]
+id = "5rRAwukfWy0kpu5ha61HC"
+uri = "file://BOS-OMEGA-Technical-Brief.md"
+type = "text"
+title = "BOS-OMEGA Technical Brief"
