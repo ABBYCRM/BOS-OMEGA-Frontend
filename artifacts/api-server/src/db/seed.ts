@@ -23,7 +23,8 @@ export async function seed() {
     { id: "prov_gemini", name: "Gemini", base_url: "https://generativelanguage.googleapis.com", priority: 3, api_key_env: "GEMINI_API_KEY" },
     { id: "prov_ollama", name: "Ollama", base_url: "http://localhost:11434", priority: 4, api_key_env: null },
     { id: "prov_generic", name: "Generic API", base_url: null, priority: 5, api_key_env: "GENERIC_API_KEY" },
-    { id: "prov_xai", name: "xAI (Grok)", base_url: "https://api.x.ai/v1", priority: 6, api_key_env: "XAI_API_KEY" },
+    { id: "prov_xai",  name: "xAI (Grok)",         base_url: "https://api.x.ai/v1",          priority: 6, api_key_env: "XAI_API_KEY"  },
+    { id: "prov_kimi", name: "Kimi (Moonshot AI)", base_url: "https://api.moonshot.cn/v1", priority: 7, api_key_env: "KIMI_API_KEY" },
   ];
 
   for (const p of providers) {
@@ -63,6 +64,10 @@ export async function seed() {
     { id: "mdl_grok3",        provider_id: "prov_xai", model_name: "grok-3",             tags: ["reasoning", "coding", "research", "structured_output"],      context: 131072, cost_in: 0.003,  cost_out: 0.015,  rel: 0.94, lat: 0.78 },
     { id: "mdl_grok3_mini",   provider_id: "prov_xai", model_name: "grok-3-mini",        tags: ["fast", "cheap", "coding", "structured_output"],              context: 131072, cost_in: 0.0003, cost_out: 0.0005, rel: 0.90, lat: 0.93 },
     { id: "mdl_grok_beta",    provider_id: "prov_xai", model_name: "grok-beta",          tags: ["reasoning", "coding", "structured_output"],                  context: 131072, cost_in: 0.005,  cost_out: 0.015,  rel: 0.91, lat: 0.79 },
+    // Kimi / Moonshot AI — OpenAI-compatible endpoint at https://api.moonshot.cn/v1
+    { id: "mdl_kimi_8k",   provider_id: "prov_kimi", model_name: "moonshot-v1-8k",   tags: ["fast", "cheap", "coding", "structured_output"],                  context: 8000,   cost_in: 0.0012, cost_out: 0.0012, rel: 0.89, lat: 0.92 },
+    { id: "mdl_kimi_32k",  provider_id: "prov_kimi", model_name: "moonshot-v1-32k",  tags: ["reasoning", "coding", "long_context", "structured_output"],      context: 32000,  cost_in: 0.0024, cost_out: 0.0024, rel: 0.91, lat: 0.87 },
+    { id: "mdl_kimi_128k", provider_id: "prov_kimi", model_name: "moonshot-v1-128k", tags: ["reasoning", "long_context", "research", "structured_output"],    context: 128000, cost_in: 0.006,  cost_out: 0.006,  rel: 0.92, lat: 0.82 },
   ];
 
   for (const m of models) {
