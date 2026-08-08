@@ -396,13 +396,11 @@ router.get(
       res.status(400).json({ error: "invalid_scope", allowed: ["task", "conversation"] });
       return;
     }
-    // Hand off to the in-app continuity-bundle GET handler by
-    // synthesizing the same query and reusing the same DB → bundle
-    // pipeline. To keep the route self-contained we duplicate the
-    // minimal logic: visibility-check the ref, then build the payload
-    // via buildContinuityBundle.
     try {
       let inputPayload: Omit<import("../bos/continuityBundle.js").ContinuityBundlePayload, "fidelity_hash" | "format_version">;
+      let scopeTaskId: string | null = null;
+      let scopeConversationId: string | null = null;
+      let scopeConversationTitle: string | null = null;
       if (scope === "task") {
         const [t] = await db
           .select()
@@ -417,13 +415,18 @@ router.get(
           res.status(404).json({ error: "not_found" });
           return;
         }
-        // Minimal payload: input + output of this single task. Use the
-        // existing helper functions from the in-app route for the
-        // scratchpad / continuity / canon context.
+        scopeTaskId = t.id;
+        scopeConversationId = t.conversation_id ?? null;
         const { scratchpad } = await loadScratchpadForUser(r.apiTokenUser.id);
         const continuity = await loadContinuityForUser(r.apiTokenUser.id, t.input_text);
         const canon = await loadCanonContext();
         inputPayload = {
+          exported_at: new Date().toISOString(),
+          source_session_id: r.apiTokenUser.id,
+          scope: "task",
+          task_id: scopeTaskId,
+          conversation_id: scopeConversationId,
+          conversation_title: null,
           canon,
           persona_slot: null,
           budgets: await loadBudgetsForUser(r.apiTokenUser.id),
@@ -431,10 +434,13 @@ router.get(
           continuity,
           turns: [
             {
-              user_input: t.input_text,
-              assistant_answer: t.final_output ?? "",
-              tri_state: (t.tri_state as "GO" | "HOLD" | "ABORT") ?? "GO",
+              task_id: t.id,
               created_at: t.created_at.toISOString(),
+              user_input: t.input_text,
+              assistant_output: t.final_output ?? "",
+              tri_state: t.tri_state ?? "GO",
+              task_type: t.task_type ?? "general",
+              mode: t.mode ?? "single",
             },
           ],
         };
@@ -452,6 +458,8 @@ router.get(
           res.status(404).json({ error: "not_found" });
           return;
         }
+        scopeConversationId = c.id;
+        scopeConversationTitle = c.title;
         const recentRows = await db
           .select()
           .from(tasksTable)
@@ -464,16 +472,25 @@ router.get(
         const continuity = await loadContinuityForUser(r.apiTokenUser.id, seedInput);
         const canon = await loadCanonContext();
         inputPayload = {
+          exported_at: new Date().toISOString(),
+          source_session_id: r.apiTokenUser.id,
+          scope: "conversation",
+          task_id: null,
+          conversation_id: scopeConversationId,
+          conversation_title: scopeConversationTitle,
           canon,
           persona_slot: null,
           budgets: await loadBudgetsForUser(r.apiTokenUser.id),
           scratchpad,
           continuity,
           turns: ordered.map((r2) => ({
-            user_input: r2.input_text,
-            assistant_answer: r2.final_output ?? "",
-            tri_state: (r2.tri_state as "GO" | "HOLD" | "ABORT") ?? "GO",
+            task_id: r2.id,
             created_at: r2.created_at.toISOString(),
+            user_input: r2.input_text,
+            assistant_output: r2.final_output ?? "",
+            tri_state: r2.tri_state ?? "GO",
+            task_type: r2.task_type ?? "general",
+            mode: r2.mode ?? "single",
           })),
         };
       }
