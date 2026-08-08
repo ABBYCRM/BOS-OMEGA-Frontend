@@ -44,7 +44,13 @@ router.get("/memory", requireScope("memory:read"), async (req: Request, res: Res
   }
   const { layer, q, limit, offset } = parsed.data;
   const r = req as ApiTokenRequest;
-  const conditions = [eq(memoryItemsTable.user_id, r.apiTokenUser.id)];
+  // Super-admins see every row; regular users see their own rows plus
+  // any global (user_id IS NULL) rows that predate the user-scoping
+  // migration.
+  const isSuper = r.apiTokenUser.role === "super_admin";
+  const conditions = isSuper
+    ? []
+    : [sql`(${memoryItemsTable.user_id} = ${r.apiTokenUser.id} OR ${memoryItemsTable.user_id} IS NULL)`];
   if (layer) conditions.push(eq(memoryItemsTable.layer, layer));
   if (q) conditions.push(like(memoryItemsTable.title, `%${q}%`));
   try {
@@ -226,10 +232,14 @@ router.get(
     }
     const r = req as ApiTokenRequest;
     try {
+      const isSuper = r.apiTokenUser.role === "super_admin";
+      const where = isSuper
+        ? sql`TRUE`
+        : sql`(${conversationsTable.user_id} = ${r.apiTokenUser.id} OR ${conversationsTable.user_id} IS NULL)`;
       const rows = await db
         .select()
         .from(conversationsTable)
-        .where(eq(conversationsTable.user_id, r.apiTokenUser.id))
+        .where(where)
         .orderBy(desc(conversationsTable.last_active_at))
         .limit(parsed.data.limit)
         .offset(parsed.data.offset);
@@ -275,7 +285,10 @@ router.get("/tasks", requireScope("tasks:read"), async (req: Request, res: Respo
     return;
   }
   const r = req as ApiTokenRequest;
-  const conditions = [eq(tasksTable.user_id, r.apiTokenUser.id)];
+  const isSuper = r.apiTokenUser.role === "super_admin";
+  const conditions = isSuper
+    ? []
+    : [sql`(${tasksTable.user_id} = ${r.apiTokenUser.id} OR ${tasksTable.user_id} IS NULL)`];
   if (parsed.data.tri_state) conditions.push(eq(tasksTable.tri_state, parsed.data.tri_state));
   try {
     const rows = await db
@@ -324,13 +337,33 @@ router.get("/audit", requireScope("audit:read"), async (req: Request, res: Respo
     return;
   }
   const r = req as ApiTokenRequest;
-  const conditions = [eq(auditLogsTable.user_id ?? sql`NULL`, r.apiTokenUser.id)];
-  // The audit_logs table is currently global (no user_id column) — we
-  // filter by task_id and event_type only. Per-user filtering kicks in
-  // once audit_logs has a user_id column. For now, fall through to the
-  // unfiltered query if the caller's tasks touch the rows.
+  // The audit_logs table is global (no user_id column on the canonical
+  // task audit events — the auth audit is a separate route). Super-
+  // admins see every row; regular users see rows for tasks they own
+  // (via task_id membership in their tasks) plus rows with no task
+  // (e.g. AUTH_LOGIN_SUCCESS).
   try {
-    const conds = [];
+    const isSuper = r.apiTokenUser.role === "super_admin";
+    let conds = [];
+    if (!isSuper) {
+      // Find tasks owned by this user (or unscoped) and join audit
+      // rows to that set OR audit rows with no task_id (login events).
+      const ownedTasks = await db
+        .select({ id: tasksTable.id })
+        .from(tasksTable)
+        .where(
+          sql`(${tasksTable.user_id} = ${r.apiTokenUser.id} OR ${tasksTable.user_id} IS NULL)`,
+        );
+      const ids = ownedTasks.map((t) => t.id);
+      if (ids.length === 0) {
+        // No owned tasks — fall through to no-task-id rows only.
+        conds.push(sql`${auditLogsTable.task_id} IS NULL`);
+      } else {
+        conds.push(
+          sql`(${auditLogsTable.task_id} IN ${ids} OR ${auditLogsTable.task_id} IS NULL)`,
+        );
+      }
+    }
     if (parsed.data.event_type) conds.push(eq(auditLogsTable.event_type, parsed.data.event_type));
     if (parsed.data.task_id) conds.push(eq(auditLogsTable.task_id, parsed.data.task_id));
     if (parsed.data.since) conds.push(gte(auditLogsTable.created_at, new Date(parsed.data.since)));
