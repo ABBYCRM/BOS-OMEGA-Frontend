@@ -1080,7 +1080,7 @@
   --radius: .25rem;
 }
 
-/* Body — pitch black with a faint hex grid + soft red top vignette. */
+/* Body — pitch black with an animated hex grid + slow scan + soft red top vignette. */
 :root.theme-umbrella-corp body {
   font-family: var(--app-font-sans);
   color: var(--text-main);
@@ -1092,6 +1092,43 @@
     radial-gradient(ellipse at top, rgba(212,20,20,0.10), transparent 60%);
   background-size: 28px 48px, 28px 48px, 28px 48px, 100% 100%;
   letter-spacing: 0.01em;
+  animation: uc-grid-drift 18s linear infinite;
+  position: relative;
+}
+@keyframes uc-grid-drift {
+  0%   { background-position: 0 0,    0 0,    0 0,    0 0;    }
+  100% { background-position: 28px 48px, 28px 48px, 28px 48px, 0 0; }
+}
+:root.theme-umbrella-corp body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 50% 50%, transparent 0%, rgba(0,0,0,0.55) 100%),
+    repeating-linear-gradient(0deg, rgba(212,20,20,0.05) 0 1px, transparent 1px 3px);
+  animation: uc-scan 6s linear infinite;
+}
+@keyframes uc-scan {
+  0%   { background-position: 0 0, 0 0; }
+  100% { background-position: 0 0, 0 100%; }
+}
+:root.theme-umbrella-corp body::after {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, #d41414 50%, transparent 100%);
+  pointer-events: none;
+  z-index: 1;
+  animation: uc-pulse-bar 2.4s ease-in-out infinite;
+}
+@keyframes uc-pulse-bar {
+  0%, 100% { opacity: 0.4; transform: scaleY(1); }
+  50%      { opacity: 1;   transform: scaleY(2.2); }
 }
 
 /* Headings: command-console caps, white with a thin red bar prefix */

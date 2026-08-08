@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { randomUUID } from "crypto";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { db, apiTokensTable, apiTokenAuditTable } from "@workspace/db";
 import { requireAuth } from "../lib/security/auth.js";
 import {
@@ -120,6 +120,75 @@ router.get("/scopes", (_req: Request, res: Response) => {
 });
 
 const revokeBodySchema = z.object({ reason: z.string().max(500).optional() });
+
+/** DELETE /api/tokens/:id — hard-delete a token row (irreversible).
+ *  Use only after the token is already revoked, or to clean up a
+ *  never-used token you minted by accident. */
+router.delete("/:id", async (req: Request, res: Response) => {
+  const id = req.params.id!;
+  try {
+    const found = await db
+      .select()
+      .from(apiTokensTable)
+      .where(
+        and(eq(apiTokensTable.id, id), eq(apiTokensTable.user_id, req.user!.id)),
+      )
+      .limit(1);
+    const row = found[0];
+    if (!row) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    await db.delete(apiTokensTable).where(eq(apiTokensTable.id, id));
+    await db.insert(apiTokenAuditTable).values({
+      id: randomUUID(),
+      token_id: id,
+      user_id: req.user!.id,
+      event_type: "HARD_DELETE",
+      ip: (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ?? null,
+      user_agent: (req.headers["user-agent"] as string | undefined) ?? null,
+      metadata: { token_name: row.name, previously_revoked: row.revoked_at !== null },
+    });
+    res.status(204).end();
+  } catch (err) {
+    logger.error({ err }, "failed to hard-delete api token");
+    res.status(500).json({ error: "delete_failed" });
+  }
+});
+
+/** DELETE /api/tokens?revoked_only=1 — wipe every revoked token for the
+ *  caller. Used to clean up smoke-test tokens after a deploy. */
+router.delete("/", async (req: Request, res: Response) => {
+  const revokedOnly = String(req.query.revoked_only ?? "0") === "1";
+  try {
+    const conditions = [eq(apiTokensTable.user_id, req.user!.id)];
+    if (revokedOnly) conditions.push(sql`${apiTokensTable.revoked_at} IS NOT NULL`);
+    const found = await db
+      .select({ id: apiTokensTable.id, name: apiTokensTable.name })
+      .from(apiTokensTable)
+      .where(and(...conditions));
+    if (found.length === 0) {
+      res.json({ removed: 0 });
+      return;
+    }
+    await db
+      .delete(apiTokensTable)
+      .where(and(...conditions));
+    await db.insert(apiTokenAuditTable).values({
+      id: randomUUID(),
+      token_id: null,
+      user_id: req.user!.id,
+      event_type: "WIPE_REVOKED",
+      ip: (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ?? null,
+      user_agent: (req.headers["user-agent"] as string | undefined) ?? null,
+      metadata: { removed_count: found.length, names: found.map((r) => r.name) },
+    });
+    res.json({ removed: found.length });
+  } catch (err) {
+    logger.error({ err }, "failed to wipe api tokens");
+    res.status(500).json({ error: "wipe_failed" });
+  }
+});
 
 /** POST /api/tokens/:id/revoke — soft-revoke a token. */
 router.post("/:id/revoke", async (req: Request, res: Response) => {

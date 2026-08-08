@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Key, Copy, Trash2, Plus, X, Check, ShieldAlert, ShieldCheck, Terminal,
-  Eye, EyeOff, AlertTriangle, ExternalLink, Download,
+  Eye, EyeOff, AlertTriangle, ExternalLink, Download, Eraser,
 } from "lucide-react";
 
 // ======================================================================
@@ -110,6 +110,27 @@ async function revokeToken(id: string, reason?: string): Promise<void> {
     throw new Error(err.error ?? `Revoke failed: ${r.status}`);
   }
 }
+async function deleteToken(id: string): Promise<void> {
+  const r = await fetch(`/api/tokens/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!r.ok && r.status !== 204) {
+    const err = await r.json().catch(() => ({}));
+    throw new Error(err.error ?? `Delete failed: ${r.status}`);
+  }
+}
+async function wipeRevokedTokens(): Promise<{ removed: number }> {
+  const r = await fetch(`/api/tokens?revoked_only=1`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    throw new Error(err.error ?? `Wipe failed: ${r.status}`);
+  }
+  return r.json();
+}
 
 function CopyButton({ value, label = "Copy" }: { value: string; label?: string }) {
   const [copied, setCopied] = useState(false);
@@ -203,8 +224,14 @@ function CreateTokenDialog({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [scopeSel, setScopeSel] = useState<Set<string>>(new Set(["memory:read", "tasks:read"]));
   const [psOnly, setPsOnly] = useState(false);
-  const [expiresInDays, setExpiresInDays] = useState<number | "">("");
+  // "never" is the default. The user can pick 30 / 90 / 365 days.
+  const [expiresInDays, setExpiresInDays] = useState<number | "never">("never");
   const [created, setCreated] = useState<ApiTokenCreateResponse | null>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  // Autofocus the name field so the create flow is one keystroke deep
+  useEffect(() => {
+    nameInputRef.current?.focus();
+  }, []);
 
   const create = useMutation({
     mutationFn: createToken,
@@ -307,6 +334,7 @@ function CreateTokenDialog({ onClose }: { onClose: () => void }) {
                 Name
               </label>
               <input
+                ref={nameInputRef}
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -315,6 +343,11 @@ function CreateTokenDialog({ onClose }: { onClose: () => void }) {
                 data-testid="input-token-name"
                 required
               />
+              {!name.trim() && (
+                <p className="text-[10.5px] text-amber-700 mt-1">
+                  Type a label first — the button enables once the name + at least one scope is set.
+                </p>
+              )}
             </div>
 
             <div>
@@ -372,17 +405,23 @@ function CreateTokenDialog({ onClose }: { onClose: () => void }) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-[11.5px] font-medium text-foreground mb-1">
-                  Expires in (days)
+                  Expires
                 </label>
-                <input
-                  type="number"
-                  min={1}
-                  max={365}
-                  value={expiresInDays}
-                  onChange={(e) => setExpiresInDays(e.target.value ? parseInt(e.target.value, 10) : "")}
-                  placeholder="Never"
+                <select
+                  value={expiresInDays === "never" ? "never" : String(expiresInDays)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setExpiresInDays(v === "never" ? "never" : parseInt(v, 10));
+                  }}
                   className="w-full px-3 py-1.5 rounded-md border border-border bg-background text-[12.5px] text-foreground"
-                />
+                  data-testid="select-expiry"
+                >
+                  <option value="never">Never</option>
+                  <option value="30">30 days</option>
+                  <option value="90">90 days</option>
+                  <option value="180">180 days</option>
+                  <option value="365">365 days (1 year)</option>
+                </select>
               </div>
               <label className="flex items-start gap-2 p-2 rounded border border-border bg-background cursor-pointer mt-auto">
                 <input
@@ -476,6 +515,21 @@ export function ApiTokensCard() {
       void qc.invalidateQueries({ queryKey: ["api-tokens-audit"] });
     },
   });
+  const del = useMutation({
+    mutationFn: (id: string) => deleteToken(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["api-tokens"] });
+      void qc.invalidateQueries({ queryKey: ["api-tokens-audit"] });
+    },
+  });
+  const wipe = useMutation({
+    mutationFn: () => wipeRevokedTokens(),
+    onSuccess: (res) => {
+      void qc.invalidateQueries({ queryKey: ["api-tokens"] });
+      void qc.invalidateQueries({ queryKey: ["api-tokens-audit"] });
+      alert(`Wiped ${res.removed} revoked token${res.removed === 1 ? "" : "s"}.`);
+    },
+  });
 
   const rows = useMemo(() => tokens.data?.tokens ?? [], [tokens.data]);
   const activeCount = rows.filter((r) => r.active).length;
@@ -504,10 +558,27 @@ export function ApiTokensCard() {
             for the full surface.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[11px] text-muted-foreground">
             {activeCount} active / {rows.length} total
           </span>
+          {rows.some((r) => r.revoked_at) && (
+            <button
+              type="button"
+              onClick={() => {
+                const revokedCount = rows.filter((r) => r.revoked_at).length;
+                if (confirm(`Wipe ${revokedCount} revoked token${revokedCount === 1 ? "" : "s"}? This removes the rows from the DB. Audit history is kept.`)) {
+                  wipe.mutate();
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary"
+              data-testid="button-wipe-revoked"
+              disabled={wipe.isPending}
+            >
+              <Eraser className="w-3.5 h-3.5" />
+              {wipe.isPending ? "Wiping…" : "Wipe revoked"}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setShowCreate(true)}
@@ -596,20 +667,36 @@ export function ApiTokensCard() {
                     {new Date(t.created_at).toLocaleDateString()}
                   </td>
                   <td className="px-2 py-2 align-top text-right">
-                    {t.active && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (confirm(`Revoke "${t.name}"? This cannot be undone.`)) {
-                            revoke.mutate({ id: t.id, reason: "user revoked" });
-                          }
-                        }}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] text-red-700 hover:bg-red-50"
-                        data-testid={`button-revoke-${t.id}`}
-                      >
-                        <Trash2 className="w-3 h-3" /> Revoke
-                      </button>
-                    )}
+                    <div className="inline-flex items-center gap-1">
+                      {t.active && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm(`Revoke "${t.name}"? The plaintext is already gone — this kills the row from the live UI. You can still hard-delete it after.`)) {
+                              revoke.mutate({ id: t.id, reason: "user revoked" });
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] text-red-700 hover:bg-red-50"
+                          data-testid={`button-revoke-${t.id}`}
+                        >
+                          <Trash2 className="w-3 h-3" /> Revoke
+                        </button>
+                      )}
+                      {t.revoked_at && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm(`Hard-delete "${t.name}"? This removes the row from the DB. Audit history is kept.`)) {
+                              del.mutate(t.id);
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] text-foreground/60 hover:bg-foreground/5 hover:text-foreground"
+                          data-testid={`button-delete-${t.id}`}
+                        >
+                          <Eraser className="w-3 h-3" /> Delete
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -620,6 +707,12 @@ export function ApiTokensCard() {
 
       {revoke.error && (
         <p className="text-[11.5px] text-red-700">{(revoke.error as Error).message}</p>
+      )}
+      {del.error && (
+        <p className="text-[11.5px] text-red-700">{(del.error as Error).message}</p>
+      )}
+      {wipe.error && (
+        <p className="text-[11.5px] text-red-700">{(wipe.error as Error).message}</p>
       )}
 
       <div className="pt-2 border-t border-border">
