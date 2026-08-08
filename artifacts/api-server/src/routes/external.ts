@@ -17,6 +17,7 @@ import {
   BundleParseError,
   CONTINUITY_BUNDLE_VERSION,
   computeCanonHash as computeCanonHashLocal,
+  summarizeCanon as summarizeCanonLocal,
 } from "../bos/continuityBundle.js";
 import { auditLog } from "../bos/auditEngine.js";
 import { getEffectiveBudgets } from "../bos/userBudgets.js";
@@ -684,21 +685,24 @@ async function loadCanonContext() {
     .where(eq(memoryItemsTable.layer, "canon"))
     .orderBy(desc(memoryItemsTable.authority_level), desc(memoryItemsTable.updated_at))
     .limit(100);
+  const canonRows = rows.map((r) => ({ id: r.id, title: r.title, content: r.content }));
   return {
-    hash: computeCanonHashLocal(
-      rows.map((r) => ({ id: r.id, title: r.title, content: r.content })),
-    ),
-    items: rows.map((r) => ({ id: r.id, title: r.title, content: r.content })),
+    hash: computeCanonHashLocal(canonRows),
+    summary: summarizeCanonLocal(canonRows),
+    items_count: canonRows.length,
+    items: canonRows,
   };
 }
 async function loadBudgetsForUser(user_id: string) {
   const b = await getEffectiveBudgets(user_id);
+  // The Zod schema for BundleBudgets wants the field names canon /
+  // continuity / patches / scratchpad (token counts per layer), NOT
+  // the _tokens suffixed field names. Convert here.
   return {
-    canon_tokens: b.canon_tokens,
-    persona_tokens: b.persona_tokens,
-    scratchpad_tokens: b.scratchpad_tokens,
-    continuity_tokens: b.continuity_tokens,
-    recent_turns: b.recent_turns,
+    canon: b.canon_tokens,
+    continuity: b.continuity_tokens,
+    patches: 0, // no separate patches layer yet
+    scratchpad: b.scratchpad_tokens,
   };
 }
 
