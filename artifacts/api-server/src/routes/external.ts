@@ -8,9 +8,12 @@ import {
   auditLogsTable,
   conversationsTable,
   tasksTable,
+  apiTokensTable,
+  apiTokenAuditTable,
 } from "@workspace/db";
 import { requireApiToken, requireScope, type ApiTokenRequest } from "../middlewares/apiTokenAuth.js";
 import { logger } from "../lib/logger.js";
+import { generateApiToken, maskToken } from "../lib/security/apiToken.js";
 import {
   buildContinuityBundle,
   parseContinuityBundle,
@@ -23,6 +26,35 @@ import { auditLog } from "../bos/auditEngine.js";
 import { getEffectiveBudgets } from "../bos/userBudgets.js";
 
 const router = Router();
+
+// Local audit() helper for token-management events (CREATE / USE /
+// USE_FAILED / SCOPE_DENIED / REVOKE / ROTATED). Mirrors the one in
+// middlewares/apiTokenAuth.ts but is defined here so this router can
+// record token events from the rotate path without taking on a
+// cross-router import dependency.
+async function audit(
+  tokenId: string | null,
+  userId: string,
+  eventType: string,
+  req: Request,
+  metadata?: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await db.insert(apiTokenAuditTable).values({
+      id: randomUUID(),
+      token_id: tokenId,
+      user_id: userId,
+      event_type: eventType,
+      ip: (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim()
+        ?? req.socket.remoteAddress
+        ?? null,
+      user_agent: (req.headers["user-agent"] as string | undefined) ?? null,
+      metadata: metadata ?? null,
+    });
+  } catch (err) {
+    logger.error({ err, eventType }, "failed to write api_token_audit row");
+  }
+}
 
 /** All external endpoints are token-auth only. */
 router.use(requireApiToken);
@@ -762,6 +794,69 @@ router.get("/me", (req: Request, res: Response) => {
 /** GET /api/external/health — token-auth liveness check. */
 router.get("/health", (_req: Request, res: Response) => {
   res.json({ ok: true, ts: new Date().toISOString() });
+});
+
+/** POST /api/external/tokens/:id/rotate — soft-revoke the named token
+ *  and mint a fresh plaintext that is returned EXACTLY ONCE in the
+ *  response. The new plaintext is the only thing the caller can use
+ *  to authenticate; we never store it.
+ *
+ *  Recovery flow for a lost plaintext: hit this endpoint with the
+ *  token's id, copy the new plaintext, update the PowerShell bridge.
+ *
+ *  Auth: caller must present ANY active token with the `tokens:manage`
+ *  scope. Non-super-admin callers can only rotate their own tokens. */
+router.post("/tokens/:id/rotate", async (req: Request, res: Response) => {
+  const r = req as ApiTokenRequest;
+  if (!r.apiTokenScopes.has("tokens:manage" as never)) {
+    void audit(
+      r.apiToken.id, r.apiTokenUser.id, "SCOPE_DENIED", req,
+      { required: ["tokens:manage"], granted: Array.from(r.apiTokenScopes) },
+    );
+    res.status(403).json({ error: "scope_denied", required: ["tokens:manage"] });
+    return;
+  }
+  const id = req.params.id!;
+  const isSuper = r.apiTokenUser.role === "super_admin";
+  const [existing] = await db.select().from(apiTokensTable).where(eq(apiTokensTable.id, id));
+  if (!existing) {
+    res.status(404).json({ error: "not_found" });
+    return;
+  }
+  if (!isSuper && existing.user_id !== r.apiTokenUser.id) {
+    res.status(403).json({ error: "not_your_token" });
+    return;
+  }
+  const { plaintext, prefix, hash } = generateApiToken();
+  const newId = randomUUID();
+  const now = new Date();
+  await db.insert(apiTokensTable).values({
+    id: newId,
+    user_id: existing.user_id,
+    name: `${existing.name} (rotated ${now.toISOString().slice(0, 10)})`,
+    token_hash: hash,
+    token_prefix: prefix,
+    scopes: existing.scopes ?? [],
+    expires_at: existing.expires_at,
+    power_shell_only: existing.power_shell_only,
+  });
+  await db.update(apiTokensTable)
+    .set({ revoked_at: now, revoked_reason: `rotated to ${newId}` })
+    .where(eq(apiTokensTable.id, id));
+  await audit(id, r.apiTokenUser.id, "ROTATED", req, { replaced_by: newId });
+  await audit(newId, r.apiTokenUser.id, "CREATE", req, { rotated_from: id });
+  res.status(201).json({
+    ok: true,
+    rotated: { old_id: id, old_name: existing.name, old_mask: maskToken(existing.token_prefix) },
+    new_token: {
+      id: newId,
+      name: `${existing.name} (rotated ${now.toISOString().slice(0, 10)})`,
+      plaintext,
+      mask: maskToken(prefix),
+      scopes: existing.scopes ?? [],
+      warning: "Save this plaintext now. It is not stored on the server and cannot be shown again.",
+    },
+  });
 });
 
 export default router;

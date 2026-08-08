@@ -76,6 +76,15 @@ export const API_TOKEN_SCOPES = [
   "audit:read",
   "continuity:export",
   "continuity:import",
+  // Tuning subsystem — the operator's "knobs" surface. Read dumps the
+  // current state of every tunable in one call; write applies changes
+  // (canon CRUD, provider priority, persona, generation params).
+  "tuning:read",
+  "tuning:write",
+  // Token management — rotate (revoke + mint a new plaintext) is the
+  // recovery path for a lost token; reveal is intentionally NOT in this
+  // list because we never store the plaintext server-side.
+  "tokens:manage",
 ] as const;
 
 export type ApiTokenScope = (typeof API_TOKEN_SCOPES)[number];

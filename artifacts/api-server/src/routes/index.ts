@@ -22,6 +22,7 @@ import powershellRouter from "./powershell.js";
 import v1Router from "./v1/index.js";
 import apiTokensRouter from "./apiTokens.js";
 import externalRouter from "./external.js";
+import tuningRouter from "./tuning.js";
 import { requireAuth } from "../lib/security/auth.js";
 import { readLimiter, writeLimiter } from "../lib/security/rateLimit.js";
 
@@ -69,6 +70,11 @@ router.use("/v1", v1Router);
 // for the auth chain. Registered BEFORE the global requireAuth gate
 // so the session-cookie check does not short-circuit token auth.
 router.use("/external", externalRouter);
+// Tuning subsystem (mounted under /api/external/tuning). Lives next
+// to /api/external/* so a single Bearer token covers the whole
+// external surface: data (memory/conversations/tasks) + ops
+// (tuning/tokens).
+router.use("/external/tuning", tuningRouter);
 
 // ---- Authenticated ----
 // Everything below requires a valid admin session.
