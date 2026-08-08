@@ -14,6 +14,30 @@ async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
 
+  // Migration runner — bundled separately so the production image
+  // doesn't need `pg` resolvable at runtime (the api-server's main
+  // bundle embeds it; migrate.mjs is a one-shot ESM that we want
+  // runnable before the main bundle boots).
+  await esbuild({
+    entryPoints: [path.resolve(artifactDir, "migrate.mjs")],
+    platform: "node",
+    bundle: true,
+    format: "esm",
+    outfile: path.resolve(distDir, "migrate.mjs"),
+    outExtension: { ".js": ".mjs" },
+    logLevel: "info",
+    banner: {
+      js: `import { createRequire as __bannerCrReq } from 'node:module';
+import __bannerPath from 'node:path';
+import __bannerUrl from 'node:url';
+
+globalThis.require = __bannerCrReq(import.meta.url);
+globalThis.__filename = __bannerUrl.fileURLToPath(import.meta.url);
+globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
+    `,
+    },
+  });
+
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/index.ts")],
     platform: "node",
