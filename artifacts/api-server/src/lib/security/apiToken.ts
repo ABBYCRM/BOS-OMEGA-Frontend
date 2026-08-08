@@ -19,14 +19,28 @@ import { createHash, randomBytes } from "crypto";
  */
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+// 62. 256 % 62 = 8, so a naive `byte % 62` would bias chars at indices
+// 0..7 by ~0.3% each. Rejection sampling on the largest power-of-2
+// multiple that fits in a byte (248 = 4*62) keeps the distribution flat.
+const ALPHABET_MAX = 248;
 const PREFIX_LEN = 16;
 const SECRET_LEN = 40;
 
 function randomChars(n: number): string {
-  const bytes = randomBytes(n);
+  // Over-allocate: ~n * 62/61 bytes are enough on average; pad +20% for
+  // the rejection-sampling tail so we never loop.
+  const buf = randomBytes(Math.ceil((n * 256) / ALPHABET_MAX) + 8);
   let out = "";
-  for (let i = 0; i < n; i++) {
-    out += ALPHABET[bytes[i]! % ALPHABET.length];
+  let i = 0;
+  while (out.length < n && i < buf.length) {
+    const b = buf[i++]!;
+    if (b < ALPHABET_MAX) out += ALPHABET[b % ALPHABET.length];
+  }
+  // Extremely unlikely (p < 1e-30 for the configured lengths) — but
+  // if the byte stream was exhausted, top up with a second call.
+  while (out.length < n) {
+    const b = randomBytes(1)[0]!;
+    if (b < ALPHABET_MAX) out += ALPHABET[b % ALPHABET.length];
   }
   return out;
 }
@@ -70,15 +84,6 @@ export const ALL_SCOPES: ReadonlyArray<ApiTokenScope> = API_TOKEN_SCOPES;
 
 export function isScope(s: string): s is ApiTokenScope {
   return (API_TOKEN_SCOPES as readonly string[]).includes(s);
-}
-
-/** Extract the prefix portion of a token, for fast lookup. Returns
- *  null if the input doesn't look like a BOS token. */
-export function tokenPrefix(plaintext: string): string | null {
-  if (!plaintext.startsWith("bos_")) return null;
-  const parts = plaintext.split("_");
-  if (parts.length !== 3) return null;
-  return parts[1] ?? null;
 }
 
 /** A masked display form of a token. The full plaintext is never

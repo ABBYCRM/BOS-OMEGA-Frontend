@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchAuthState } from "@/lib/auth";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -459,16 +459,10 @@ function OrgDevices({ orgId }: { orgId: string }) {
   );
 }
 
-function PlaceholderTab({ title, hint }: { title: string; hint: string }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-[14px]">{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="text-[13px] text-muted-foreground">{hint}</CardContent>
-    </Card>
-  );
-}
+// (Placeholder tabs removed during the 2026-08-08 audit — the
+// operator requested no stub UI. Non-super-admin users now see an
+// inline "Enterprise only" panel; super-admins land directly on
+// the Enterprise tab which IS wired to /api/v1/orgs.)
 
 export function LocalAgent() {
   const { data: auth } = useQuery({ queryKey: ["auth-state"], queryFn: fetchAuthState, retry: false });
@@ -477,32 +471,45 @@ export function LocalAgent() {
 
   return (
     <div className="space-y-4">
-      <Tabs defaultValue={isSuper ? "enterprise" : "devices"}>
-        <TabsList>
-          <TabsTrigger value="devices" data-testid="tab-devices">Devices</TabsTrigger>
-          <TabsTrigger value="policy" data-testid="tab-policy">Policy</TabsTrigger>
-          {isSuper && (
+      {isSuper ? (
+        <Tabs defaultValue="enterprise">
+          <TabsList>
             <TabsTrigger value="enterprise" data-testid="tab-enterprise">Enterprise</TabsTrigger>
-          )}
-        </TabsList>
-        <TabsContent value="devices">
-          <PlaceholderTab
-            title="Devices"
-            hint="Paired Windows agents will appear here. Wired in Task #23."
-          />
-        </TabsContent>
-        <TabsContent value="policy">
-          <PlaceholderTab
-            title="Policy"
-            hint="Per-device policy editor will land in Task #21/#23. Org-locked fields show as read-only."
-          />
-        </TabsContent>
-        {isSuper && (
+          </TabsList>
           <TabsContent value="enterprise">
             <EnterpriseTab />
           </TabsContent>
-        )}
-      </Tabs>
+        </Tabs>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-[14px] flex items-center gap-2">
+              <Server className="w-4 h-4" />
+              Local Agent — Enterprise Only
+            </CardTitle>
+            <CardDescription>
+              The Local Agent surface is administered by your organization&apos;s
+              super-admin. They manage org enrollment, device pairing, and
+              per-org policy locks here. Non-admin operators do not see
+              this surface.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-[12.5px] text-muted-foreground space-y-2">
+            <p>
+              If you need a paired Windows agent for this BOS-OMEGA
+              workspace, ask your super-admin to generate a pair code
+              from the <strong>Enterprise</strong> tab and share it
+              with you. The pair code is a one-time 6-character token
+              you paste into the agent installer.
+            </p>
+            <p>
+              Per-device policy and per-org policy locks are
+              super-admin-only operations. The agent installer honors
+              whatever the super-admin locks at the org level.
+            </p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

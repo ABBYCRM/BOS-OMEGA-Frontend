@@ -4,6 +4,7 @@ import {
   Key, Copy, Trash2, Plus, X, Check, ShieldAlert, ShieldCheck, Terminal,
   Eye, EyeOff, AlertTriangle, ExternalLink, Download, Eraser,
 } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
 
 // ======================================================================
 // API Tokens — Settings card
@@ -527,7 +528,10 @@ export function ApiTokensCard() {
     onSuccess: (res) => {
       void qc.invalidateQueries({ queryKey: ["api-tokens"] });
       void qc.invalidateQueries({ queryKey: ["api-tokens-audit"] });
-      alert(`Wiped ${res.removed} revoked token${res.removed === 1 ? "" : "s"}.`);
+      toast({
+        title: "Wiped revoked tokens",
+        description: `Removed ${res.removed} revoked token${res.removed === 1 ? "" : "s"}.`,
+      });
     },
   });
 

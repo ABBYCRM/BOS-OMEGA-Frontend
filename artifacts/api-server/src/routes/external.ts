@@ -142,10 +142,15 @@ router.patch(
     }
     const r = req as ApiTokenRequest;
     const id = req.params.id!;
+    const isSuper = r.apiTokenUser.role === "super_admin";
     const [existing] = await db
       .select()
       .from(memoryItemsTable)
-      .where(and(eq(memoryItemsTable.id, id), eq(memoryItemsTable.user_id, r.apiTokenUser.id)));
+      .where(
+        isSuper
+          ? eq(memoryItemsTable.id, id)
+          : and(eq(memoryItemsTable.id, id), eq(memoryItemsTable.user_id, r.apiTokenUser.id)),
+      );
     if (!existing) {
       res.status(404).json({ error: "not_found" });
       return;
@@ -184,10 +189,15 @@ router.delete(
   async (req: Request, res: Response) => {
     const r = req as ApiTokenRequest;
     const id = req.params.id!;
+    const isSuper = r.apiTokenUser.role === "super_admin";
     const [existing] = await db
       .select()
       .from(memoryItemsTable)
-      .where(and(eq(memoryItemsTable.id, id), eq(memoryItemsTable.user_id, r.apiTokenUser.id)));
+      .where(
+        isSuper
+          ? eq(memoryItemsTable.id, id)
+          : and(eq(memoryItemsTable.id, id), eq(memoryItemsTable.user_id, r.apiTokenUser.id)),
+      );
     if (!existing) {
       res.status(404).json({ error: "not_found" });
       return;
@@ -258,10 +268,15 @@ router.get(
   requireScope("conversations:read"),
   async (req: Request, res: Response) => {
     const r = req as ApiTokenRequest;
+    const isSuper = r.apiTokenUser.role === "super_admin";
     const [row] = await db
       .select()
       .from(conversationsTable)
-      .where(and(eq(conversationsTable.id, req.params.id!), eq(conversationsTable.user_id, r.apiTokenUser.id)));
+      .where(
+        isSuper
+          ? eq(conversationsTable.id, req.params.id!)
+          : and(eq(conversationsTable.id, req.params.id!), eq(conversationsTable.user_id, r.apiTokenUser.id)),
+      );
     if (!row) {
       res.status(404).json({ error: "not_found" });
       return;
@@ -309,10 +324,15 @@ router.get("/tasks", requireScope("tasks:read"), async (req: Request, res: Respo
 /** GET /api/external/tasks/:id — get one task with full output. */
 router.get("/tasks/:id", requireScope("tasks:read"), async (req: Request, res: Response) => {
   const r = req as ApiTokenRequest;
+  const isSuper = r.apiTokenUser.role === "super_admin";
   const [row] = await db
     .select()
     .from(tasksTable)
-    .where(and(eq(tasksTable.id, req.params.id!), eq(tasksTable.user_id, r.apiTokenUser.id)));
+    .where(
+      isSuper
+        ? eq(tasksTable.id, req.params.id!)
+        : and(eq(tasksTable.id, req.params.id!), eq(tasksTable.user_id, r.apiTokenUser.id)),
+    );
   if (!row) {
     res.status(404).json({ error: "not_found" });
     return;
@@ -418,6 +438,13 @@ router.get(
         }
         scopeTaskId = t.id;
         scopeConversationId = t.conversation_id ?? null;
+        // The continuity bundle includes the caller's full memory
+        // surface (canon, scratchpad, continuity). For a super-admin
+        // export of a global / other-user's task, ship the caller's
+        // own memory context (which includes the global canon via the
+        // IS-NULL branch in loadScratchpadForUser). This matches the
+        // in-app behavior: exports always rehydrate the importing
+        // user's own memory state, not the source's.
         const { scratchpad } = await loadScratchpadForUser(r.apiTokenUser.id);
         const continuity = await loadContinuityForUser(r.apiTokenUser.id, t.input_text);
         const canon = await loadCanonContext();
@@ -468,6 +495,9 @@ router.get(
           .orderBy(desc(tasksTable.created_at))
           .limit(10);
         const ordered = recentRows.slice().reverse();
+        // Same rationale as the task branch: ship the caller's own
+        // memory context (which includes the global canon), not the
+        // source conversation owner's.
         const { scratchpad } = await loadScratchpadForUser(r.apiTokenUser.id);
         const seedInput = ordered[0]?.input_text ?? "";
         const continuity = await loadContinuityForUser(r.apiTokenUser.id, seedInput);

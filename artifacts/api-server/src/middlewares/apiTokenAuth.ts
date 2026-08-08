@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import { eq, and, isNull, gt, sql } from "drizzle-orm";
+import { eq, and, isNull, sql } from "drizzle-orm";
 import { db, apiTokensTable, apiTokenAuditTable, type ApiToken, type User } from "@workspace/db";
 import { randomUUID } from "crypto";
 import { logger } from "../lib/logger.js";
