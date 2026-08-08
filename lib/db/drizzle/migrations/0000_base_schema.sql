@@ -1,4 +1,4 @@
-CREATE TABLE "llm_providers" (
+CREATE TABLE IF NOT EXISTS "llm_providers" (
 	"id" text PRIMARY KEY NOT NULL,
 	"name" text NOT NULL,
 	"base_url" text,
@@ -16,7 +16,7 @@ CREATE TABLE "llm_providers" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "llm_models" (
+CREATE TABLE IF NOT EXISTS "llm_models" (
 	"id" text PRIMARY KEY NOT NULL,
 	"provider_id" text NOT NULL,
 	"model_name" text NOT NULL,
@@ -30,7 +30,7 @@ CREATE TABLE "llm_models" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "tasks" (
+CREATE TABLE IF NOT EXISTS "tasks" (
 	"id" text PRIMARY KEY NOT NULL,
 	"user_id" text,
 	"input_text" text NOT NULL,
@@ -45,7 +45,7 @@ CREATE TABLE "tasks" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "model_attempts" (
+CREATE TABLE IF NOT EXISTS "model_attempts" (
 	"id" text PRIMARY KEY NOT NULL,
 	"task_id" text NOT NULL,
 	"provider" text NOT NULL,
@@ -63,7 +63,7 @@ CREATE TABLE "model_attempts" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "validation_results" (
+CREATE TABLE IF NOT EXISTS "validation_results" (
 	"id" text PRIMARY KEY NOT NULL,
 	"task_id" text NOT NULL,
 	"attempt_id" text,
@@ -76,7 +76,7 @@ CREATE TABLE "validation_results" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "fallback_events" (
+CREATE TABLE IF NOT EXISTS "fallback_events" (
 	"id" text PRIMARY KEY NOT NULL,
 	"task_id" text NOT NULL,
 	"from_provider" text,
@@ -87,7 +87,7 @@ CREATE TABLE "fallback_events" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "provider_health" (
+CREATE TABLE IF NOT EXISTS "provider_health" (
 	"id" text PRIMARY KEY NOT NULL,
 	"provider_id" text NOT NULL,
 	"status" text DEFAULT 'HEALTHY' NOT NULL,
@@ -101,7 +101,7 @@ CREATE TABLE "provider_health" (
 	CONSTRAINT "provider_health_provider_id_unique" UNIQUE("provider_id")
 );
 --> statement-breakpoint
-CREATE TABLE "memory_items" (
+CREATE TABLE IF NOT EXISTS "memory_items" (
 	"id" text PRIMARY KEY NOT NULL,
 	"user_id" text,
 	"layer" text DEFAULT 'scratchpad' NOT NULL,
@@ -114,7 +114,7 @@ CREATE TABLE "memory_items" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "audit_logs" (
+CREATE TABLE IF NOT EXISTS "audit_logs" (
 	"id" text PRIMARY KEY NOT NULL,
 	"task_id" text,
 	"event_type" text NOT NULL,
@@ -123,7 +123,7 @@ CREATE TABLE "audit_logs" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "execution_runs" (
+CREATE TABLE IF NOT EXISTS "execution_runs" (
 	"id" text PRIMARY KEY NOT NULL,
 	"task_id" text,
 	"mode" text NOT NULL,
@@ -136,7 +136,7 @@ CREATE TABLE "execution_runs" (
 	"completed_at" timestamp
 );
 --> statement-breakpoint
-CREATE TABLE "series_passes" (
+CREATE TABLE IF NOT EXISTS "series_passes" (
 	"id" text PRIMARY KEY NOT NULL,
 	"run_id" text,
 	"pass_number" integer NOT NULL,
@@ -152,7 +152,7 @@ CREATE TABLE "series_passes" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "parallel_agents" (
+CREATE TABLE IF NOT EXISTS "parallel_agents" (
 	"id" text PRIMARY KEY NOT NULL,
 	"run_id" text,
 	"provider" text NOT NULL,
@@ -167,7 +167,7 @@ CREATE TABLE "parallel_agents" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "synthesis_reports" (
+CREATE TABLE IF NOT EXISTS "synthesis_reports" (
 	"id" text PRIMARY KEY NOT NULL,
 	"run_id" text,
 	"consensus_points" text[],
@@ -179,7 +179,7 @@ CREATE TABLE "synthesis_reports" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "tri_state_decisions" (
+CREATE TABLE IF NOT EXISTS "tri_state_decisions" (
 	"id" text PRIMARY KEY NOT NULL,
 	"task_id" text,
 	"go_score" real NOT NULL,
@@ -192,7 +192,7 @@ CREATE TABLE "tri_state_decisions" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "attachments" (
+CREATE TABLE IF NOT EXISTS "attachments" (
 	"id" text PRIMARY KEY NOT NULL,
 	"task_id" text,
 	"user_id" text,
@@ -212,7 +212,7 @@ CREATE TABLE "attachments" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "users" (
+CREATE TABLE IF NOT EXISTS "users" (
 	"id" text PRIMARY KEY NOT NULL,
 	"email" text NOT NULL,
 	"password_hash" text NOT NULL,
@@ -223,7 +223,7 @@ CREATE TABLE "users" (
 	"last_login_at" timestamp
 );
 --> statement-breakpoint
-CREATE TABLE "bos_agent_policies" (
+CREATE TABLE IF NOT EXISTS "bos_agent_policies" (
 	"id" text PRIMARY KEY NOT NULL,
 	"device_id" text NOT NULL,
 	"org_id" text,
@@ -233,7 +233,7 @@ CREATE TABLE "bos_agent_policies" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "bos_approval_tokens" (
+CREATE TABLE IF NOT EXISTS "bos_approval_tokens" (
 	"id" text PRIMARY KEY NOT NULL,
 	"task_request_id" text NOT NULL,
 	"device_id" text NOT NULL,
@@ -246,7 +246,7 @@ CREATE TABLE "bos_approval_tokens" (
 	"signature" text NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "bos_audit_log" (
+CREATE TABLE IF NOT EXISTS "bos_audit_log" (
 	"id" text PRIMARY KEY NOT NULL,
 	"device_id" text,
 	"org_id" text,
@@ -260,7 +260,7 @@ CREATE TABLE "bos_audit_log" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "bos_devices" (
+CREATE TABLE IF NOT EXISTS "bos_devices" (
 	"id" text PRIMARY KEY NOT NULL,
 	"org_id" text,
 	"install_mode" text DEFAULT 'INDIVIDUAL_CONSENT' NOT NULL,
@@ -276,12 +276,12 @@ CREATE TABLE "bos_devices" (
 	CONSTRAINT "bos_devices_install_mode_check" CHECK ("bos_devices"."install_mode" IN ('INDIVIDUAL_CONSENT', 'ADMIN_DEPLOYMENT'))
 );
 --> statement-breakpoint
-CREATE TABLE "bos_install_modes" (
+CREATE TABLE IF NOT EXISTS "bos_install_modes" (
 	"code" text PRIMARY KEY NOT NULL,
 	"description" text NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "bos_org_policy_overrides" (
+CREATE TABLE IF NOT EXISTS "bos_org_policy_overrides" (
 	"id" text PRIMARY KEY NOT NULL,
 	"org_id" text NOT NULL,
 	"policy_field_path" text NOT NULL,
@@ -290,7 +290,7 @@ CREATE TABLE "bos_org_policy_overrides" (
 	"set_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "bos_orgs" (
+CREATE TABLE IF NOT EXISTS "bos_orgs" (
 	"id" text PRIMARY KEY NOT NULL,
 	"slug" text NOT NULL,
 	"display_name" text NOT NULL,
@@ -301,7 +301,7 @@ CREATE TABLE "bos_orgs" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "bos_pair_codes" (
+CREATE TABLE IF NOT EXISTS "bos_pair_codes" (
 	"id" text PRIMARY KEY NOT NULL,
 	"code_hash" text NOT NULL,
 	"created_by_user_id" text NOT NULL,
@@ -311,7 +311,7 @@ CREATE TABLE "bos_pair_codes" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "bos_task_executions" (
+CREATE TABLE IF NOT EXISTS "bos_task_executions" (
 	"id" text PRIMARY KEY NOT NULL,
 	"task_request_id" text NOT NULL,
 	"approval_token_id" text NOT NULL,
@@ -325,7 +325,7 @@ CREATE TABLE "bos_task_executions" (
 	"recorded_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "bos_task_requests" (
+CREATE TABLE IF NOT EXISTS "bos_task_requests" (
 	"id" text PRIMARY KEY NOT NULL,
 	"device_id" text NOT NULL,
 	"org_id" text,
@@ -337,7 +337,7 @@ CREATE TABLE "bos_task_requests" (
 	"decided_at" timestamp
 );
 --> statement-breakpoint
-CREATE TABLE "user_memory_budgets" (
+CREATE TABLE IF NOT EXISTS "user_memory_budgets" (
 	"user_id" text PRIMARY KEY NOT NULL,
 	"canon_budget" integer DEFAULT 3000 NOT NULL,
 	"continuity_budget" integer DEFAULT 1500 NOT NULL,
@@ -346,7 +346,7 @@ CREATE TABLE "user_memory_budgets" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "conversations" (
+CREATE TABLE IF NOT EXISTS "conversations" (
 	"id" text PRIMARY KEY NOT NULL,
 	"user_id" text NOT NULL,
 	"title" text NOT NULL,
@@ -356,7 +356,7 @@ CREATE TABLE "conversations" (
 	"archived" boolean DEFAULT false NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "lattice_exports" (
+CREATE TABLE IF NOT EXISTS "lattice_exports" (
 	"id" text PRIMARY KEY NOT NULL,
 	"user_id" text NOT NULL,
 	"fidelity_sha256" text NOT NULL,
@@ -365,7 +365,7 @@ CREATE TABLE "lattice_exports" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "image_quota_overrides" (
+CREATE TABLE IF NOT EXISTS "image_quota_overrides" (
 	"user_id" text PRIMARY KEY NOT NULL,
 	"max_images_per_day" integer,
 	"max_usd_cents_per_day" integer,
@@ -380,23 +380,23 @@ ALTER TABLE "series_passes" ADD CONSTRAINT "series_passes_run_id_execution_runs_
 ALTER TABLE "parallel_agents" ADD CONSTRAINT "parallel_agents_run_id_execution_runs_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."execution_runs"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "synthesis_reports" ADD CONSTRAINT "synthesis_reports_run_id_execution_runs_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."execution_runs"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "bos_devices" ADD CONSTRAINT "bos_devices_install_mode_bos_install_modes_code_fk" FOREIGN KEY ("install_mode") REFERENCES "public"."bos_install_modes"("code") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "tasks_conversation_id_created_at_idx" ON "tasks" USING btree ("conversation_id","created_at");--> statement-breakpoint
-CREATE INDEX "attachments_task_id_idx" ON "attachments" USING btree ("task_id");--> statement-breakpoint
-CREATE INDEX "attachments_sha256_idx" ON "attachments" USING btree ("sha256");--> statement-breakpoint
-CREATE UNIQUE INDEX "users_email_unique" ON "users" USING btree ("email");--> statement-breakpoint
-CREATE INDEX "bos_agent_policies_device_idx" ON "bos_agent_policies" USING btree ("device_id");--> statement-breakpoint
-CREATE INDEX "bos_approval_tokens_request_idx" ON "bos_approval_tokens" USING btree ("task_request_id");--> statement-breakpoint
-CREATE INDEX "bos_audit_log_device_idx" ON "bos_audit_log" USING btree ("device_id","created_at");--> statement-breakpoint
-CREATE INDEX "bos_audit_log_org_idx" ON "bos_audit_log" USING btree ("org_id","created_at");--> statement-breakpoint
-CREATE INDEX "bos_audit_log_event_idx" ON "bos_audit_log" USING btree ("event_type");--> statement-breakpoint
-CREATE INDEX "bos_devices_org_idx" ON "bos_devices" USING btree ("org_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "bos_devices_pubkey_unique" ON "bos_devices" USING btree ("device_pubkey");--> statement-breakpoint
-CREATE UNIQUE INDEX "bos_org_policy_overrides_org_path_unique" ON "bos_org_policy_overrides" USING btree ("org_id","policy_field_path");--> statement-breakpoint
-CREATE UNIQUE INDEX "bos_orgs_slug_unique" ON "bos_orgs" USING btree ("slug");--> statement-breakpoint
-CREATE UNIQUE INDEX "bos_pair_codes_code_hash_unique" ON "bos_pair_codes" USING btree ("code_hash");--> statement-breakpoint
-CREATE INDEX "bos_task_executions_request_idx" ON "bos_task_executions" USING btree ("task_request_id");--> statement-breakpoint
-CREATE INDEX "bos_task_executions_org_idx" ON "bos_task_executions" USING btree ("org_id");--> statement-breakpoint
-CREATE INDEX "bos_task_requests_device_idx" ON "bos_task_requests" USING btree ("device_id");--> statement-breakpoint
-CREATE INDEX "bos_task_requests_org_idx" ON "bos_task_requests" USING btree ("org_id");--> statement-breakpoint
-CREATE INDEX "conversations_user_idx" ON "conversations" USING btree ("user_id","last_active_at");--> statement-breakpoint
-CREATE INDEX "lattice_exports_user_idx" ON "lattice_exports" USING btree ("user_id","created_at");
+CREATE INDEX IF NOT EXISTS "tasks_conversation_id_created_at_idx" ON "tasks" USING btree ("conversation_id","created_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "attachments_task_id_idx" ON "attachments" USING btree ("task_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "attachments_sha256_idx" ON "attachments" USING btree ("sha256");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "users_email_unique" ON "users" USING btree ("email");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "bos_agent_policies_device_idx" ON "bos_agent_policies" USING btree ("device_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "bos_approval_tokens_request_idx" ON "bos_approval_tokens" USING btree ("task_request_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "bos_audit_log_device_idx" ON "bos_audit_log" USING btree ("device_id","created_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "bos_audit_log_org_idx" ON "bos_audit_log" USING btree ("org_id","created_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "bos_audit_log_event_idx" ON "bos_audit_log" USING btree ("event_type");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "bos_devices_org_idx" ON "bos_devices" USING btree ("org_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "bos_devices_pubkey_unique" ON "bos_devices" USING btree ("device_pubkey");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "bos_org_policy_overrides_org_path_unique" ON "bos_org_policy_overrides" USING btree ("org_id","policy_field_path");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "bos_orgs_slug_unique" ON "bos_orgs" USING btree ("slug");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "bos_pair_codes_code_hash_unique" ON "bos_pair_codes" USING btree ("code_hash");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "bos_task_executions_request_idx" ON "bos_task_executions" USING btree ("task_request_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "bos_task_executions_org_idx" ON "bos_task_executions" USING btree ("org_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "bos_task_requests_device_idx" ON "bos_task_requests" USING btree ("device_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "bos_task_requests_org_idx" ON "bos_task_requests" USING btree ("org_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "conversations_user_idx" ON "conversations" USING btree ("user_id","last_active_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "lattice_exports_user_idx" ON "lattice_exports" USING btree ("user_id","created_at");

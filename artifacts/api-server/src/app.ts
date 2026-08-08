@@ -193,6 +193,13 @@ export async function bootstrap(): Promise<void> {
       // Mirrors drizzle-orm's readMigrationFiles() — the file name
       // is `${tag}.sql`, hash is sha256 of the file contents, and
       // statements are split on `--> statement-breakpoint`.
+      //
+      // The migration files use `CREATE TABLE IF NOT EXISTS` /
+      // `CREATE INDEX IF NOT EXISTS` so each statement is
+      // individually idempotent. We wrap the whole thing in a
+      // single transaction, so a mid-migration failure rolls
+      // back cleanly and the bookkeeping INSERT is atomic with
+      // the schema changes.
       const fs = await import("node:fs/promises");
       const crypto = await import("node:crypto");
       await pool.query(`
@@ -225,10 +232,20 @@ export async function bootstrap(): Promise<void> {
         try {
           await client.query("BEGIN");
           for (const stmt of statements) {
-            await client.query(stmt);
+            try {
+              await client.query(stmt);
+            } catch (stmtErr: unknown) {
+              // CREATE TABLE / CREATE INDEX use IF NOT EXISTS, so
+              // "already exists" is the only expected error class.
+              // Anything else is a real failure — roll back.
+              const code = (stmtErr as { code?: string })?.code;
+              if (code !== "42P07" /* duplicate_table */ && code !== "42710" /* duplicate_object */) {
+                throw stmtErr;
+              }
+            }
           }
           await client.query(
-            "INSERT INTO public.__drizzle_migrations (hash, created_at) VALUES ($1, $2)",
+            "INSERT INTO public.__drizzle_migrations (hash, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING",
             [hash, Date.now()],
           );
           await client.query("COMMIT");
