@@ -33,15 +33,18 @@ export async function testProviderKey(provider_name: string, api_key: string, ba
     // authenticated, returns the key owner without spending tokens, and works
     // the same whether you supply it as `xai-...` or a Bearer token.
     if (n === "xai (grok)" || n === "xai" || n === "grok") return await testXai(api_key);
-    // Kimi / Moonshot: OpenAI-compatible /v1/models endpoint.
+    // Kimi / Moonshot: OpenAI-compatible /v1/models endpoint. Their
+    // /v1/models can take 15-25s to respond (large model catalog), so
+    // we give the test a wider timeout than the default 10s.
     if (n === "kimi (moonshot ai)" || n === "kimi" || n === "moonshot") {
-      return await testGenericOpenAI("https://api.moonshot.cn/v1", api_key);
+      return await testGenericOpenAI("https://api.moonshot.cn/v1", api_key, 30000);
     }
-    // Bitdeer AI: OpenAI-compatible /v1/models endpoint.
-    if (n === "bitdeer") return await testGenericOpenAI("https://api.bitdeer.com/v1", api_key);
+    // Bitdeer AI: their /v1/models endpoint is even slower (sometimes
+    // 30+ seconds), so we go to 45s to avoid false negatives.
+    if (n === "bitdeer") return await testGenericOpenAI("https://api.bitdeer.com/v1", api_key, 45000);
     // NVIDIA NIM: OpenAI-compatible /v1/models endpoint.
     if (n.startsWith("nvidia nim")) {
-      return await testGenericOpenAI("https://integrate.api.nvidia.com/v1", api_key);
+      return await testGenericOpenAI("https://integrate.api.nvidia.com/v1", api_key, 30000);
     }
     if (base_url) return await testGenericOpenAI(base_url, api_key);
     return { ok: false, message: "Unknown provider — provide a base_url for generic OpenAI-compatible servers" };
@@ -200,12 +203,12 @@ async function listOllamaModels(base_url: string): Promise<DiscoveredModel[]> {
 // ---------- Generic OpenAI-compatible ----------
 // User-supplied base_url. SSRF guard is mandatory; localhost is NOT allowed
 // for arbitrary providers (Ollama has its own dedicated path above).
-async function testGenericOpenAI(base_url: string, api_key: string): Promise<TestResult> {
+async function testGenericOpenAI(base_url: string, api_key: string, timeoutMs: number = 10000): Promise<TestResult> {
   const url = base_url.replace(/\/$/, "") + "/models";
   try {
     const r = await safeFetch(url, {
       headers: { Authorization: `Bearer ${api_key}` },
-      timeoutMs: 10000,
+      timeoutMs,
     });
     if (r.status === 200) return { ok: true, status_code: 200, message: "Authenticated", detected_provider: "OpenAI-compatible" };
     if (r.status === 401) return { ok: false, status_code: 401, message: "Invalid API key" };
