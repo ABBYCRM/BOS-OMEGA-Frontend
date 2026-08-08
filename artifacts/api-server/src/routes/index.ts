@@ -60,6 +60,16 @@ router.use((req, res, next) => {
 // pair-code-only auth.
 router.use("/v1", v1Router);
 
+// ---- External API surface (token-auth, separate from session-auth).
+// All routes under /api/external/* require a Bearer token issued by
+// /api/tokens. The token is hashed (sha256) at rest; plaintext is
+// shown to the user exactly once on creation. Scopes gate write
+// access to canon / scratchpad / continuity separately. See
+// routes/external.ts for the full surface and middlewares/apiTokenAuth.ts
+// for the auth chain. Registered BEFORE the global requireAuth gate
+// so the session-cookie check does not short-circuit token auth.
+router.use("/external", externalRouter);
+
 // ---- Authenticated ----
 // Everything below requires a valid admin session.
 router.use(requireAuth);
@@ -86,14 +96,5 @@ router.use("/image-quota", imageQuotaRouter);
 // gated to super_admin only inside the router itself, audit-logged.
 // See routes/powershell.ts for the full security posture.
 router.use("/powershell", powershellRouter);
-
-// ---- External API surface (token-auth, separate from session-auth).
-// All routes under /api/external/* require a Bearer token issued by
-// /api/tokens. The token is hashed (sha256) at rest; plaintext is
-// shown to the user exactly once on creation. Scopes gate write
-// access to canon / scratchpad / continuity separately. See
-// routes/external.ts for the full surface and middlewares/apiTokenAuth.ts
-// for the auth chain.
-router.use("/external", externalRouter);
 
 export default router;
