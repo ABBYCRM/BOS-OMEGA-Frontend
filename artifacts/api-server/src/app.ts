@@ -6,7 +6,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { pool } from "@workspace/db";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
@@ -181,18 +180,66 @@ export async function bootstrap(): Promise<void> {
     }
     logger.info({ migrationsFolder }, "Applying pending migrations");
     try {
-      const db = drizzle(pool);
-      // Use the `public` schema for the migrations bookkeeping table
-      // — DO's managed Postgres app user doesn't always have CREATE
-      // on the database (only on schemas it already owns), so the
-      // default `drizzle` schema creation fails with
-      // "permission denied for database db". The public schema
-      // already exists and the app user can create tables in it.
-      await migrate(db, {
-        migrationsFolder,
-        migrationsSchema: "public",
-        migrationsTable: "__drizzle_migrations",
-      });
+      // Custom migrator: drizzle-orm's built-in migrator hardcodes
+      // `CREATE SCHEMA IF NOT EXISTS ...` for the bookkeeping schema,
+      // which fails on DO's managed Postgres where the bound
+      // DATABASE_URL user is the database owner but does NOT have
+      // CREATE on the database itself ("permission denied for
+      // database db"). The public schema already exists, so we just
+      // create the bookkeeping table there and apply the .sql files
+      // in order. Idempotent — applied migrations are recorded in
+      // __drizzle_migrations and skipped on subsequent runs.
+      //
+      // Mirrors drizzle-orm's readMigrationFiles() — the file name
+      // is `${tag}.sql`, hash is sha256 of the file contents, and
+      // statements are split on `--> statement-breakpoint`.
+      const fs = await import("node:fs/promises");
+      const crypto = await import("node:crypto");
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS public.__drizzle_migrations (
+          id SERIAL PRIMARY KEY,
+          hash TEXT NOT NULL,
+          created_at BIGINT NOT NULL
+        )
+      `);
+      const journalPath = path.join(migrationsFolder, "meta", "_journal.json");
+      const journal = JSON.parse(await fs.readFile(journalPath, "utf-8"));
+      const applied = new Set(
+        (await pool.query("SELECT hash FROM public.__drizzle_migrations")).rows.map(
+          (r: { hash: string }) => r.hash,
+        ),
+      );
+      for (const entry of journal.entries ?? []) {
+        const sqlPath = path.join(migrationsFolder, `${entry.tag}.sql`);
+        const sql = await fs.readFile(sqlPath, "utf-8");
+        const hash = crypto.createHash("sha256").update(sql).digest("hex");
+        if (applied.has(hash)) {
+          logger.info({ tag: entry.tag }, "migration already applied");
+          continue;
+        }
+        const statements = sql
+          .split("--> statement-breakpoint")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const client = await pool.connect();
+        try {
+          await client.query("BEGIN");
+          for (const stmt of statements) {
+            await client.query(stmt);
+          }
+          await client.query(
+            "INSERT INTO public.__drizzle_migrations (hash, created_at) VALUES ($1, $2)",
+            [hash, Date.now()],
+          );
+          await client.query("COMMIT");
+          logger.info({ tag: entry.tag, statements: statements.length }, "migration applied");
+        } catch (err) {
+          await client.query("ROLLBACK");
+          throw err;
+        } finally {
+          client.release();
+        }
+      }
       logger.info("Migrations applied");
     } catch (err) {
       logger.fatal({ err }, "Migrations failed");
