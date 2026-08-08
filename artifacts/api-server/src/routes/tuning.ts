@@ -70,14 +70,30 @@ async function auditTuning(req: Request, userId: string, event: string, meta: Re
   try {
     await db.insert(auditLogsTable).values({
       id: randomUUID(),
-      user_id: userId,
+      // audit_logs has no user_id column (the schema is task-centric).
+      // We carry the operator in the metadata so the audit endpoint can
+      // surface who-did-what when needed.
+      task_id: null,
       event_type: `TUNING.${event}`,
-      ip: ((req.headers["x-forwarded-for"] as string | undefined) ?? "").split(",")[0]?.trim() || null,
-      user_agent: (req.headers["user-agent"] as string | undefined) || null,
-      metadata: meta,
+      // `message` is NOT NULL — render a short human-readable line from
+      // the event + metadata so the audit endpoint can list it.
+      message: formatTuningMessage(event, meta),
+      metadata: { ...meta, user_id: userId, ip: ((req.headers["x-forwarded-for"] as string | undefined) ?? "").split(",")[0]?.trim() || null, user_agent: (req.headers["user-agent"] as string | undefined) || null },
     });
   } catch (err) {
     logger.warn({ err, event }, "tuning audit log write failed");
+  }
+}
+
+function formatTuningMessage(event: string, meta: Record<string, unknown>): string {
+  switch (event) {
+    case "CANON_CREATE":         return `Created canon "${meta.title}"`;
+    case "CANON_PATCH":          return `Patched canon ${String(meta.id).slice(0, 8)}… (${(meta.fields as string[] | undefined)?.join(", ") ?? "?"})`;
+    case "CANON_DELETE":         return `Deleted canon "${meta.title}"`;
+    case "CANON_BULK_REPLACE":   return `Bulk rewrote canon: removed ${meta.removed_count}, added ${meta.added_count}`;
+    case "CANON_BULK_ADD":       return `Bulk added ${meta.added_count} canon items`;
+    case "PROVIDER_PATCH":       return `Patched provider ${meta.id} (${(meta.fields as string[] | undefined)?.join(", ") ?? "?"})`;
+    default:                     return `Tuning event ${event}`;
   }
 }
 
