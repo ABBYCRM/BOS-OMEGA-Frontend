@@ -23,6 +23,7 @@ export async function seed() {
     { id: "prov_gemini", name: "Gemini", base_url: "https://generativelanguage.googleapis.com", priority: 3, api_key_env: "GEMINI_API_KEY" },
     { id: "prov_ollama", name: "Ollama", base_url: "http://localhost:11434", priority: 4, api_key_env: null },
     { id: "prov_generic", name: "Generic API", base_url: null, priority: 5, api_key_env: "GENERIC_API_KEY" },
+    { id: "prov_xai", name: "xAI (Grok)", base_url: "https://api.x.ai/v1", priority: 6, api_key_env: "XAI_API_KEY" },
   ];
 
   for (const p of providers) {
@@ -56,6 +57,12 @@ export async function seed() {
     { id: "mdl_gemini15f", provider_id: "prov_gemini", model_name: "gemini-2.5-flash", tags: ["fast", "cheap", "structured_output", "multimodal"], context: 1000000, cost_in: 0.000075, cost_out: 0.0003, rel: 0.90, lat: 0.95 },
     { id: "mdl_llama3", provider_id: "prov_ollama", model_name: "llama3", tags: ["local_private", "reasoning", "cheap"], context: 8192, cost_in: 0, cost_out: 0, rel: 0.85, lat: 0.75 },
     { id: "mdl_mistral", provider_id: "prov_ollama", model_name: "mistral", tags: ["local_private", "fast", "cheap", "coding"], context: 32768, cost_in: 0, cost_out: 0, rel: 0.83, lat: 0.8 },
+    // xAI (Grok) — OpenAI-compatible endpoint at https://api.x.ai/v1
+    { id: "mdl_grok2",        provider_id: "prov_xai", model_name: "grok-2-1212",        tags: ["reasoning", "coding", "long_context", "structured_output"], context: 131072, cost_in: 0.002,  cost_out: 0.01,   rel: 0.93, lat: 0.82 },
+    { id: "mdl_grok2_vision", provider_id: "prov_xai", model_name: "grok-2-vision-1212", tags: ["reasoning", "multimodal", "long_context"],                  context: 32768,  cost_in: 0.002,  cost_out: 0.01,   rel: 0.92, lat: 0.80 },
+    { id: "mdl_grok3",        provider_id: "prov_xai", model_name: "grok-3",             tags: ["reasoning", "coding", "research", "structured_output"],      context: 131072, cost_in: 0.003,  cost_out: 0.015,  rel: 0.94, lat: 0.78 },
+    { id: "mdl_grok3_mini",   provider_id: "prov_xai", model_name: "grok-3-mini",        tags: ["fast", "cheap", "coding", "structured_output"],              context: 131072, cost_in: 0.0003, cost_out: 0.0005, rel: 0.90, lat: 0.93 },
+    { id: "mdl_grok_beta",    provider_id: "prov_xai", model_name: "grok-beta",          tags: ["reasoning", "coding", "structured_output"],                  context: 131072, cost_in: 0.005,  cost_out: 0.015,  rel: 0.91, lat: 0.79 },
   ];
 
   for (const m of models) {
