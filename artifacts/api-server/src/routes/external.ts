@@ -657,6 +657,7 @@ async function loadScratchpadForUser(user_id: string) {
       authority_level: r.authority_level ?? 5,
       source: (r.source ?? "manual") as "manual" | "manual_pin" | "auto_summary",
       source_task_id: r.source_task_id ?? null,
+      created_at: r.created_at.toISOString(),
     })),
   };
 }
