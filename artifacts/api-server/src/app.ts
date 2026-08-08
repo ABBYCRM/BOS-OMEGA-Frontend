@@ -5,6 +5,9 @@ import pinoHttp from "pino-http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { pool } from "@workspace/db";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
 import { seed } from "./db/seed.js";
@@ -146,6 +149,37 @@ app.use(errorHandler);
 // guarantees the very first authenticated request can never race the
 // "if users empty, create super_admin" check.
 export async function bootstrap(): Promise<void> {
+  // Apply any pending drizzle migrations before seeding. The
+  // migrations folder is staged into `artifacts/api-server/dist/migrations`
+  // by the deploy build (see the DO App Platform spec) and looked
+  // up here across dev / build / runtime layouts. Idempotent —
+  // drizzle tracks applied migrations in `__drizzle_migrations`
+  // and only applies the diff, so a no-op on every deploy after
+  // the first is fine.
+  const MIGRATIONS_CANDIDATES = [
+    path.resolve(__dirname, "migrations"),
+    path.resolve(__dirname, "..", "..", "lib", "db", "drizzle", "migrations"),
+    path.resolve(__dirname, "..", "lib", "db", "drizzle", "migrations"),
+  ];
+  const migrationsFolder = MIGRATIONS_CANDIDATES.find((p) =>
+    existsSync(path.join(p, "meta", "_journal.json")),
+  );
+  if (migrationsFolder) {
+    logger.info({ migrationsFolder }, "Applying pending migrations");
+    try {
+      const db = drizzle(pool);
+      await migrate(db, { migrationsFolder });
+      logger.info("Migrations applied");
+    } catch (err) {
+      logger.fatal({ err }, "Migrations failed");
+      process.exit(1);
+    }
+  } else {
+    logger.info(
+      { candidates: MIGRATIONS_CANDIDATES },
+      "No migrations folder found; assuming schema is current (drizzle-kit push) or this is a dev run",
+    );
+  }
   try {
     await seed();
   } catch (err) {
