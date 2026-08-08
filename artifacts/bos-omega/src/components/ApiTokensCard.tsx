@@ -33,6 +33,10 @@ const ALL_SCOPES = [
   { id: "audit:read", desc: "Read the audit log" },
   { id: "continuity:export", desc: "Export bos-omega.continuity-bundle.v1" },
   { id: "continuity:import", desc: "Rehydrate from a bundle" },
+  // 2026-08-08 — tuning subsystem (see /api/external/tuning/*)
+  { id: "tuning:read", desc: "Read tuning state (canon list, provider config, persona, generation defaults)" },
+  { id: "tuning:write", desc: "Apply tuning changes (canon CRUD, provider priority/enabled, future persona/generation PATCHes)" },
+  { id: "tokens:manage", desc: "Rotate any token (revoke + mint new plaintext) — recovery for lost tokens" },
 ] as const;
 
 interface ApiTokenRow {
