@@ -29,6 +29,20 @@ export async function testProviderKey(provider_name: string, api_key: string, ba
     if (n === "anthropic") return await testAnthropic(api_key);
     if (n === "gemini" || n === "google gemini") return await testGemini(api_key);
     if (n === "ollama") return await testOllama(base_url || "http://localhost:11434");
+    // xAI: /v1/api-key is the dedicated self-introspection endpoint — it's
+    // authenticated, returns the key owner without spending tokens, and works
+    // the same whether you supply it as `xai-...` or a Bearer token.
+    if (n === "xai (grok)" || n === "xai" || n === "grok") return await testXai(api_key);
+    // Kimi / Moonshot: OpenAI-compatible /v1/models endpoint.
+    if (n === "kimi (moonshot ai)" || n === "kimi" || n === "moonshot") {
+      return await testGenericOpenAI("https://api.moonshot.cn/v1", api_key);
+    }
+    // Bitdeer AI: OpenAI-compatible /v1/models endpoint.
+    if (n === "bitdeer") return await testGenericOpenAI("https://api.bitdeer.com/v1", api_key);
+    // NVIDIA NIM: OpenAI-compatible /v1/models endpoint.
+    if (n.startsWith("nvidia nim")) {
+      return await testGenericOpenAI("https://integrate.api.nvidia.com/v1", api_key);
+    }
     if (base_url) return await testGenericOpenAI(base_url, api_key);
     return { ok: false, message: "Unknown provider — provide a base_url for generic OpenAI-compatible servers" };
   } catch (err) {
@@ -61,6 +75,20 @@ async function testOpenAI(api_key: string): Promise<TestResult> {
   if (r.status === 200) return { ok: true, status_code: 200, message: "Authenticated with OpenAI", detected_provider: "OpenAI" };
   if (r.status === 401) return { ok: false, status_code: 401, message: "Invalid OpenAI API key" };
   return { ok: false, status_code: r.status, message: `OpenAI returned HTTP ${r.status}` };
+}
+
+// ---------- xAI (Grok) ----------
+// Uses the dedicated /v1/api-key self-introspection endpoint — it's
+// authenticated, returns the key owner without spending tokens, and
+// proves the credential is valid + unblocked.
+async function testXai(api_key: string): Promise<TestResult> {
+  const r = await fetch("https://api.x.ai/v1/api-key", {
+    headers: { Authorization: `Bearer ${api_key}` },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (r.status === 200) return { ok: true, status_code: 200, message: "Authenticated with xAI", detected_provider: "xAI (Grok)" };
+  if (r.status === 401 || r.status === 403) return { ok: false, status_code: r.status, message: "Invalid or blocked xAI key" };
+  return { ok: false, status_code: r.status, message: `xAI returned HTTP ${r.status}` };
 }
 
 async function listOpenAIModels(api_key: string): Promise<DiscoveredModel[]> {

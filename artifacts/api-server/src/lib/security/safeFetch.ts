@@ -1,6 +1,5 @@
 import { lookup } from "dns/promises";
 import { isIP } from "net";
-import { Agent } from "undici";
 import { logger } from "../logger.js";
 
 /**
@@ -117,19 +116,18 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions = {}): Pr
     throw new SsrfBlockedError("URL credentials are not allowed");
   }
 
-  // Resolve and validate. If the hostname is an IP literal, "resolution" is
-  // just that IP. Otherwise we DNS-resolve, validate every record, and pin
-  // the connect() to the first validated address — closing the DNS-rebinding
-  // TOCTOU window between validation and the actual TCP connect.
-  let pinnedAddress: string;
-  let pinnedFamily: 4 | 6;
-
+  // Resolve the hostname and validate every resolved address against
+  // private-internal ranges. We use plain fetch() below (no custom Agent
+  // override) because undici v8 changed the dispatcher API and the
+  // previous DNS-pinning via `new Agent({ connect: { lookup: ... } })`
+  // throws "InvalidArgumentError: invalid onRequestStart method" for
+  // every call. The SSRF check itself still runs on the resolved IP
+  // BEFORE the request is made, so private-internal pivots are still
+  // blocked — we only lost the TOCTOU DNS-rebinding pin.
   if (isIP(hostname)) {
     if (isPrivateIp(hostname, allowLocalhost)) {
       throw new SsrfBlockedError(`Blocked private/internal IP: ${hostname}`);
     }
-    pinnedAddress = hostname;
-    pinnedFamily = isIP(hostname) === 6 ? 6 : 4;
   } else {
     let resolved: Array<{ address: string; family: number }>;
     try {
@@ -148,25 +146,7 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions = {}): Pr
         );
       }
     }
-    const first = resolved[0]!;
-    pinnedAddress = first.address;
-    pinnedFamily = first.family === 6 ? 6 : 4;
   }
-
-  // Custom undici Agent that hijacks DNS lookup to return the pre-validated
-  // IP. The TLS SNI / Host header still come from the original URL hostname,
-  // so virtual-hosted HTTPS keeps working.
-  const dispatcher = new Agent({
-    connect: {
-      lookup: (
-        _hostname: string,
-        _options: unknown,
-        callback: (err: NodeJS.ErrnoException | null, address: string, family: number) => void,
-      ) => {
-        callback(null, pinnedAddress, pinnedFamily);
-      },
-    },
-  });
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -175,13 +155,9 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions = {}): Pr
       ...init,
       redirect: "manual", // prevent redirect-to-private bypass
       signal: init.signal ?? controller.signal,
-      // @ts-expect-error: dispatcher is undici-specific extension to fetch
-      dispatcher,
     });
     return response;
   } finally {
     clearTimeout(timer);
-    // Close the agent so we don't leak sockets between calls.
-    void dispatcher.close().catch(() => {});
   }
 }
