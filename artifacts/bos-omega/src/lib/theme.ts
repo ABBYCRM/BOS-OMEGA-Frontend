@@ -24,7 +24,8 @@ export type ThemeId =
   | "anime"
   | "steampunk"
   | "neonpunk"
-  | "ultraclean";
+  | "ultraclean"
+  | "futuristic-gain";
 
 export const THEME_IDS: readonly ThemeId[] = [
   "retro95",
@@ -38,6 +39,7 @@ export const THEME_IDS: readonly ThemeId[] = [
   "steampunk",
   "neonpunk",
   "ultraclean",
+  "futuristic-gain",
 ] as const;
 
 const THEME_CLASSES = THEME_IDS.map((id) => `theme-${id}`);

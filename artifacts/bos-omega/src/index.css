@@ -2424,13 +2424,321 @@
 }
 
 
+/* =========================== FUTURISTIC GAIN ============================
+   Frosted glass over a soft sky. Layouts are unchanged — only colors,
+   translucency, border-radius, and animation are overridden.
+
+   Visual recipe (matches the operator's reference):
+   - Soft sky background with two large drifting orbs
+   - All "card" surfaces become translucent white with backdrop-blur
+   - All "nav"/topbar/sidebar become dark frosted glass
+   - Accent = warm gold (#d4af37); cool-blue secondary
+   - Pill-shaped navigation (border-radius ~30px on topbar/tabs)
+   - Soft 1px white borders, gentle drop shadow with white glow
+   - Heading: deep ink-blue (#0f1a30)
+   ====================================================================== */
+:root.theme-futuristic-gain {
+  --background: 218 35% 85%;
+  --foreground: 222 47% 12%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 12%;
+  --card-border: 0 0% 100%;
+
+  --border: 218 30% 78%;
+  --input: 0 0% 100%;
+
+  --sidebar: 222 47% 12%;
+  --sidebar-foreground: 40 60% 90%;
+  --sidebar-border: 40 60% 60%;
+  --sidebar-primary: 43 65% 50%;
+  --sidebar-primary-foreground: 222 47% 12%;
+  --sidebar-accent: 218 45% 18%;
+  --sidebar-accent-foreground: 40 60% 90%;
+  --sidebar-accent-border: 43 65% 50%;
+  --sidebar-ring: 43 65% 50%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 12%;
+  --popover-border: 218 30% 78%;
+
+  --primary: 43 65% 50%;            /* warm gold */
+  --primary-foreground: 222 47% 12%;
+  --accent: 218 50% 56%;            /* cool blue */
+  --accent-foreground: 0 0% 100%;
+  --secondary: 218 35% 92%;
+  --secondary-foreground: 222 47% 12%;
+  --muted: 218 30% 90%;
+  --muted-foreground: 222 18% 42%;
+  --destructive: 343 60% 53%;
+  --destructive-foreground: 0 0% 100%;
+  --ring: 43 65% 50%;
+  --chart-1: 43 65% 50%;
+  --chart-2: 218 50% 56%;
+  --chart-3: 222 47% 12%;
+  --chart-4: 343 60% 53%;
+  --chart-5: 180 50% 55%;
+
+  --sidebar-background: 222 47% 12%;
+  --sidebar-primary-foreground: 222 47% 12%;
+
+  --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-serif: "Cormorant Garamond", "Playfair Display", Georgia, serif;
+  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+  --radius: 0.875rem;            /* softer, more pill-shaped */
+}
+
+:root.theme-futuristic-gain body {
+  background-color: #c8d4e8;
+  background-image:
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(255, 255, 255, 0.65) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 90% 30%, rgba(212, 175, 55, 0.18) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 60% at 50% 95%, rgba(91, 124, 196, 0.22) 0%, transparent 60%),
+    linear-gradient(180deg, #d8e0ee 0%, #b9c7df 100%);
+  background-attachment: fixed;
+  color: #0f1a30;
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  position: relative;
+  overflow-x: hidden;
+}
+/* Drifting orbs — slow, ambient */
+:root.theme-futuristic-gain body::before {
+  content: "";
+  position: fixed;
+  top: -10%;
+  left: -10%;
+  width: 60vmax;
+  height: 60vmax;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.4) 0%, transparent 60%);
+  filter: blur(40px);
+  pointer-events: none;
+  z-index: 0;
+  animation: fg-orb-drift-a 24s ease-in-out infinite alternate;
+}
+:root.theme-futuristic-gain body::after {
+  content: "";
+  position: fixed;
+  bottom: -15%;
+  right: -15%;
+  width: 70vmax;
+  height: 70vmax;
+  background: radial-gradient(circle, rgba(212, 175, 55, 0.12) 0%, transparent 65%);
+  filter: blur(50px);
+  pointer-events: none;
+  z-index: 0;
+  animation: fg-orb-drift-b 32s ease-in-out infinite alternate;
+}
+@keyframes fg-orb-drift-a {
+  0%   { transform: translate(0, 0)       scale(1);   }
+  100% { transform: translate(8vw, 6vh)  scale(1.1); }
+}
+@keyframes fg-orb-drift-b {
+  0%   { transform: translate(0, 0)       scale(1);   }
+  100% { transform: translate(-6vw, -8vh) scale(1.15); }
+}
+
+/* Cards: frosted glass */
+:root.theme-futuristic-gain .bg-card {
+  background: rgba(255, 255, 255, 0.55) !important;
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.65) !important;
+  border-radius: 1rem !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 1px 3px rgba(15, 26, 48, 0.04),
+    0 12px 40px rgba(15, 26, 48, 0.10) !important;
+  transition: all 0.3s ease;
+}
+:root.theme-futuristic-gain .bg-card:hover {
+  background: rgba(255, 255, 255, 0.72) !important;
+  border-color: rgba(255, 255, 255, 0.85) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 1px 3px rgba(15, 26, 48, 0.05),
+    0 20px 60px rgba(15, 26, 48, 0.16) !important;
+  transform: translateY(-2px);
+}
+
+/* Headings: deep ink-blue, with a soft gold highlight on h1 */
+:root.theme-futuristic-gain h1, :root.theme-futuristic-gain h2, :root.theme-futuristic-gain h3 {
+  color: #0f1a30;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+:root.theme-futuristic-gain h1 {
+  background: linear-gradient(135deg, #0f1a30 0%, #1d2c50 60%, #5b7cc4 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 700;
+}
+
+/* Primary action: gold gradient pill */
+:root.theme-futuristic-gain .bg-primary {
+  background: linear-gradient(135deg, #e2c25a 0%, #d4af37 50%, #b8932a 100%) !important;
+  color: #0f1a30 !important;
+  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 4px 14px rgba(212, 175, 55, 0.35) !important;
+  border-radius: 999px !important;
+  font-weight: 600;
+}
+:root.theme-futuristic-gain .bg-primary:hover {
+  background: linear-gradient(135deg, #ebcf6a 0%, #d9b441 50%, #c39a30 100%) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 6px 20px rgba(212, 175, 55, 0.5) !important;
+  transform: translateY(-1px);
+}
+
+/* Buttons: subtle glass + cool blue hover */
+:root.theme-futuristic-gain button {
+  border-radius: 0.625rem;
+  transition: all 0.2s ease;
+}
+:root.theme-futuristic-gain button:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.45) !important;
+}
+
+/* Inputs: glass */
+:root.theme-futuristic-gain input,
+:root.theme-futuristic-gain textarea,
+:root.theme-futuristic-gain select {
+  background: rgba(255, 255, 255, 0.5) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.6) !important;
+  color: #0f1a30 !important;
+  border-radius: 0.625rem !important;
+  box-shadow: 0 1px 2px rgba(15, 26, 48, 0.04) inset;
+  transition: all 0.2s ease;
+}
+:root.theme-futuristic-gain input::placeholder,
+:root.theme-futuristic-gain textarea::placeholder {
+  color: rgba(15, 26, 48, 0.45) !important;
+}
+:root.theme-futuristic-gain input:focus,
+:root.theme-futuristic-gain textarea:focus,
+:root.theme-futuristic-gain select:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.7) !important;
+  border-color: rgba(212, 175, 55, 0.6) !important;
+  box-shadow:
+    0 0 0 3px rgba(212, 175, 55, 0.18),
+    0 1px 2px rgba(15, 26, 48, 0.04) inset !important;
+}
+
+/* Topbar / sidebar: dark frosted glass pill — the visual signature */
+:root.theme-futuristic-gain header,
+:root.theme-futuristic-gain nav,
+:root.theme-futuristic-gain [data-testid="sidebar"],
+:root.theme-futuristic-gain aside {
+  background: rgba(15, 26, 48, 0.55) !important;
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  color: #f0e6c4 !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.12) inset,
+    0 8px 32px rgba(15, 26, 48, 0.18) !important;
+}
+:root.theme-futuristic-gain header *,
+:root.theme-futuristic-gain nav *,
+:root.theme-futuristic-gain [data-testid="sidebar"] *,
+:root.theme-futuristic-gain aside * {
+  color: #f0e6c4 !important;
+}
+:root.theme-futuristic-gain header a,
+:root.theme-futuristic-gain nav a,
+:root.theme-futuristic-gain [data-testid="sidebar"] a {
+  color: #d4af37 !important;
+  transition: color 0.2s ease;
+}
+:root.theme-futuristic-gain header a:hover,
+:root.theme-futuristic-gain nav a:hover,
+:root.theme-futuristic-gain [data-testid="sidebar"] a:hover {
+  color: #f0e6c4 !important;
+}
+
+/* Tabs (the pill bar like the reference) — pill-shaped with gold underline */
+:root.theme-futuristic-gain [role="tablist"],
+:root.theme-futuristic-gain [data-state="active"] {
+  border-radius: 999px !important;
+}
+:root.theme-futuristic-gain [role="tab"] {
+  border-radius: 999px !important;
+  transition: all 0.2s ease;
+}
+:root.theme-futuristic-gain [role="tab"][data-state="active"] {
+  background: rgba(212, 175, 55, 0.18) !important;
+  color: #0f1a30 !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.4) inset;
+}
+
+/* Selection */
+:root.theme-futuristic-gain ::selection {
+  background: rgba(212, 175, 55, 0.35);
+  color: #0f1a30;
+}
+
+/* Scrollbar */
+:root.theme-futuristic-gain ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+:root.theme-futuristic-gain ::-webkit-scrollbar-track {
+  background: transparent;
+}
+:root.theme-futuristic-gain ::-webkit-scrollbar-thumb {
+  background: rgba(15, 26, 48, 0.25);
+  border-radius: 999px;
+}
+:root.theme-futuristic-gain ::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 26, 48, 0.4);
+}
+
+/* Badges & tags */
+:root.theme-futuristic-gain [data-testid="badge"],
+:root.theme-futuristic-gain .badge {
+  background: rgba(212, 175, 55, 0.15) !important;
+  color: #0f1a30 !important;
+  border: 1px solid rgba(212, 175, 55, 0.4) !important;
+  border-radius: 999px !important;
+  font-weight: 500;
+}
+
+/* Tables */
+:root.theme-futuristic-gain table {
+  background: transparent !important;
+}
+:root.theme-futuristic-gain th {
+  color: #5e6b85 !important;
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+:root.theme-futuristic-gain tr {
+  border-bottom: 1px solid rgba(15, 26, 48, 0.08) !important;
+  transition: background 0.15s ease;
+}
+:root.theme-futuristic-gain tr:hover {
+  background: rgba(255, 255, 255, 0.3) !important;
+}
+
+
 /* ====================== theme switcher — consistent hover lift ============ */
 :root.theme-retro95 button:hover,
 :root.theme-retro98 button:hover,
 :root.theme-cyberdine button:hover,
 :root.theme-anime button:hover,
 :root.theme-steampunk button:hover,
-:root.theme-neonpunk button:hover {
+:root.theme-neonpunk button:hover,
+:root.theme-futuristic-gain button:hover {
   transform: translateY(-1px);
   transition: transform 0.15s ease;
 }
@@ -2443,7 +2751,9 @@
   :root.theme-steampunk body::before,
   :root.theme-neonpunk body,
   :root.theme-modern body,
-  :root.theme-retro98 body::after {
+  :root.theme-retro98 body::after,
+  :root.theme-futuristic-gain body::before,
+  :root.theme-futuristic-gain body::after {
     animation: none !important;
   }
 }
@@ -2541,6 +2851,25 @@
   --bg-card: #ffffff;
   --bg-secondary: #f8f8f8;
   --card-border: #e5e5e5;
+}
+:root.theme-futuristic-gain {
+  /* Glass-morphism "Futuristic Gain" — soft sky over frosted glass with
+     gold accents. Layouts are unchanged; only colors, translucency,
+     and animation are overridden. */
+  --text-main: #0f1a30;            /* deep ink-blue */
+  --text-muted: #5e6b85;
+  --bg-root: #c8d4e8;              /* soft sky */
+  --bg-card: rgba(255, 255, 255, 0.55);
+  --bg-secondary: rgba(255, 255, 255, 0.32);
+  --card-border: rgba(255, 255, 255, 0.65);
+  --primary: #d4af37;              /* warm gold accent */
+  --primary-foreground: #0f1a30;
+  --ring: #d4af37;
+  --accent: #5b7cc4;               /* cool blue */
+  --muted: rgba(15, 26, 48, 0.6);
+  --muted-foreground: #5e6b85;
+  --destructive: #c54b6b;
+  --shadow-glow: 0 8px 32px rgba(15, 26, 48, 0.18);
 }
 
 

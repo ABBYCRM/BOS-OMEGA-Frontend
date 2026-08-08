@@ -4,7 +4,7 @@ import {
   CheckCircle2, AlertCircle, Loader2, Trash2,
   Brain, RotateCcw, Save, Pin,
   Palette, Monitor, MonitorCog, Cpu, Skull, Leaf, Star, Cog,
-  Zap as Bolt, Square,
+  Zap as Bolt, Square, Sparkles,
 } from "lucide-react";
 import { useTheme, type ThemeId } from "@/lib/theme";
 import { ApiTokensCard } from "@/components/ApiTokensCard";
@@ -31,6 +31,7 @@ const THEME_OPTIONS: ThemeOption[] = [
   { id: "steampunk",  label: "Steampunk",         desc: "Parchment + brass + dark wood, serif typography.",                                                icon: Cog,        swatch: ["#f3e9d2", "#6b4423", "#b08d57", "#2b1d10"] },
   { id: "neonpunk",   label: "Neon Punk",         desc: "Cyberpunk grid: neon magenta + cyan on indigo black.",                                            icon: Bolt,       swatch: ["#0a0014", "#ff00aa", "#00f0ff", "#270050"] },
   { id: "ultraclean", label: "Ultra Clean",       desc: "Pure white, jet black accents, minimalist hairlines.",                                            icon: Square,     swatch: ["#ffffff", "#000000", "#525252", "#e5e5e5"] },
+  { id: "futuristic-gain", label: "Futuristic Gain", desc: "Frosted glass over a soft sky: cool blues, gold accents, pill-shaped glass-morphism panels.",       icon: Sparkles,   swatch: ["#c8d4e8", "#0f1a30", "#d4af37", "#ffffff"] },
 ];
 
 function ThemeToggle() {
