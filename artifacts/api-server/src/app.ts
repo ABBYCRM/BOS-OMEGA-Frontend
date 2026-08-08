@@ -165,10 +165,34 @@ export async function bootstrap(): Promise<void> {
     existsSync(path.join(p, "meta", "_journal.json")),
   );
   if (migrationsFolder) {
+    // Quick log of the connected DB user + database so permission
+    // issues in the migrator (e.g. CREATE SCHEMA against a managed
+    // Postgres app user) are diagnosable from the deploy log.
+    try {
+      const who = await pool.query(
+        "select current_user as user, current_database() as db, version() as version",
+      );
+      logger.info(
+        { user: who.rows[0]?.user, db: who.rows[0]?.db },
+        "DB connection identity",
+      );
+    } catch (err) {
+      logger.warn({ err }, "DB identity probe failed (non-fatal)");
+    }
     logger.info({ migrationsFolder }, "Applying pending migrations");
     try {
       const db = drizzle(pool);
-      await migrate(db, { migrationsFolder });
+      // Use the `public` schema for the migrations bookkeeping table
+      // — DO's managed Postgres app user doesn't always have CREATE
+      // on the database (only on schemas it already owns), so the
+      // default `drizzle` schema creation fails with
+      // "permission denied for database db". The public schema
+      // already exists and the app user can create tables in it.
+      await migrate(db, {
+        migrationsFolder,
+        migrationsSchema: "public",
+        migrationsTable: "__drizzle_migrations",
+      });
       logger.info("Migrations applied");
     } catch (err) {
       logger.fatal({ err }, "Migrations failed");
