@@ -2,6 +2,9 @@ import express, { type Express } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
 import { seed } from "./db/seed.js";
@@ -14,6 +17,24 @@ import { auditLog } from "./bos/auditEngine.js";
 import { seedFrontDoorCanon } from "./bos/frontDoorCanonSeed.js";
 import { seedPersonaSlots } from "./bos/personaCanonSeed.js";
 import { errorHandler, notFoundHandler } from "./lib/security/errors.js";
+
+// DO App Platform serves the bos-omega frontend as static files from the
+// api-server (single web service; the brief's "shared reverse proxy"
+// is the api-server itself). The frontend is built into
+// artifacts/bos-omega/dist/public; we symlink/copy it next to the
+// api-server's compiled bundle so its location is stable regardless
+// of whether the run cwd is the api-server or the monorepo root.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const FRONTEND_DIST_CANDIDATES = [
+  path.resolve(__dirname, "..", "..", "bos-omega", "dist", "public"), // dist/index.mjs -> bos-omega/dist/public
+  path.resolve(__dirname, "..", "..", "..", "artifacts", "bos-omega", "dist", "public"), // dev (cwd = repo root)
+  path.resolve(__dirname, "..", "..", "..", "bos-omega", "dist", "public"), // dev (cwd = artifacts/api-server)
+  path.resolve(process.cwd(), "..", "bos-omega", "dist", "public"),
+  path.resolve(process.cwd(), "bos-omega", "dist", "public"),
+  path.resolve(process.cwd(), "artifacts", "bos-omega", "dist", "public"),
+];
+const FRONTEND_DIST = FRONTEND_DIST_CANDIDATES.find((p) => existsSync(path.join(p, "index.html")));
 
 const app: Express = express();
 
@@ -84,6 +105,37 @@ app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
 app.use("/api", router);
+
+// Frontend static serving (DO App Platform: single web service for both
+// the API and the bos-omega SPA). Only mount if the build artifact
+// exists — during dev or unit tests the api-server runs without the
+// frontend and the existing /api behavior is preserved.
+if (FRONTEND_DIST) {
+  logger.info({ frontendDist: FRONTEND_DIST }, "Serving bos-omega frontend");
+  // Long-cache hashed assets, no-cache index.html.
+  app.use(
+    express.static(FRONTEND_DIST, {
+      index: false,
+      maxAge: "1y",
+      immutable: true,
+      setHeaders(res, filePath) {
+        if (filePath.endsWith("index.html")) {
+          res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        }
+      },
+    }),
+  );
+  // SPA fallback: any non-/api GET that didn't hit a static file gets
+  // index.html so the React Router takes over.
+  app.get(/^(?!\/api(\/|$)).*/, (req, res, next) => {
+    if (req.method !== "GET") return next();
+    res.sendFile(path.join(FRONTEND_DIST, "index.html"), (err) => {
+      if (err) next(err);
+    });
+  });
+} else {
+  logger.warn("bos-omega frontend dist not found; serving API only");
+}
 
 app.use(notFoundHandler);
 app.use(errorHandler);
