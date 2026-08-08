@@ -13,15 +13,16 @@ if (!process.env.DATABASE_URL) {
 // Managed Postgres providers (e.g. DigitalOcean) use certificates that fail
 // Node's default chain verification. Opt into relaxed TLS via env flag,
 // keeping strict verification everywhere else (Replit's DB needs no SSL tweak).
-const ssl =
-  process.env.DATABASE_SSL === "no-verify"
-    ? { rejectUnauthorized: false }
-    : undefined;
+// Note: pg lets sslmode in the connection string override an explicit `ssl`
+// option, so we rewrite the URL's sslmode instead of passing `ssl`.
+let connectionString = process.env.DATABASE_URL;
+if (process.env.DATABASE_SSL === "no-verify") {
+  const url = new URL(connectionString);
+  url.searchParams.set("sslmode", "no-verify");
+  connectionString = url.toString();
+}
 
-export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ...(ssl ? { ssl } : {}),
-});
+export const pool = new Pool({ connectionString });
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";
