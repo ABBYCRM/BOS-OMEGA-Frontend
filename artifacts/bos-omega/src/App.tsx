@@ -10,6 +10,12 @@ import { Settings } from "@/pages/Settings";
 import { Users } from "@/pages/Users";
 import { Login } from "@/pages/Login";
 import { fetchAuthState } from "@/lib/auth";
+import { AuditLog } from "@/pages/AuditLog";
+import { ModelRegistry } from "@/pages/ModelRegistry";
+import { LocalAgent } from "@/pages/LocalAgent";
+import { FallbackEvents } from "@/pages/FallbackEvents";
+import { LocalMemoryPage } from "@/pages/LocalMemory";
+import { TaskDetail } from "@/pages/TaskDetail";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -53,6 +59,12 @@ function AuthedRouter() {
         </Route>
         <Route path="/console" component={TaskConsole} />
         <Route path="/memory" component={MemoryManager} />
+        <Route path="/local-memory" component={LocalMemoryPage} />
+        <Route path="/audit" component={AuditLog} />
+        <Route path="/fallback-events" component={FallbackEvents} />
+        <Route path="/models" component={ModelRegistry} />
+        <Route path="/local-agent" component={LocalAgent} />
+        <Route path="/tasks/:id" component={TaskDetail} />
         <Route path="/providers" component={ProviderStatus} />
         <Route path="/users" component={Users} />
         <Route path="/settings" component={Settings} />

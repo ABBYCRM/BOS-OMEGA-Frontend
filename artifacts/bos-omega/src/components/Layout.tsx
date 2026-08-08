@@ -8,6 +8,7 @@ import { CorporateLogo } from "@/components/CorporateLogo";
 import { ProviderPreflightBanner } from "@/components/ProviderPreflightBanner";
 import { useTheme } from "@/lib/theme";
 import { MatrixRain } from "@/components/MatrixRain";
+import { Button } from "@/components/ui/button";
 import {
   Terminal,
   Server,
@@ -16,24 +17,32 @@ import {
   Users as UsersIcon,
   ShieldCheck,
   LogOut,
+  HardDrive,
+  ScrollText,
+  GitBranch,
+  Cpu,
+  Building2,
 } from "lucide-react";
 
 function LogoutButton() {
   const qc = useQueryClient();
   return (
-    <button
-      type="button"
-      onClick={async () => {
-        await logout();
-        await qc.invalidateQueries({ queryKey: ["auth-state"] });
-      }}
-      className="w-full flex items-center gap-2 text-[11px] text-muted-foreground hover:text-foreground mt-2 pt-2 border-t border-sidebar-border transition-colors"
-      data-testid="button-logout"
-      aria-label="Sign out"
-    >
-      <LogOut className="w-3 h-3" strokeWidth={1.75} />
-      <span>Sign out</span>
-    </button>
+    <div className="mt-2 pt-2 border-t border-sidebar-border">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={async () => {
+          await logout();
+          await qc.invalidateQueries({ queryKey: ["auth-state"] });
+        }}
+        className="w-full flex items-center justify-start gap-2 text-[11px] text-muted-foreground hover:text-foreground transition-colors h-auto py-2 px-2"
+        data-testid="button-logout"
+        aria-label="Sign out"
+      >
+        <LogOut className="w-3 h-3" strokeWidth={1.75} />
+        <span>Sign out</span>
+      </Button>
+    </div>
   );
 }
 
@@ -55,6 +64,21 @@ const navSections: NavSection[] = [
     items: [
       { href: "/console", label: "Console", icon: Terminal },
       { href: "/memory", label: "Memory", icon: Brain },
+      { href: "/local-memory", label: "Local Memory", icon: HardDrive },
+    ],
+  },
+  {
+    label: "Ops",
+    items: [
+      { href: "/audit", label: "Audit Log", icon: ScrollText },
+      { href: "/fallback-events", label: "Fallback Events", icon: GitBranch },
+    ],
+  },
+  {
+    label: "Registry",
+    items: [
+      { href: "/models", label: "Models", icon: Cpu },
+      { href: "/local-agent", label: "Local Agent", icon: Building2, superAdminOnly: true },
     ],
   },
   {
@@ -81,10 +105,10 @@ function visibleSections(user: AuthUser | undefined): NavSection[] {
 function RoleBadge({ role }: { role: AuthUser["role"] }) {
   const tone =
     role === "super_admin"
-      ? "border-amber-300 bg-amber-50 text-amber-800"
+      ? "border-accent/60 bg-accent/10 text-accent-foreground"
       : role === "admin"
-        ? "border-blue-300 bg-blue-50 text-blue-800"
-        : "border-border bg-secondary text-foreground";
+        ? "border-primary/40 bg-primary/10 text-primary"
+        : "border-border bg-secondary text-secondary-foreground";
   return (
     <span
       className={cn(
