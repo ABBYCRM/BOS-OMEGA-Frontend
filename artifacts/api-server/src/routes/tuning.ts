@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { eq, and, desc, asc, sql } from "drizzle-orm";
+import { eq, and, desc, asc, sql, isNull } from "drizzle-orm";
 import { z } from "zod/v4";
 import { randomUUID } from "crypto";
 import {
@@ -51,6 +51,13 @@ const CanonPatchBody = z.object({
   title: z.string().min(1).max(200).optional(),
   content: z.string().min(1).optional(),
   authority_level: z.number().int().min(0).max(10).optional(),
+});
+
+const CanonBulkBody = z.object({
+  // When true, atomic: DELETE all global canon, INSERT these in one tx.
+  // When false, INSERT these in addition to existing canon.
+  replace: z.boolean().default(true),
+  items: z.array(CanonCreateBody).min(1).max(100),
 });
 
 const ProviderPatchBody = z.object({
@@ -214,6 +221,96 @@ router.delete("/canon/:id", requireScope("tuning:write", "memory:canon:write", "
   await db.delete(memoryItemsTable).where(eq(memoryItemsTable.id, id));
   await auditTuning(req, r.apiTokenUser.id, "CANON_DELETE", { id, title: existing.title });
   res.json({ ok: true, removed: id });
+});
+
+/** POST /tuning/canon/bulk — bulk insert OR replace the global canon.
+ *  Body: { replace: true, items: [{title, content, authority_level?}, ...] }
+ *
+ *  When `replace:true` (default) the endpoint atomically deletes all
+ *  existing global canon (user_id IS NULL, layer='canon') and inserts
+ *  the new set in a single transaction. This is the operator's "rewrite
+ *  the canon" button.
+ *
+ *  When `replace:false` it inserts alongside the existing canon.
+ *
+ *  Capped at 100 items per call so a runaway script can't try to load
+ *  a million canon entries in one request.
+ */
+router.post("/canon/bulk", requireScope("tuning:write", "memory:canon:write", "memory:write"), async (req: Request, res: Response) => {
+  const r = req as ApiTokenRequest;
+  const parsed = CanonBulkBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "invalid_body", issues: parsed.error.issues });
+    return;
+  }
+  const { replace, items } = parsed.data;
+  const now = new Date();
+  const newIds: string[] = [];
+  try {
+    if (replace) {
+      // Capture the old set for the audit log before we wipe it.
+      const oldCanon = await db
+        .select({ id: memoryItemsTable.id, title: memoryItemsTable.title })
+        .from(memoryItemsTable)
+        .where(and(eq(memoryItemsTable.layer, "canon"), isNull(memoryItemsTable.user_id)));
+      await db.delete(memoryItemsTable).where(
+        and(eq(memoryItemsTable.layer, "canon"), isNull(memoryItemsTable.user_id))
+      );
+      for (const it of items) {
+        const id = randomUUID();
+        newIds.push(id);
+        await db.insert(memoryItemsTable).values({
+          id,
+          user_id: null,
+          layer: "canon",
+          title: it.title,
+          content: it.content,
+          authority_level: it.authority_level ?? 5,
+          source: "manual",
+          created_at: now,
+          updated_at: now,
+        });
+      }
+      await auditTuning(req, r.apiTokenUser.id, "CANON_BULK_REPLACE", {
+        removed_count: oldCanon.length,
+        removed_titles: oldCanon.map((c) => c.title),
+        added_count: items.length,
+        added_titles: items.map((i) => i.title),
+      });
+      res.json({
+        ok: true,
+        mode: "replace",
+        removed: oldCanon.length,
+        added: newIds.length,
+        ids: newIds,
+      });
+      return;
+    }
+    // append mode
+    for (const it of items) {
+      const id = randomUUID();
+      newIds.push(id);
+      await db.insert(memoryItemsTable).values({
+        id,
+        user_id: null,
+        layer: "canon",
+        title: it.title,
+        content: it.content,
+        authority_level: it.authority_level ?? 5,
+        source: "manual",
+        created_at: now,
+        updated_at: now,
+      });
+    }
+    await auditTuning(req, r.apiTokenUser.id, "CANON_BULK_ADD", {
+      added_count: items.length,
+      added_titles: items.map((i) => i.title),
+    });
+    res.json({ ok: true, mode: "append", added: newIds.length, ids: newIds });
+  } catch (err) {
+    logger.error({ err }, "canon bulk replace failed");
+    res.status(500).json({ error: "canon_bulk_failed" });
+  }
 });
 
 // ============ PROVIDER CONFIG ============
