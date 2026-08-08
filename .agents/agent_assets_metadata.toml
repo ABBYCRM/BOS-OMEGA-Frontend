@@ -42,3 +42,10 @@ id = "YF3-23xIlFv89w24_UyA5"
 uri = "file://BOS-OMEGA-Brief.pdf"
 type = "pdf"
 title = "BOS-OMEGA Technical Brief"
+
+[[outputs]]
+id = "brhTrA854tAw8UJYI_JQ5"
+uri = "file://BOS-OMEGA-source.zip"
+type = "unspecified"
+title = "BOS-OMEGA Full Source Code"
+description = "Complete monorepo source — all artifacts, libraries, tests, scripts, and config. Node modules and build output excluded."
