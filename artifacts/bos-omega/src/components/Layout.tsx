@@ -312,11 +312,12 @@ function StatusBlock({ collapsed }: { collapsed?: boolean }) {
 /**
  * Lethal warning — only shown under the umbrella-corp theme.
  * Always renders its text in the full sidebar / drawer; hidden in
- * the icon rail to keep the rail tight.
+ * the icon rail to keep the rail tight. Hidden on mobile — too
+ * much vertical chrome for a phone, and it's pure decoration.
  */
 function LethalWarning() {
   return (
-    <div className="uc-lethal-warning" data-testid="lethal-warning">
+    <div className="uc-lethal-warning hidden md:block" data-testid="lethal-warning">
       <span className="uc-lethal-dot" aria-hidden />
       <span>⚠ THREAT LEVEL: CRITICAL</span>
       <div className="uc-lethal-sub">LETHAL FORCE AUTHORIZED</div>
@@ -476,24 +477,36 @@ export function Layout({ children }: { children: React.ReactNode }) {
           >
             {currentItem?.label || "BOS-Omega"}
           </h1>
-          {/* Tactical tagline — only visible under umbrella-corp theme. */}
-          <span className="umbrella-corp-tagline hidden md:inline" data-testid="header-tagline">
-            OUR BUSINESS IS CONTROL
+          {/* Tactical tagline — only visible under umbrella-corp theme.
+              The Tailwind `hidden md:inline-flex` on the WRAPPER controls
+              responsive display; the inner span is the theme toggle. */}
+          <span className="hidden md:inline-flex items-center">
+            <span className="umbrella-corp-tagline" data-testid="header-tagline">
+              OUR BUSINESS IS CONTROL
+            </span>
           </span>
           <div className="ml-auto flex items-center gap-2 sm:gap-4 min-w-0">
-            {/* Tactical status chips — desktop-only under umbrella-corp */}
-            <span className="umbrella-corp-chip umbrella-corp-only hidden lg:inline-flex" data-testid="chip-system-status">
-              <span className="uc-dot" />
-              <span className="uc-label-dim">System Status</span>
-              <span>All Systems Operational</span>
+            {/* Tactical status chips — desktop-only under umbrella-corp.
+                Tailwind `hidden lg:inline-flex` on the WRAPPER controls
+                responsive display; the inner chip is the theme toggle. */}
+            <span className="hidden lg:inline-flex">
+              <span className="umbrella-corp-chip umbrella-corp-only" data-testid="chip-system-status">
+                <span className="uc-dot" />
+                <span className="uc-label-dim">System Status</span>
+                <span>All Systems Operational</span>
+              </span>
             </span>
-            <span className="umbrella-corp-chip umbrella-corp-only hidden lg:inline-flex" data-testid="chip-breakers">
-              <span className="uc-label-dim">Circuit Breakers</span>
-              <span>Closed</span>
+            <span className="hidden lg:inline-flex">
+              <span className="umbrella-corp-chip umbrella-corp-only" data-testid="chip-breakers">
+                <span className="uc-label-dim">Circuit Breakers</span>
+                <span>Closed</span>
+              </span>
             </span>
-            <span className="umbrella-corp-chip umbrella-corp-only hidden lg:inline-flex" data-testid="chip-soc2">
-              <span className="uc-label-dim">SOC2-Ready</span>
-              <span>Encrypted</span>
+            <span className="hidden lg:inline-flex">
+              <span className="umbrella-corp-chip umbrella-corp-only" data-testid="chip-soc2">
+                <span className="uc-label-dim">SOC2-Ready</span>
+                <span>Encrypted</span>
+              </span>
             </span>
 
             {/* Default chrome: hidden on mobile */}

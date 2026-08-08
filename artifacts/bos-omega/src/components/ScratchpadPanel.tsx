@@ -188,31 +188,31 @@ export function ScratchpadPanel({
 
   return (
     <div className="bg-card border border-card-border rounded-xl shadow-card" data-testid="scratchpad-panel">
-      <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 px-4 sm:px-5 py-3 border-b border-border">
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
-          className="flex items-center gap-2 text-left"
+          className="flex items-center gap-2 text-left min-w-0"
           aria-expanded={!collapsed}
         >
-          <Sparkles className="w-4 h-4 text-amber-600" />
-          <div>
+          <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+          <div className="min-w-0">
             <div className="text-[14px] font-serif font-semibold text-foreground tracking-tight">
               {headingText}{" "}
               <span className="text-[11px] font-mono text-muted-foreground ml-1">({items.length})</span>
             </div>
-            <div className="text-[11.5px] text-muted-foreground">{subtitleText}</div>
+            <div className="text-[11.5px] text-muted-foreground line-clamp-2">{subtitleText}</div>
           </div>
         </button>
         {!readOnly && (
           <button
             type="button"
             onClick={() => { setAdding((a) => !a); setError(null); }}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[12px] font-medium text-foreground hover:bg-secondary transition-colors"
+            className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[12px] font-medium text-foreground hover:bg-secondary transition-colors shrink-0 self-start sm:self-auto"
             data-testid="button-pin-scratchpad"
           >
             {adding ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-            {adding ? "Cancel" : "Pin a note"}
+            <span className="sm:inline">{adding ? "Cancel" : "Pin a note"}</span>
           </button>
         )}
       </div>

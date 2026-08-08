@@ -808,8 +808,8 @@ export function TaskConsole() {
   return (
     <div className="space-y-8">
       {/* Page header */}
-      <header className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="space-y-1 min-w-0">
           <h1 className="text-2xl font-serif font-semibold text-foreground tracking-tight" data-testid="text-task-console-title">
             {activeConversationId && conversationDetail
               ? conversationDetail.conversation.title
@@ -821,7 +821,7 @@ export function TaskConsole() {
               : "Submit a task and let BOS-Omega orchestrate the optimal multi-model execution strategy."}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Task #64: Cross-AI continuity bundle controls. Copy is
               enabled once we have a current task or active conversation
               to scope the bundle to. Rehydrate is always available so
@@ -884,9 +884,9 @@ export function TaskConsole() {
         navigateOnImport
       />
 
-      {/* Stats bar */}
+      {/* Stats bar — wraps from 2-col on mobile to 3-col on tablet to 6-col on desktop */}
       {stats && (
-        <div className="grid grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
             { label: "Total", value: stats.total_tasks, accent: "text-foreground" },
             { label: "Go", value: stats.go_count, accent: "text-green-700" },
@@ -895,9 +895,9 @@ export function TaskConsole() {
             { label: "Avg latency", value: formatMs(stats.avg_latency_ms), accent: "text-foreground" },
             { label: "Success rate", value: `${((stats.success_rate || 0) * 100).toFixed(0)}%`, accent: "text-green-700" },
           ].map((s) => (
-            <div key={s.label} className="bg-card border border-card-border rounded-xl p-4 shadow-card">
-              <div className="text-[10.5px] text-muted-foreground font-medium tracking-wide uppercase">{s.label}</div>
-              <div className={`text-2xl font-serif font-semibold mt-1.5 tracking-tight ${s.accent}`}>{s.value}</div>
+            <div key={s.label} className="bg-card border border-card-border rounded-xl p-3 sm:p-4 shadow-card min-w-0">
+              <div className="text-[10.5px] text-muted-foreground font-medium tracking-wide uppercase truncate">{s.label}</div>
+              <div className={`text-xl sm:text-2xl font-serif font-semibold mt-1 sm:mt-1.5 tracking-tight truncate ${s.accent}`}>{s.value}</div>
             </div>
           ))}
         </div>
@@ -950,7 +950,7 @@ export function TaskConsole() {
               </button>
             )}
           </div>
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             {persona_slots.map((p) => {
               const presentation = PERSONA_PRESENTATION[p.slot];
               const Icon = presentation.icon;
@@ -1015,7 +1015,7 @@ export function TaskConsole() {
         {/* Mode selector */}
         <div className="mb-5">
           <label className="block text-[12.5px] font-medium text-foreground mb-2">Execution mode</label>
-          <div className="grid grid-cols-3 gap-2.5 mb-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mb-2.5">
             {MODE_OPTIONS.slice(0, 3).map((m) => {
               const Icon = m.icon;
               const active = mode === m.value;
@@ -1041,7 +1041,7 @@ export function TaskConsole() {
               );
             })}
           </div>
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             {MODE_OPTIONS.slice(3).map((m) => {
               const Icon = m.icon;
               const active = mode === m.value;

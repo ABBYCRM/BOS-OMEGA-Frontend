@@ -1319,18 +1319,23 @@
   padding: 2px 8px;
 }
 
-/* Tactical header chips that only appear under umbrella-corp. */
+/* Tactical header chips that only appear under umbrella-corp.
+   NOTE: We use a wrapper-class approach so Tailwind's responsive
+   `hidden md:inline-flex` / `hidden lg:inline-flex` keeps control
+   on mobile. The chip itself is wrapped in a Tailwind-controlled
+   div; the inner .umbrella-corp-chip is just a styling hook (no
+   display rule). */
 .umbrella-corp-only {
-  display: none !important;
+  display: none;
 }
 :root.theme-umbrella-corp .umbrella-corp-only {
-  display: inline-flex !important;
+  display: inline-flex;
 }
 :root.theme-umbrella-corp .umbrella-corp-only-block {
-  display: block !important;
+  display: block;
 }
 :root.theme-umbrella-corp .umbrella-corp-hide {
-  display: none !important;
+  display: none;
 }
 
 /* Reusable tactical chip (used in header status modules) */
@@ -1362,7 +1367,10 @@
   color: var(--accent-red);
 }
 
-/* Header tagline ("OUR BUSINESS IS CONTROL") */
+/* Header tagline ("OUR BUSINESS IS CONTROL")
+   Same wrapper rule as the chips: Tailwind controls when the
+   tagline is shown (hidden md:inline etc.); the inner span is
+   the typography hook. */
 .umbrella-corp-tagline {
   display: none;
 }
