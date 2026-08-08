@@ -7,6 +7,7 @@ import {
   Zap as Bolt, Square,
 } from "lucide-react";
 import { useTheme, type ThemeId } from "@/lib/theme";
+import { ApiTokensCard } from "@/components/ApiTokensCard";
 
 // ======================================================================
 // Theme options
@@ -588,13 +589,15 @@ export function Settings() {
       <header className="space-y-1">
         <h1 className="text-2xl font-serif font-semibold text-foreground tracking-tight">Settings</h1>
         <p className="text-[13.5px] text-muted-foreground max-w-2xl">
-          Configure appearance and tune per-layer memory budgets.
+          Configure appearance, tune per-layer memory budgets, and manage
+          API tokens for the BOS-OMEGA external surface.
         </p>
       </header>
 
       <ThemeToggle />
       <MemoryBudgetsCard />
       <ScratchpadCard />
+      <ApiTokensCard />
     </div>
   );
 }

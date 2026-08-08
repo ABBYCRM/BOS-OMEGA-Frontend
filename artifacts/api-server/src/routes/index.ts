@@ -20,6 +20,8 @@ import overridesRouter from "./overrides.js";
 import imageQuotaRouter from "./imageQuota.js";
 import powershellRouter from "./powershell.js";
 import v1Router from "./v1/index.js";
+import apiTokensRouter from "./apiTokens.js";
+import externalRouter from "./external.js";
 import { requireAuth } from "../lib/security/auth.js";
 import { readLimiter, writeLimiter } from "../lib/security/rateLimit.js";
 
@@ -31,6 +33,13 @@ router.use(publicHealthRouter);
 
 // Auth endpoints — own rate limiter on /login.
 router.use("/auth", authRouter);
+
+// ---- Token management (session-auth) — registered BEFORE the global
+// requireAuth gate so that the unauthenticated boot is impossible to
+// mistake for a token-auth surface. /api/tokens/* is the only place a
+// caller can mint a new token; the token itself is what /api/external/*
+// accepts.
+router.use("/tokens", apiTokensRouter);
 
 // ---- Rate limiter (read/write split) ----
 // Applies to everything below — including the /v1 surface, where the
@@ -77,5 +86,14 @@ router.use("/image-quota", imageQuotaRouter);
 // gated to super_admin only inside the router itself, audit-logged.
 // See routes/powershell.ts for the full security posture.
 router.use("/powershell", powershellRouter);
+
+// ---- External API surface (token-auth, separate from session-auth).
+// All routes under /api/external/* require a Bearer token issued by
+// /api/tokens. The token is hashed (sha256) at rest; plaintext is
+// shown to the user exactly once on creation. Scopes gate write
+// access to canon / scratchpad / continuity separately. See
+// routes/external.ts for the full surface and middlewares/apiTokenAuth.ts
+// for the auth chain.
+router.use("/external", externalRouter);
 
 export default router;

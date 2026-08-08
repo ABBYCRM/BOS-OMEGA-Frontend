@@ -399,4 +399,35 @@ CREATE INDEX IF NOT EXISTS "bos_task_executions_org_idx" ON "bos_task_executions
 CREATE INDEX IF NOT EXISTS "bos_task_requests_device_idx" ON "bos_task_requests" USING btree ("device_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "bos_task_requests_org_idx" ON "bos_task_requests" USING btree ("org_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "conversations_user_idx" ON "conversations" USING btree ("user_id","last_active_at");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "lattice_exports_user_idx" ON "lattice_exports" USING btree ("user_id","created_at");
+CREATE INDEX IF NOT EXISTS "lattice_exports_user_idx" ON "lattice_exports" USING btree ("user_id","created_at");--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "api_tokens" (
+	"id" text PRIMARY KEY NOT NULL,
+	"user_id" text NOT NULL,
+	"name" text NOT NULL,
+	"token_hash" text NOT NULL,
+	"token_prefix" text NOT NULL,
+	"scopes" jsonb DEFAULT '[]' NOT NULL,
+	"expires_at" timestamp,
+	"last_used_at" timestamp,
+	"revoked_at" timestamp,
+	"revoked_reason" text,
+	"power_shell_only" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "api_token_audit" (
+	"id" text PRIMARY KEY NOT NULL,
+	"token_id" text,
+	"user_id" text NOT NULL,
+	"event_type" text NOT NULL,
+	"ip" text,
+	"user_agent" text,
+	"metadata" jsonb,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "api_tokens_hash_idx" ON "api_tokens" USING btree ("token_hash");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "api_tokens_user_idx" ON "api_tokens" USING btree ("user_id","created_at");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "api_token_audit_token_idx" ON "api_token_audit" USING btree ("token_id","created_at");
