@@ -1,5 +1,6 @@
 import { lookup } from "dns/promises";
 import { isIP } from "net";
+import { Agent, fetch as undiciFetch } from "undici";
 import { logger } from "../logger.js";
 
 /**
@@ -148,16 +149,27 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions = {}): Pr
     }
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // We use undici's `fetch` (not the global one) with a per-call Agent
+  // that sets the connect timeout to the caller's budget. undici v8's
+  // default connect timeout is 10s and the global `fetch` doesn't
+  // expose a way to override it — only undici's Agent does. Setting
+  // `connect.timeout` here closes the gap so endpoints like Bitdeer
+  // (which take 10-30s on connect) get the full requested budget
+  // instead of being killed at undici's default 10s ceiling.
+  const dispatcher = new Agent({
+    connect: { timeout: timeoutMs },
+    headersTimeout: timeoutMs,
+    bodyTimeout: timeoutMs,
+  });
   try {
-    const response = await fetch(rawUrl, {
+    const response = await undiciFetch(rawUrl, {
       ...init,
       redirect: "manual", // prevent redirect-to-private bypass
-      signal: init.signal ?? controller.signal,
-    });
+      signal: init.signal,
+      dispatcher,
+    } as Parameters<typeof undiciFetch>[1]);
     return response;
   } finally {
-    clearTimeout(timer);
+    void dispatcher.close().catch(() => {});
   }
 }
