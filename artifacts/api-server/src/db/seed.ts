@@ -123,3 +123,72 @@ export async function seed() {
 
   logger.info("Seed complete: 5 providers, 10 models, 3 memory items");
 }
+
+/**
+ * Run on every boot. Idempotently upserts the canonical 18-node LLM
+ * provider matrix so a live install that pre-dates a new node (e.g.
+ * Bitdeer) picks it up the next time the api-server starts. Existing
+ * rows are NOT modified — only missing rows are added.
+ *
+ * This intentionally lives outside `seed()` (which early-returns when
+ * any provider exists) so it can run on every boot against an
+ * already-populated DB.
+ */
+export async function ensureProviderMatrix(): Promise<void> {
+  const expected: Array<{
+    id: string;
+    name: string;
+    base_url: string | null;
+    priority: number;
+    api_key_env: string | null;
+  }> = [
+    { id: "prov_openai",    name: "OpenAI",                  base_url: "https://api.openai.com/v1",                    priority: 1,  api_key_env: "OPENAI_API_KEY" },
+    { id: "prov_anthropic", name: "Anthropic",               base_url: "https://api.anthropic.com",                    priority: 2,  api_key_env: "ANTHROPIC_API_KEY" },
+    { id: "prov_gemini",    name: "Gemini",                  base_url: "https://generativelanguage.googleapis.com",     priority: 3,  api_key_env: "GEMINI_API_KEY" },
+    { id: "prov_ollama",    name: "Ollama",                  base_url: "http://localhost:11434",                       priority: 4,  api_key_env: null },
+    { id: "prov_generic",   name: "Generic API",             base_url: null,                                          priority: 5,  api_key_env: "GENERIC_API_KEY" },
+    { id: "prov_xai",       name: "xAI (Grok)",              base_url: "https://api.x.ai/v1",                          priority: 6,  api_key_env: "XAI_API_KEY" },
+    { id: "prov_kimi",      name: "Kimi (Moonshot AI)",      base_url: "https://api.moonshot.cn/v1",                   priority: 7,  api_key_env: "KIMI_API_KEY" },
+    { id: "prov_bitdeer",   name: "Bitdeer",                 base_url: "https://api.bitdeer.com/v1",                   priority: 8,  api_key_env: "BITDEER_API_KEY" },
+    { id: "prov_nvidia_1",  name: "NVIDIA NIM [1] — Llama 3.3 70B",     base_url: "https://integrate.api.nvidia.com/v1", priority: 9,  api_key_env: "NVIDIA_API_KEY_1"  },
+    { id: "prov_nvidia_2",  name: "NVIDIA NIM [2] — Nemotron 340B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 10, api_key_env: "NVIDIA_API_KEY_2"  },
+    { id: "prov_nvidia_3",  name: "NVIDIA NIM [3] — Nemotron 70B",       base_url: "https://integrate.api.nvidia.com/v1", priority: 11, api_key_env: "NVIDIA_API_KEY_3"  },
+    { id: "prov_nvidia_4",  name: "NVIDIA NIM [4] — Nemotron Super 49B", base_url: "https://integrate.api.nvidia.com/v1", priority: 12, api_key_env: "NVIDIA_API_KEY_4"  },
+    { id: "prov_nvidia_5",  name: "NVIDIA NIM [5] — Llama 3.1 70B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 13, api_key_env: "NVIDIA_API_KEY_5"  },
+    { id: "prov_nvidia_6",  name: "NVIDIA NIM [6] — Kimi K2",            base_url: "https://integrate.api.nvidia.com/v1", priority: 14, api_key_env: "NVIDIA_API_KEY_6"  },
+    { id: "prov_nvidia_7",  name: "NVIDIA NIM [7] — Mixtral 8×22B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 15, api_key_env: "NVIDIA_API_KEY_7"  },
+    { id: "prov_nvidia_8",  name: "NVIDIA NIM [8] — Codestral 22B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 16, api_key_env: "NVIDIA_API_KEY_8"  },
+    { id: "prov_nvidia_9",  name: "NVIDIA NIM [9] — DBRX",               base_url: "https://integrate.api.nvidia.com/v1", priority: 17, api_key_env: "NVIDIA_API_KEY_9"  },
+    { id: "prov_nvidia_10", name: "NVIDIA NIM [10] — Step 3.7 Flash",    base_url: "https://integrate.api.nvidia.com/v1", priority: 18, api_key_env: "NVIDIA_API_KEY_10" },
+  ];
+  const existing = await db.select({ id: llmProvidersTable.id }).from(llmProvidersTable);
+  const have = new Set(existing.map((r) => r.id));
+  let added = 0;
+  for (const p of expected) {
+    if (have.has(p.id)) continue;
+    await db.insert(llmProvidersTable).values({
+      id: p.id,
+      name: p.name,
+      base_url: p.base_url,
+      priority: p.priority,
+      api_key_env: p.api_key_env,
+      status: "HEALTHY",
+      enabled: true,
+    });
+    try {
+      await db.insert(providerHealthTable).values({
+        id: `ph_${p.id}`,
+        provider_id: p.id,
+        status: "HEALTHY",
+        failure_count: 0,
+        schema_failure_count: 0,
+      });
+    } catch {
+      // ignore — health row is best-effort
+    }
+    added++;
+  }
+  if (added > 0) {
+    logger.info({ added }, "ensureProviderMatrix added missing nodes to the LLM provider matrix");
+  }
+}

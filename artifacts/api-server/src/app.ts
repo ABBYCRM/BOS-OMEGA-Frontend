@@ -9,7 +9,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { pool } from "@workspace/db";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
-import { seed } from "./db/seed.js";
+import { seed, ensureProviderMatrix } from "./db/seed.js";
 import {
   seedSuperAdminIfEmpty,
   reconcileOwnerSuperAdmin,
@@ -283,6 +283,14 @@ export async function bootstrap(): Promise<void> {
     await seed();
   } catch (err) {
     logger.error({ err }, "Seed failed");
+  }
+  // Idempotently upsert the 18-node LLM provider matrix so a live
+  // install picks up new nodes (e.g. Bitdeer) on the next boot.
+  // Non-fatal — UI falls back to NODE-XXXX codenames for unknown ids.
+  try {
+    await ensureProviderMatrix();
+  } catch (err) {
+    logger.error({ err }, "ensureProviderMatrix failed");
   }
   try {
     await seedSuperAdminIfEmpty();
