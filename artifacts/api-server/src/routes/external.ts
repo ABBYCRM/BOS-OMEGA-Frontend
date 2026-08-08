@@ -57,7 +57,7 @@ router.get("/memory", requireScope("memory:read"), async (req: Request, res: Res
     const rows = await db
       .select()
       .from(memoryItemsTable)
-      .where(and(...conditions))
+      .where(conditions.length > 0 ? and(...conditions) : sql`TRUE`)
       .orderBy(desc(memoryItemsTable.updated_at))
       .limit(limit)
       .offset(offset);
@@ -294,7 +294,7 @@ router.get("/tasks", requireScope("tasks:read"), async (req: Request, res: Respo
     const rows = await db
       .select()
       .from(tasksTable)
-      .where(and(...conditions))
+      .where(conditions.length > 0 ? and(...conditions) : sql`TRUE`)
       .orderBy(desc(tasksTable.created_at))
       .limit(parsed.data.limit)
       .offset(parsed.data.offset);
