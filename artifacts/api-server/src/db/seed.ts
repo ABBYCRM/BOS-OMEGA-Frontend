@@ -5,6 +5,7 @@ import {
   providerHealthTable,
   memoryItemsTable,
 } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { logger } from "../lib/logger.js";
 
@@ -25,18 +26,21 @@ export async function seed() {
     { id: "prov_generic", name: "Generic API", base_url: null, priority: 5, api_key_env: "GENERIC_API_KEY" },
     { id: "prov_xai",  name: "xAI (Grok)",         base_url: "https://api.x.ai/v1",          priority: 6, api_key_env: "XAI_API_KEY"  },
     { id: "prov_kimi", name: "Kimi (Moonshot AI)", base_url: "https://api.moonshot.cn/v1", priority: 7, api_key_env: "KIMI_API_KEY" },
-    // NVIDIA NIM — 11 parallel slots (one key each) for fan-out across all execution modes
-    { id: "prov_nvidia_1",  name: "NVIDIA NIM [1] — Llama 3.3 70B",     base_url: "https://integrate.api.nvidia.com/v1", priority: 8,  api_key_env: "NVIDIA_API_KEY_1"  },
-    { id: "prov_nvidia_2",  name: "NVIDIA NIM [2] — Nemotron 340B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 9,  api_key_env: "NVIDIA_API_KEY_2"  },
-    { id: "prov_nvidia_3",  name: "NVIDIA NIM [3] — Nemotron 70B",       base_url: "https://integrate.api.nvidia.com/v1", priority: 10, api_key_env: "NVIDIA_API_KEY_3"  },
-    { id: "prov_nvidia_4",  name: "NVIDIA NIM [4] — Nemotron Super 49B", base_url: "https://integrate.api.nvidia.com/v1", priority: 11, api_key_env: "NVIDIA_API_KEY_4"  },
-    { id: "prov_nvidia_5",  name: "NVIDIA NIM [5] — Llama 3.1 70B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 12, api_key_env: "NVIDIA_API_KEY_5"  },
-    { id: "prov_nvidia_6",  name: "NVIDIA NIM [6] — Kimi K2",            base_url: "https://integrate.api.nvidia.com/v1", priority: 13, api_key_env: "NVIDIA_API_KEY_6"  },
-    { id: "prov_nvidia_7",  name: "NVIDIA NIM [7] — Mixtral 8×22B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 14, api_key_env: "NVIDIA_API_KEY_7"  },
-    { id: "prov_nvidia_8",  name: "NVIDIA NIM [8] — Codestral 22B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 15, api_key_env: "NVIDIA_API_KEY_8"  },
-    { id: "prov_nvidia_9",  name: "NVIDIA NIM [9] — DBRX",               base_url: "https://integrate.api.nvidia.com/v1", priority: 16, api_key_env: "NVIDIA_API_KEY_9"  },
-    { id: "prov_nvidia_10", name: "NVIDIA NIM [10] — Step 3.7 Flash",    base_url: "https://integrate.api.nvidia.com/v1", priority: 17, api_key_env: "NVIDIA_API_KEY_10" },
-    { id: "prov_nvidia_11", name: "NVIDIA NIM [11] — Yi Large",          base_url: "https://integrate.api.nvidia.com/v1", priority: 18, api_key_env: "NVIDIA_API_KEY_11" },
+    // NVIDIA NIM — 11 parallel slots (one key each) for fan-out across all execution modes.
+    // Names reflect the actual model assigned to each slot (2026-08-08
+    // rebrand after the operator supplied 10 keys). 11th slot keeps its
+    // "Ultra 253B" assignment but stays disabled until a key is added.
+    { id: "prov_nvidia_1",  name: "NVIDIA NIM [1] — Llama 3.3 70B",              base_url: "https://integrate.api.nvidia.com/v1", priority: 8,  api_key_env: "NVIDIA_API_KEY_1"  },
+    { id: "prov_nvidia_2",  name: "NVIDIA NIM [2] — Nemotron 4 340B",            base_url: "https://integrate.api.nvidia.com/v1", priority: 9,  api_key_env: "NVIDIA_API_KEY_2"  },
+    { id: "prov_nvidia_3",  name: "NVIDIA NIM [3] — GPT-OSS 120B",               base_url: "https://integrate.api.nvidia.com/v1", priority: 10, api_key_env: "NVIDIA_API_KEY_3"  },
+    { id: "prov_nvidia_4",  name: "NVIDIA NIM [4] — Nemotron Super 49B v1.5",    base_url: "https://integrate.api.nvidia.com/v1", priority: 11, api_key_env: "NVIDIA_API_KEY_4"  },
+    { id: "prov_nvidia_5",  name: "NVIDIA NIM [5] — DeepSeek V4 Flash",          base_url: "https://integrate.api.nvidia.com/v1", priority: 12, api_key_env: "NVIDIA_API_KEY_5"  },
+    { id: "prov_nvidia_6",  name: "NVIDIA NIM [6] — Codestral 22B",              base_url: "https://integrate.api.nvidia.com/v1", priority: 13, api_key_env: "NVIDIA_API_KEY_6"  },
+    { id: "prov_nvidia_7",  name: "NVIDIA NIM [7] — Kimi K2.6",                  base_url: "https://integrate.api.nvidia.com/v1", priority: 14, api_key_env: "NVIDIA_API_KEY_7"  },
+    { id: "prov_nvidia_8",  name: "NVIDIA NIM [8] — Llama 3.2 90B Vision",       base_url: "https://integrate.api.nvidia.com/v1", priority: 15, api_key_env: "NVIDIA_API_KEY_8"  },
+    { id: "prov_nvidia_9",  name: "NVIDIA NIM [9] — Palmyra Creative 122B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 16, api_key_env: "NVIDIA_API_KEY_9"  },
+    { id: "prov_nvidia_10", name: "NVIDIA NIM [10] — Nemotron Nano 3 30B",       base_url: "https://integrate.api.nvidia.com/v1", priority: 17, api_key_env: "NVIDIA_API_KEY_10" },
+    { id: "prov_nvidia_11", name: "NVIDIA NIM [11] — Nemotron Ultra 253B (no key yet)", base_url: "https://integrate.api.nvidia.com/v1", priority: 18, api_key_env: "NVIDIA_API_KEY_11" },
   ];
 
   for (const p of providers) {
@@ -150,22 +154,54 @@ export async function ensureProviderMatrix(): Promise<void> {
     { id: "prov_xai",       name: "xAI (Grok)",              base_url: "https://api.x.ai/v1",                          priority: 6,  api_key_env: "XAI_API_KEY" },
     { id: "prov_kimi",      name: "Kimi (Moonshot AI)",      base_url: "https://api.moonshot.cn/v1",                   priority: 7,  api_key_env: "KIMI_API_KEY" },
     { id: "prov_bitdeer",   name: "Bitdeer",                 base_url: "https://api.bitdeer.com/v1",                   priority: 8,  api_key_env: "BITDEER_API_KEY" },
-    { id: "prov_nvidia_1",  name: "NVIDIA NIM [1] — Llama 3.3 70B",     base_url: "https://integrate.api.nvidia.com/v1", priority: 9,  api_key_env: "NVIDIA_API_KEY_1"  },
-    { id: "prov_nvidia_2",  name: "NVIDIA NIM [2] — Nemotron 340B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 10, api_key_env: "NVIDIA_API_KEY_2"  },
-    { id: "prov_nvidia_3",  name: "NVIDIA NIM [3] — Nemotron 70B",       base_url: "https://integrate.api.nvidia.com/v1", priority: 11, api_key_env: "NVIDIA_API_KEY_3"  },
-    { id: "prov_nvidia_4",  name: "NVIDIA NIM [4] — Nemotron Super 49B", base_url: "https://integrate.api.nvidia.com/v1", priority: 12, api_key_env: "NVIDIA_API_KEY_4"  },
-    { id: "prov_nvidia_5",  name: "NVIDIA NIM [5] — Llama 3.1 70B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 13, api_key_env: "NVIDIA_API_KEY_5"  },
-    { id: "prov_nvidia_6",  name: "NVIDIA NIM [6] — Kimi K2",            base_url: "https://integrate.api.nvidia.com/v1", priority: 14, api_key_env: "NVIDIA_API_KEY_6"  },
-    { id: "prov_nvidia_7",  name: "NVIDIA NIM [7] — Mixtral 8×22B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 15, api_key_env: "NVIDIA_API_KEY_7"  },
-    { id: "prov_nvidia_8",  name: "NVIDIA NIM [8] — Codestral 22B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 16, api_key_env: "NVIDIA_API_KEY_8"  },
-    { id: "prov_nvidia_9",  name: "NVIDIA NIM [9] — DBRX",               base_url: "https://integrate.api.nvidia.com/v1", priority: 17, api_key_env: "NVIDIA_API_KEY_9"  },
-    { id: "prov_nvidia_10", name: "NVIDIA NIM [10] — Step 3.7 Flash",    base_url: "https://integrate.api.nvidia.com/v1", priority: 18, api_key_env: "NVIDIA_API_KEY_10" },
+    { id: "prov_nvidia_1",  name: "NVIDIA NIM [1] — Llama 3.3 70B",              base_url: "https://integrate.api.nvidia.com/v1", priority: 9,  api_key_env: "NVIDIA_API_KEY_1"  },
+    { id: "prov_nvidia_2",  name: "NVIDIA NIM [2] — Nemotron 4 340B",            base_url: "https://integrate.api.nvidia.com/v1", priority: 10, api_key_env: "NVIDIA_API_KEY_2"  },
+    { id: "prov_nvidia_3",  name: "NVIDIA NIM [3] — GPT-OSS 120B",               base_url: "https://integrate.api.nvidia.com/v1", priority: 11, api_key_env: "NVIDIA_API_KEY_3"  },
+    { id: "prov_nvidia_4",  name: "NVIDIA NIM [4] — Nemotron Super 49B v1.5",    base_url: "https://integrate.api.nvidia.com/v1", priority: 12, api_key_env: "NVIDIA_API_KEY_4"  },
+    { id: "prov_nvidia_5",  name: "NVIDIA NIM [5] — DeepSeek V4 Flash",          base_url: "https://integrate.api.nvidia.com/v1", priority: 13, api_key_env: "NVIDIA_API_KEY_5"  },
+    { id: "prov_nvidia_6",  name: "NVIDIA NIM [6] — Codestral 22B",              base_url: "https://integrate.api.nvidia.com/v1", priority: 14, api_key_env: "NVIDIA_API_KEY_6"  },
+    { id: "prov_nvidia_7",  name: "NVIDIA NIM [7] — Kimi K2.6",                  base_url: "https://integrate.api.nvidia.com/v1", priority: 15, api_key_env: "NVIDIA_API_KEY_7"  },
+    { id: "prov_nvidia_8",  name: "NVIDIA NIM [8] — Llama 3.2 90B Vision",       base_url: "https://integrate.api.nvidia.com/v1", priority: 16, api_key_env: "NVIDIA_API_KEY_8"  },
+    { id: "prov_nvidia_9",  name: "NVIDIA NIM [9] — Palmyra Creative 122B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 17, api_key_env: "NVIDIA_API_KEY_9"  },
+    { id: "prov_nvidia_10", name: "NVIDIA NIM [10] — Nemotron Nano 3 30B",       base_url: "https://integrate.api.nvidia.com/v1", priority: 18, api_key_env: "NVIDIA_API_KEY_10" },
+    { id: "prov_nvidia_11", name: "NVIDIA NIM [11] — Nemotron Ultra 253B (no key yet)", base_url: "https://integrate.api.nvidia.com/v1", priority: 19, api_key_env: "NVIDIA_API_KEY_11" },
   ];
-  const existing = await db.select({ id: llmProvidersTable.id }).from(llmProvidersTable);
+
+  // Per-id name overrides for installs that pre-date the 2026-08-08 rebrand.
+  // If a row exists with an old name, update only the name field — leave the
+  // operator's keys / status / priority / last_test_* alone.
+  const RENAME = new Map<string, string>([
+    ["prov_nvidia_1",  "NVIDIA NIM [1] — Llama 3.3 70B"],
+    ["prov_nvidia_2",  "NVIDIA NIM [2] — Nemotron 4 340B"],
+    ["prov_nvidia_3",  "NVIDIA NIM [3] — GPT-OSS 120B"],
+    ["prov_nvidia_4",  "NVIDIA NIM [4] — Nemotron Super 49B v1.5"],
+    ["prov_nvidia_5",  "NVIDIA NIM [5] — DeepSeek V4 Flash"],
+    ["prov_nvidia_6",  "NVIDIA NIM [6] — Codestral 22B"],
+    ["prov_nvidia_7",  "NVIDIA NIM [7] — Kimi K2.6"],
+    ["prov_nvidia_8",  "NVIDIA NIM [8] — Llama 3.2 90B Vision"],
+    ["prov_nvidia_9",  "NVIDIA NIM [9] — Palmyra Creative 122B"],
+    ["prov_nvidia_10", "NVIDIA NIM [10] — Nemotron Nano 3 30B"],
+    ["prov_nvidia_11", "NVIDIA NIM [11] — Nemotron Ultra 253B (no key yet)"],
+  ]);
+  const existing = await db.select({ id: llmProvidersTable.id, name: llmProvidersTable.name }).from(llmProvidersTable);
   const have = new Set(existing.map((r) => r.id));
   let added = 0;
+  let renamed = 0;
   for (const p of expected) {
-    if (have.has(p.id)) continue;
+    if (have.has(p.id)) {
+      // Rebrand existing rows whose name changed
+      const wanted = RENAME.get(p.id);
+      if (wanted) {
+        const cur = existing.find((r) => r.id === p.id);
+        if (cur && cur.name !== wanted) {
+          await db.update(llmProvidersTable)
+            .set({ name: wanted, updated_at: new Date() })
+            .where(eq(llmProvidersTable.id, p.id));
+          renamed++;
+        }
+      }
+      continue;
+    }
     await db.insert(llmProvidersTable).values({
       id: p.id,
       name: p.name,
@@ -190,5 +226,8 @@ export async function ensureProviderMatrix(): Promise<void> {
   }
   if (added > 0) {
     logger.info({ added }, "ensureProviderMatrix added missing nodes to the LLM provider matrix");
+  }
+  if (renamed > 0) {
+    logger.info({ renamed }, "ensureProviderMatrix renamed NIM slots to current models");
   }
 }
