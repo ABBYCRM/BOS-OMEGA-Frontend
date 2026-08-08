@@ -51,3 +51,6 @@ Thumbs.db
 # Runtime upload data should never be committed.
 artifacts/*/.data/
 .data/
+
+# Uploaded credential files — never commit
+attached_assets/
