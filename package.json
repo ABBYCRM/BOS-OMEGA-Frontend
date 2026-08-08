@@ -9,6 +9,10 @@
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },
   "private": true,
+  "packageManager": "pnpm@10.26.1",
+  "engines": {
+    "node": "24.x"
+  },
   "devDependencies": {
     "@types/pdfkit": "^0.17.6",
     "pdfkit": "^0.18.0",
