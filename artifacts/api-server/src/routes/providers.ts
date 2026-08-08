@@ -26,10 +26,29 @@ const router = Router();
 // admin and super_admin can configure the LLM backbone.
 router.use(requireRole("admin", "super_admin"));
 
-// Strip secrets before returning provider rows
+// Strip secrets before returning provider rows. The `has_api_key` flag
+// is a UX signal — it tells the operator whether the provider row has a
+// usable key. The actual key resolution chain (DB → env var → legacy
+// canonical env → AI Integrations proxy) lives in `lib/keyResolver.ts`
+// and may succeed even when this flag is `false`. So we check all three
+// sources here to give the operator a truthful UI:
+//   1. `api_key_encrypted`  — DB column
+//   2. `api_key_env`        — env var named in the row
+//   3. `canonicalEnvFor()`  — legacy hardcoded env (OpenAI/Anthropic/Gemini)
+function hasResolvableKey(p: typeof llmProvidersTable.$inferSelect): boolean {
+  if (p.api_key_encrypted) return true;
+  if (p.api_key_env && process.env[p.api_key_env]) return true;
+  // Legacy canonical fallback (mirrors keyResolver.canonicalEnvFor).
+  const n = (p.name || "").toLowerCase();
+  if (n === "openai" && process.env["OPENAI_API_KEY"]) return true;
+  if (n === "anthropic" && process.env["ANTHROPIC_API_KEY"]) return true;
+  if ((n === "gemini" || n === "google gemini") && process.env["GEMINI_API_KEY"]) return true;
+  return false;
+}
+
 function sanitize(p: typeof llmProvidersTable.$inferSelect) {
   const { api_key_encrypted: _drop, ...safe } = p;
-  return { ...safe, has_api_key: !!_drop };
+  return { ...safe, has_api_key: hasResolvableKey(p) };
 }
 
 router.get("/", async (_req, res) => {
