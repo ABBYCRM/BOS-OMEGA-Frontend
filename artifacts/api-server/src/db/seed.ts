@@ -25,6 +25,18 @@ export async function seed() {
     { id: "prov_generic", name: "Generic API", base_url: null, priority: 5, api_key_env: "GENERIC_API_KEY" },
     { id: "prov_xai",  name: "xAI (Grok)",         base_url: "https://api.x.ai/v1",          priority: 6, api_key_env: "XAI_API_KEY"  },
     { id: "prov_kimi", name: "Kimi (Moonshot AI)", base_url: "https://api.moonshot.cn/v1", priority: 7, api_key_env: "KIMI_API_KEY" },
+    // NVIDIA NIM — 11 parallel slots (one key each) for fan-out across all execution modes
+    { id: "prov_nvidia_1",  name: "NVIDIA NIM [1] — Llama 3.3 70B",     base_url: "https://integrate.api.nvidia.com/v1", priority: 8,  api_key_env: "NVIDIA_API_KEY_1"  },
+    { id: "prov_nvidia_2",  name: "NVIDIA NIM [2] — Nemotron 340B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 9,  api_key_env: "NVIDIA_API_KEY_2"  },
+    { id: "prov_nvidia_3",  name: "NVIDIA NIM [3] — Nemotron 70B",       base_url: "https://integrate.api.nvidia.com/v1", priority: 10, api_key_env: "NVIDIA_API_KEY_3"  },
+    { id: "prov_nvidia_4",  name: "NVIDIA NIM [4] — Nemotron Super 49B", base_url: "https://integrate.api.nvidia.com/v1", priority: 11, api_key_env: "NVIDIA_API_KEY_4"  },
+    { id: "prov_nvidia_5",  name: "NVIDIA NIM [5] — Llama 3.1 70B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 12, api_key_env: "NVIDIA_API_KEY_5"  },
+    { id: "prov_nvidia_6",  name: "NVIDIA NIM [6] — Kimi K2",            base_url: "https://integrate.api.nvidia.com/v1", priority: 13, api_key_env: "NVIDIA_API_KEY_6"  },
+    { id: "prov_nvidia_7",  name: "NVIDIA NIM [7] — Mixtral 8×22B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 14, api_key_env: "NVIDIA_API_KEY_7"  },
+    { id: "prov_nvidia_8",  name: "NVIDIA NIM [8] — Codestral 22B",      base_url: "https://integrate.api.nvidia.com/v1", priority: 15, api_key_env: "NVIDIA_API_KEY_8"  },
+    { id: "prov_nvidia_9",  name: "NVIDIA NIM [9] — DBRX",               base_url: "https://integrate.api.nvidia.com/v1", priority: 16, api_key_env: "NVIDIA_API_KEY_9"  },
+    { id: "prov_nvidia_10", name: "NVIDIA NIM [10] — Step 3.7 Flash",    base_url: "https://integrate.api.nvidia.com/v1", priority: 17, api_key_env: "NVIDIA_API_KEY_10" },
+    { id: "prov_nvidia_11", name: "NVIDIA NIM [11] — Yi Large",          base_url: "https://integrate.api.nvidia.com/v1", priority: 18, api_key_env: "NVIDIA_API_KEY_11" },
   ];
 
   for (const p of providers) {
