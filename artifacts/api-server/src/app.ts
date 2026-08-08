@@ -196,10 +196,12 @@ export async function bootstrap(): Promise<void> {
       //
       // The migration files use `CREATE TABLE IF NOT EXISTS` /
       // `CREATE INDEX IF NOT EXISTS` so each statement is
-      // individually idempotent. We wrap the whole thing in a
-      // single transaction, so a mid-migration failure rolls
-      // back cleanly and the bookkeeping INSERT is atomic with
-      // the schema changes.
+      // individually idempotent. We run statements in auto-commit
+      // mode (one statement per implicit transaction) so a failure
+      // on one statement — including "already exists" errors that
+      // slip past IF NOT EXISTS for `ALTER TABLE ADD CONSTRAINT`
+      // and friends — doesn't abort the rest of the migration. A
+      // failing statement is logged and skipped.
       const fs = await import("node:fs/promises");
       const crypto = await import("node:crypto");
       await pool.query(`
@@ -216,6 +218,16 @@ export async function bootstrap(): Promise<void> {
           (r: { hash: string }) => r.hash,
         ),
       );
+      // Error codes we treat as benign (the object already exists or
+      // a previous partial run left it in place). Anything else
+      // propagates so the deploy fails loudly instead of silently
+      // starting against a broken schema.
+      const BENIGN_CODES = new Set([
+        "42P07", // duplicate_table
+        "42710", // duplicate_object (constraint / index)
+        "42P06", // duplicate_schema
+        "42P16", // duplicate alias
+      ]);
       for (const entry of journal.entries ?? []) {
         const sqlPath = path.join(migrationsFolder, `${entry.tag}.sql`);
         const sql = await fs.readFile(sqlPath, "utf-8");
@@ -228,34 +240,33 @@ export async function bootstrap(): Promise<void> {
           .split("--> statement-breakpoint")
           .map((s) => s.trim())
           .filter(Boolean);
-        const client = await pool.connect();
-        try {
-          await client.query("BEGIN");
-          for (const stmt of statements) {
-            try {
-              await client.query(stmt);
-            } catch (stmtErr: unknown) {
-              // CREATE TABLE / CREATE INDEX use IF NOT EXISTS, so
-              // "already exists" is the only expected error class.
-              // Anything else is a real failure — roll back.
-              const code = (stmtErr as { code?: string })?.code;
-              if (code !== "42P07" /* duplicate_table */ && code !== "42710" /* duplicate_object */) {
-                throw stmtErr;
-              }
+        let appliedCount = 0;
+        let skippedCount = 0;
+        for (const stmt of statements) {
+          try {
+            await pool.query(stmt);
+            appliedCount++;
+          } catch (stmtErr: unknown) {
+            const code = (stmtErr as { code?: string })?.code;
+            if (code && BENIGN_CODES.has(code)) {
+              skippedCount++;
+            } else {
+              logger.fatal(
+                { err: stmtErr, statement: stmt.slice(0, 200) },
+                "Migration statement failed with non-benign error",
+              );
+              process.exit(1);
             }
           }
-          await client.query(
-            "INSERT INTO public.__drizzle_migrations (hash, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            [hash, Date.now()],
-          );
-          await client.query("COMMIT");
-          logger.info({ tag: entry.tag, statements: statements.length }, "migration applied");
-        } catch (err) {
-          await client.query("ROLLBACK");
-          throw err;
-        } finally {
-          client.release();
         }
+        await pool.query(
+          "INSERT INTO public.__drizzle_migrations (hash, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+          [hash, Date.now()],
+        );
+        logger.info(
+          { tag: entry.tag, applied: appliedCount, skipped: skippedCount },
+          "migration applied",
+        );
       }
       logger.info("Migrations applied");
     } catch (err) {
