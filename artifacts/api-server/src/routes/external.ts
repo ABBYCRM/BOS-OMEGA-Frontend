@@ -695,14 +695,13 @@ async function loadCanonContext() {
 }
 async function loadBudgetsForUser(user_id: string) {
   const b = await getEffectiveBudgets(user_id);
-  // The Zod schema for BundleBudgets wants the field names canon /
-  // continuity / patches / scratchpad (token counts per layer), NOT
-  // the _tokens suffixed field names. Convert here.
+  // MemoryBudgets already uses the field names the Zod schema wants
+  // (canon / continuity / patches / scratchpad). Pass through.
   return {
-    canon: b.canon_tokens,
-    continuity: b.continuity_tokens,
-    patches: 0, // no separate patches layer yet
-    scratchpad: b.scratchpad_tokens,
+    canon: b.canon,
+    continuity: b.continuity,
+    patches: b.patches,
+    scratchpad: b.scratchpad,
   };
 }
 
