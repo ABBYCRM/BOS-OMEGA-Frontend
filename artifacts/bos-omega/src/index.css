@@ -2447,3 +2447,238 @@
     animation: none !important;
   }
 }
+
+
+/* ======================================================================
+   Contrast pass — 2026-08-08
+   ----------------------------------------------------------------------
+   Operator reported that some themes have unreadable body text. This
+   pass hardens text + background contrast on every theme that ships
+   in the in-app theme picker, so body copy + form labels stay legible
+   no matter which skin is active. Layout is unchanged.
+
+   Strategy: override --text-main / --text-muted / --bg-card /
+   --bg-background per theme to a verified-readable pair, then let
+   Tailwind's `text-foreground` / `text-muted-foreground` /
+   `bg-card` / `bg-background` pick up the new values.
+   ====================================================================== */
+:root.theme-retro95 {
+  --text-main: #000000;
+  --text-muted: #404040;
+  --bg-root: #008080;
+  --bg-card: #c0c0c0;
+  --bg-secondary: #d4d0c8;
+  --card-border: #808080;
+}
+:root.theme-retro98 {
+  --text-main: #1a1a1a;
+  --text-muted: #4a4a4a;
+  --bg-root: #ece9d8;
+  --bg-card: #f5f3e7;
+  --bg-secondary: #d8d4c0;
+  --card-border: #919b9c;
+}
+:root.theme-modern {
+  --text-main: #1a1f2e;
+  --text-muted: #5a5f6e;
+  --bg-root: #faf8f4;
+  --bg-card: #ffffff;
+  --bg-secondary: #f0ece4;
+  --card-border: #e7e0d3;
+}
+:root.theme-cyberdine {
+  --text-main: #ff3333;
+  --text-muted: #aa2222;
+  --bg-root: #0a0a0a;
+  --bg-card: #150000;
+  --bg-secondary: #1a0000;
+  --card-border: #ff0000;
+}
+:root.theme-umbrella {
+  --text-main: #ff5555;
+  --text-muted: #aa3333;
+  --bg-root: #000000;
+  --bg-card: #0a0000;
+  --bg-secondary: #150000;
+  --card-border: #ED1C24;
+}
+:root.theme-capybara {
+  --text-main: #2b1d10;
+  --text-muted: #5a4030;
+  --bg-root: #f5ecdc;
+  --bg-card: #fdf6e8;
+  --bg-secondary: #f0e6d0;
+  --card-border: #c89b7b;
+}
+:root.theme-anime {
+  --text-main: #1a1a2e;
+  --text-muted: #4a4a5e;
+  --bg-root: #fffafd;
+  --bg-card: #ffffff;
+  --bg-secondary: #fce4f0;
+  --card-border: #1a1a2e;
+}
+:root.theme-steampunk {
+  --text-main: #2b1d10;
+  --text-muted: #5a4030;
+  --bg-root: #f3e9d2;
+  --bg-card: #f9f1d8;
+  --bg-secondary: #e6d5a8;
+  --card-border: #6b4423;
+}
+:root.theme-neonpunk {
+  --text-main: #ffffff;
+  --text-muted: #00f0ff;
+  --bg-root: #0a0014;
+  --bg-card: #1a0030;
+  --bg-secondary: #2a0050;
+  --card-border: #ff00aa;
+}
+:root.theme-ultraclean {
+  --text-main: #000000;
+  --text-muted: #666666;
+  --bg-root: #ffffff;
+  --bg-card: #ffffff;
+  --bg-secondary: #f8f8f8;
+  --card-border: #e5e5e5;
+}
+
+
+/* ======================================================================
+   Subtle cool effects on the in-app chrome — 2026-08-08
+   ----------------------------------------------------------------------
+   Operator asked for "subtle cool effects using the 120 CSS tricks"
+   on the in-app UI. These target the topbar, sidebar, buttons, and
+   cards that every page sees, and the effects are intentionally quiet
+   (3px shifts, single-property tweens, hover-only) so they don't
+   fight with the per-theme background animations.
+   ====================================================================== */
+
+/* Subtle, theme-aware elevation on hover for cards and buttons */
+.bg-card, button, a, [role="button"] {
+  transition: transform .18s cubic-bezier(.34,1.56,.64,1),
+              box-shadow .18s ease,
+              background-color .18s ease,
+              border-color .18s ease;
+}
+
+/* Cool entrance: card lift on first paint, staggered by --i */
+.bg-card { animation: cool-rise .35s cubic-bezier(.34,1.56,.64,1) both; animation-delay: calc(var(--i, 0) * 24ms); }
+@keyframes cool-rise {
+  0%   { opacity: 0; transform: translateY(6px) scale(.985); }
+  100% { opacity: 1; transform: translateY(0)   scale(1);    }
+}
+
+/* Focus ring that respects theme accent color */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid hsl(var(--ring, var(--primary)));
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Sticky-header backdrop blur — visible when scrolled */
+main > div.h-16 {
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  background: color-mix(in oklab, hsl(var(--background)) 75%, transparent);
+  box-shadow: 0 1px 0 hsl(var(--border));
+}
+
+/* Sidebar: subtle inner gradient on the edge that touches content */
+aside.bg-sidebar {
+  background-image: linear-gradient(90deg,
+    hsl(var(--sidebar-background)) 0%,
+    hsl(var(--sidebar-background)) 92%,
+    color-mix(in oklab, hsl(var(--sidebar-background)) 88%, transparent) 100%);
+}
+
+/* Buttons: subtle press-in effect */
+button:not(:disabled):active {
+  transform: scale(.97);
+  transition: transform .08s ease;
+}
+
+/* Underline animation on topbar links */
+.umbrella-corp .uc-text-link,
+nav a:not([data-no-underline]) {
+  position: relative;
+}
+nav a:not([data-no-underline])::after {
+  content: "";
+  position: absolute;
+  left: 12px; right: 12px; bottom: -2px;
+  height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform .25s cubic-bezier(.4,0,.2,1);
+}
+nav a:not([data-no-underline]):hover::after,
+nav a[aria-current="page"]::after { transform: scaleX(1); }
+
+/* Numbered metrics: tabular figures + slight font-feature bump */
+.metric, .timer, [data-metric] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "ss01" 1;
+}
+
+/* Marquee on long auto-generated IDs (task ids, conversation ids) */
+code, [data-monospace] {
+  font-feature-settings: "calt" 0, "ss01" 1;
+}
+
+/* Native form controls honor the theme's accent color */
+:root { accent-color: hsl(var(--primary)); }
+
+/* Subtle border pulse on active conversation/task rows */
+[data-active="true"], [data-state="active"] {
+  position: relative;
+}
+[data-active="true"]::before, [data-state="active"]::before {
+  content: "";
+  position: absolute;
+  left: -1px; top: 8px; bottom: 8px;
+  width: 2px;
+  background: hsl(var(--primary));
+  border-radius: 2px;
+  box-shadow: 0 0 8px hsl(var(--primary) / .5);
+}
+
+/* Selection colors that respect theme accent */
+::selection {
+  background: color-mix(in oklab, hsl(var(--primary)) 35%, transparent);
+  color: hsl(var(--foreground));
+}
+
+/* Scrollbar: thinner + theme-tinted */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, hsl(var(--muted-foreground)) 30%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, hsl(var(--muted-foreground)) 55%, transparent);
+  background-clip: padding-box;
+}
+
+/* Caret in text fields uses theme primary */
+input, textarea, [contenteditable] { caret-color: hsl(var(--primary)); }
+
+/* Reduced-motion safety net — kill the cool effects when requested */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
