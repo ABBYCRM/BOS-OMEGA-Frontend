@@ -77,10 +77,6 @@ type Mode = "auto" | "single" | "parallel" | "consensus" | "series_pass" | "boil
 // live as canon-style memory rows on the server. The UI here is purely
 // presentational (icon + accent colour); the persona text the model sees
 // comes from the server-side row resolved at pipeline time.
-// BOP.PERSONA_SLOTS.v1 — three editable persona slots whose title/content
-// live as canon-style memory rows on the server. The UI here is purely
-// presentational (icon + accent colour); the persona text the model sees
-// comes from the server-side row resolved at pipeline time.
 //
 // 2026-08-09: bumped LS key to v2 so existing browsers that have a stale
 // "A" (Legal Counsel) selection from a prior session drop back to the
@@ -125,18 +121,21 @@ function readStoredPersonaSlot(): PersonaSlotKey | null {
     if (newRaw === "A" || newRaw === "B" || newRaw === "C") return newRaw;
     const oldRaw = window.localStorage.getItem("bos.persona_slot.v1");
     if (oldRaw === "A" || oldRaw === "B" || oldRaw === "C") {
-      // Migrate: write the v2 key, delete the v1 key.
-      window.localStorage.setItem(PERSONA_LS_KEY, oldRaw);
+      // Delete the v1 key regardless of which slot was there. For
+      // 'A' (Legal Counsel) we intentionally do NOT migrate — the
+      // operator is stuck-on-A, the persona was hijacking every task
+      // with a legal-memo skeleton, and the new kernel (no false-
+      // positive refusals) needs a clean slate to take effect. For
+      // 'B' / 'C' we migrate the value forward so the operator's
+      // explicit choice survives.
       window.localStorage.removeItem("bos.persona_slot.v1");
-      // ...but if the operator's stuck-on-A is forcing a legal memo
-      // on every task, the right thing is to drop the persona entirely
-      // so the new kernel (no false-positive refusals) takes effect.
-      // 2026-08-09: do NOT migrate 'A' — clear it instead so casual
-      // chat stops being routed through the legal lens.
       if (oldRaw === "A") {
-        window.localStorage.removeItem(PERSONA_LS_KEY);
+        // No-op on the v2 key; if a stale value happens to be there
+        // (shouldn't be, since the v2 check above would have returned
+        // it), leave it alone. Net effect: persona is dropped.
         return null;
       }
+      window.localStorage.setItem(PERSONA_LS_KEY, oldRaw);
       return oldRaw;
     }
   } catch {
