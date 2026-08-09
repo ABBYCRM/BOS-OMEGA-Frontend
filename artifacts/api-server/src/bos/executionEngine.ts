@@ -27,6 +27,8 @@ import { callGenericOpenAI } from "../providers/genericAdapter.js";
 import { logger } from "../lib/logger.js";
 import { MOCK_MODE_NOTICE, buildPersonaSystemSuffix } from "../providers/prompts.js";
 import { assignRoles, buildRoleOverlay, type ParallelRole } from "./parallelRoles.js";
+import { executeRefract } from "./refractEngine.js";
+import { runReflectionPass } from "./reflectionPass.js";
 
 const MAX_RETRIES = 3;
 const RETRY_BACKOFF_MS = [1000, 2000, 4000];
@@ -43,6 +45,10 @@ export async function executePipeline(
 
   if (ctx.mode === "parallel" || ctx.mode === "consensus") {
     return executeParallel(ctx, selected_models, memory_context);
+  }
+
+  if (ctx.mode === "refract") {
+    return executeRefract(ctx, selected_models, memory_context);
   }
 
   return executeSingle(ctx, selected_models, memory_context);
@@ -129,6 +135,19 @@ async function executeSingle(
       }
 
       const parsed = parseOutput(validation.passed ? raw : (repairOutput(raw, validation)).repaired, ctx.input);
+
+      // 2026-08-09: Reflection pass — run a self-critique on the
+      // first-pass answer to catch the "please clarify" reflex and
+      // improve specificity. The reflection uses the same model that
+      // produced the first pass; it's NOT a second opinion from a
+      // different model. Reflection can only IMPROVE the answer, never
+      // regress it (the helper enforces that).
+      if (!ctx.disable_reflection) {
+        const reflected = await runReflectionPass(ctx, parsed, model_info, memory_context);
+        await auditLog(ctx.task_id, "TASK_COMPLETED", `Task completed with state ${reflected.result.state} (reflection ${reflected.improved ? "IMPROVED" : "no-change"})`);
+        return { result: reflected.result, attempts_saved };
+      }
+
       await auditLog(ctx.task_id, "TASK_COMPLETED", `Task completed with state ${parsed.state}`);
       return { result: parsed, attempts_saved };
     }
@@ -216,6 +235,19 @@ async function executeParallel(
   const merged = mergeParallelResponses(parallel_responses, ctx.mode);
   await auditLog(ctx.task_id, "MERGE_COMPLETED", `Merged ${parallel_responses.length} responses using ${ctx.mode} strategy`);
 
+  // 2026-08-09: Reflection pass on the merged answer. Same model as
+  // the highest-confidence parallel respondent (or the first if tied)
+  // runs a self-critique on the merged result. Reflection can only
+  // improve, never regress.
+  if (!ctx.disable_reflection) {
+    const reflector = parallel_responses.reduce((best, r) => (r.confidence_score > best.confidence_score ? r : best), parallel_responses[0]!);
+    const reflector_model = models.find((m) => m.model_name === reflector.model.split(" (")[0] && m.provider_name === reflector.provider);
+    if (reflector_model) {
+      const reflected = await runReflectionPass(ctx, merged, reflector_model, memory_context);
+      return { result: reflected.result, attempts_saved };
+    }
+  }
+
   return { result: merged, attempts_saved };
 }
 
@@ -225,7 +257,7 @@ async function executeParallel(
 // is re-exported above for backwards compatibility; buildAbortOutput is
 // imported above and used in executePipeline below.
 
-async function callProvider(
+export async function callProvider(
   ctx: TaskContext,
   model_info: ModelScore,
   memory_context: string,

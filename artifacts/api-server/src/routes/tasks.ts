@@ -34,6 +34,26 @@ const ConversationCreateExtras = z.object({
   force_new_conversation: z.boolean().optional(),
 });
 
+// 2026-08-09: Reflection / Refraction knobs. disable_reflection skips
+// the self-critique pass; refraction is the new 5-lens multi-perspective
+// mode. Parsed off the raw body for the same reason as
+// ConversationCreateExtras — the SPA sends them but the orval schema
+// doesn't know about them yet.
+const ReflectionExtras = z.object({
+  disable_reflection: z.boolean().optional(),
+  // When present, the pipeline uses the Prisma retrieval tool to pull
+  // canon/scratchpad/conversation context BEFORE calling the LLM. The
+  // retrieval result is inlined into the LLM context so the model can
+  // answer with the operator's own data, not just its training data.
+  prisma: z.object({
+    canon: z.object({ q: z.string().optional(), max: z.number().int().min(1).max(50).optional() }).optional(),
+    scratchpad: z.object({ q: z.string().optional(), max: z.number().int().min(1).max(50).optional() }).optional(),
+    conversation: z.object({ conversation_id: z.string().uuid().optional(), last_n_turns: z.number().int().min(1).max(20).optional() }).optional(),
+    provider_health: z.object({ only_healthy: z.boolean().optional() }).optional(),
+    web_search: z.object({ q: z.string().min(1), max_results: z.number().int().min(1).max(10).optional() }).optional(),
+  }).optional(),
+});
+
 const router = Router();
 
 router.post("/", expensiveLimiter, async (req, res) => {
@@ -98,6 +118,15 @@ router.post("/", expensiveLimiter, async (req, res) => {
     });
     return;
   }
+  const reflection_extras = ReflectionExtras.safeParse(req.body ?? {});
+  if (!reflection_extras.success) {
+    res.status(400).json({
+      error: "Invalid reflection/prisma parameters",
+      code: "INPUT_ERROR",
+      issues: reflection_extras.error.issues.map((i) => ({ path: i.path, message: i.message, code: i.code })),
+    });
+    return;
+  }
   let conversation_decision: ConvDecision | null = null;
   if (req.user?.id) {
     // Manual-create reservation path: when the client previously called
@@ -153,7 +182,7 @@ router.post("/", expensiveLimiter, async (req, res) => {
   try {
     const result = await runBosPipeline({
       input: parsed.data.input,
-      mode: parsed.data.mode as "single" | "parallel" | "consensus" | "series_pass" | "boil_the_ocean" | "auto" | undefined,
+      mode: parsed.data.mode as "single" | "parallel" | "consensus" | "series_pass" | "boil_the_ocean" | "refract" | "auto" | undefined,
       task_type_override: parsed.data.task_type_override || undefined,
       parallel_models: parsed.data.parallel_models || undefined,
       max_models: parsed.data.max_models || undefined,
@@ -166,6 +195,9 @@ router.post("/", expensiveLimiter, async (req, res) => {
       // tenants via the legacy NULL-fallback in visibility filters.
       user_id: req.user?.id ?? null,
       conversation_decision,
+      // 2026-08-09: reflection / prisma knobs
+      disable_reflection: reflection_extras.data.disable_reflection,
+      prisma_query: reflection_extras.data.prisma,
     });
 
     const task_rows = await db.select().from(tasksTable).where(eq(tasksTable.id, result.task_id)).limit(1);

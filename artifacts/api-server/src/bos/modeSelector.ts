@@ -1,6 +1,6 @@
 import type { TaskType } from "./types.js";
 
-export type AdvancedMode = "normal" | "series_pass" | "boil_the_ocean" | "auto";
+export type AdvancedMode = "normal" | "series_pass" | "boil_the_ocean" | "refract" | "auto";
 
 const BOIL_THE_OCEAN_KEYWORDS = [
   "boil the ocean", "exhaustive", "granular", "final version", "no ambiguity",
@@ -12,6 +12,13 @@ const SERIES_PASS_KEYWORDS = [
   "error check", "improve", "refine", "pass through", "series", "make perfect",
   "double check", "review", "critique", "validate", "polish", "iterate",
   "check my work", "find mistakes", "perfect this",
+];
+
+const REFRACT_KEYWORDS = [
+  "every angle", "all sides", "multi-perspective", "multiperspective",
+  "different perspectives", "five lenses", "5 lenses", "refraction",
+  "every perspective", "lens", "stakeholder view", "from every angle",
+  "all viewpoints", "consider all sides",
 ];
 
 const HIGH_STAKES_TYPES: (TaskType | string)[] = [
@@ -26,7 +33,7 @@ export interface ModeSelectorResult {
   // Must mirror the full ExecutionMode union — narrowing it here was the root
   // cause of the audit's C-3 finding (parallel/consensus silently degrading
   // to single-shot because pipeline.ts:361 couldn't see them).
-  mode: "single" | "normal" | "parallel" | "consensus" | "series_pass" | "boil_the_ocean";
+  mode: "single" | "normal" | "parallel" | "consensus" | "series_pass" | "boil_the_ocean" | "refract";
   reason: string;
   confidence: number;
 }
@@ -46,6 +53,9 @@ export function selectExecutionMode(
   }
   if (requested_mode === "series_pass") {
     return { mode: "series_pass", reason: "Explicitly requested by user", confidence: 1.0 };
+  }
+  if (requested_mode === "refract") {
+    return { mode: "refract", reason: "Explicitly requested by user", confidence: 1.0 };
   }
   if (requested_mode === "consensus") {
     return { mode: "consensus", reason: "Explicitly requested by user", confidence: 1.0 };
@@ -77,6 +87,16 @@ export function selectExecutionMode(
     return {
       mode: "series_pass",
       reason: `Input contains refinement-intent keywords`,
+      confidence: 0.9,
+    };
+  }
+
+  // Check for refract keywords (multi-perspective, "every angle")
+  const refract_match = REFRACT_KEYWORDS.some((kw) => lc.includes(kw));
+  if (refract_match) {
+    return {
+      mode: "refract",
+      reason: `Input contains multi-perspective intent — using 5-lens refraction`,
       confidence: 0.9,
     };
   }

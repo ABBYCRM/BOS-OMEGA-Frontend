@@ -431,3 +431,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS "api_tokens_hash_idx" ON "api_tokens" USING bt
 CREATE INDEX IF NOT EXISTS "api_tokens_user_idx" ON "api_tokens" USING btree ("user_id","created_at");
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "api_token_audit_token_idx" ON "api_token_audit" USING btree ("token_id","created_at");
+--> statement-breakpoint
+-- 2026-08-09 — Task #reflection. Reflection-pass audit table.
+-- Records every reflection run: the first-pass state, the reflection
+-- state, the two answers (truncated to 4 KB each), whether the
+-- reflection was adopted as an improvement, and the provider/model
+-- that ran the reflection. Lets the operator see exactly what the
+-- self-critique pass changed and why.
+CREATE TABLE IF NOT EXISTS "reflection_runs" (
+	"id" text PRIMARY KEY NOT NULL,
+	"task_id" text NOT NULL,
+	"first_pass_state" text NOT NULL,
+	"reflection_state" text NOT NULL,
+	"first_pass_answer" text DEFAULT '' NOT NULL,
+	"reflection_answer" text DEFAULT '' NOT NULL,
+	"improved" text DEFAULT 'false' NOT NULL,
+	"parse_ok" text DEFAULT 'false' NOT NULL,
+	"confidence" integer DEFAULT 0 NOT NULL,
+	"provider" text NOT NULL,
+	"model" text NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "reflection_runs_task_idx" ON "reflection_runs" USING btree ("task_id","created_at");

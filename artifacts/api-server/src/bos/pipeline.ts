@@ -1,5 +1,5 @@
 import { db } from "@workspace/db";
-import { tasksTable, triStateDecisionsTable, modelAttemptsTable, memoryItemsTable } from "@workspace/db";
+import { tasksTable, triStateDecisionsTable, modelAttemptsTable, memoryItemsTable, usersTable } from "@workspace/db";
 import { personaSlotId } from "./personaCanonSeed.js";
 import { buildPersonaOverlay } from "./personaOverlay.js";
 import { eq, sql, inArray, and, desc, isNotNull } from "drizzle-orm";
@@ -232,6 +232,23 @@ export interface PipelineInput {
   // rows on a downstream pipeline failure. null when anonymous or when the
   // clusterer failed transiently and the route chose to proceed unscoped.
   conversation_decision?: import("./conversationClusterer.js").ConvDecision | null;
+  /**
+   * 2026-08-09: when true, the self-critique reflection pass is
+   * skipped. Reflection costs one extra LLM call; operators can opt
+   * out for latency-sensitive tasks. Defaults to false (reflection
+   * ON) so the operator's "shit answer" reflex is caught.
+   */
+  disable_reflection?: boolean;
+  /**
+   * 2026-08-09: optional Prisma retrieval query. When present, the
+   * pipeline calls runPrismaRetrieval() to pull canon/scratchpad/
+   * conversation context from the runtime's own data, then inlines
+   * the formatted result into memory_context. This is the operator's
+   * "look it up across all our sources" tool. The model sees the
+   * retrieved data as part of its memory context and can answer with
+   * the operator's own data, not just its training data.
+   */
+  prisma_query?: import("./prismaRetrieval.js").PrismaQuery;
 }
 
 export interface PipelineResult {
@@ -751,12 +768,30 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     canon_version: canon_sel.items.length,
     canon_chars: canon_concat.length,
   });
-  const memory_context = buildContextFromMemory(
+  let memory_context = buildContextFromMemory(
     canon_sel.items,
     continuity_sel.items,
     patches_sel.items,
     scratchpad_sel.items,
   );
+
+  // 2026-08-09: Prisma retrieval. If the request came with a
+  // prisma_query, run it and inline the formatted result into the
+  // memory context. This is the "look it up across all our sources"
+  // tool — the model can answer with the operator's own data, not
+  // just its training data. The retrieval runs at the same point the
+  // memory context is built so it lands in the same LLM input.
+  if (pipelineInput.prisma_query) {
+    const { runPrismaRetrieval, formatPrismaResult } = await import("./prismaRetrieval.js");
+    const is_super_admin = pipelineInput.user_id
+      ? (await db.select({ role: usersTable.role }).from(usersTable).where(eq(usersTable.id, pipelineInput.user_id)).limit(1))[0]?.role === "super_admin"
+      : false;
+    const prisma_result = await runPrismaRetrieval(pipelineInput.user_id ?? null, pipelineInput.prisma_query, is_super_admin);
+    const prisma_block = `\n\n=== PRISMA RETRIEVAL ===\n${formatPrismaResult(prisma_result)}\n=== END PRISMA ===\n`;
+    await auditLog(task_id, "PRISMA_RETRIEVED", `Prisma retrieval completed`);
+    // Compose: memory_context first, then prisma block appended.
+    memory_context = memory_context + prisma_block;
+  }
   // Audit metadata: per-layer item counts + per-layer dropped counts +
   // the rendered section header names + a bounded preview. The dropped
   // counts answer "why didn't the AI use my note?" — when non-zero, an
@@ -855,6 +890,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
       ? buildPersonaOverlay(persona_slot_resolved)
       : undefined,
     memory_context: memory_context || undefined,
+    disable_reflection: pipelineInput.disable_reflection,
   };
 
   let result: BosOutput;

@@ -19,7 +19,7 @@ import {
   Send, Loader2, Layers, GitMerge, Vote, Zap, Flame, AlertTriangle,
   CheckCircle2, ChevronRight, MessageSquarePlus, Scale, Code2, ShieldAlert, X,
   ShieldCheck, FileSearch, GitPullRequest, Wrench, Settings2,
-  ClipboardPaste,
+  ClipboardPaste, Sparkles, Eye,
 } from "lucide-react";
 
 // BOP.FRONT_DOOR.v1 — first-run prompt cards. These mirror the four
@@ -71,7 +71,7 @@ const FRONT_DOOR_PROMPTS: Array<{
   },
 ];
 
-type Mode = "auto" | "single" | "parallel" | "consensus" | "series_pass" | "boil_the_ocean";
+type Mode = "auto" | "single" | "parallel" | "consensus" | "series_pass" | "boil_the_ocean" | "refract";
 
 // BOP.PERSONA_SLOTS.v1 — three editable persona slots whose title/content
 // live as canon-style memory rows on the server. The UI here is purely
@@ -187,6 +187,7 @@ const MODE_OPTIONS: ModeOption[] = [
   { value: "consensus",      label: "Consensus",       icon: Vote,         desc: "Majority vote across models for reliability", cost: "medium" },
   { value: "series_pass",    label: "Series pass",     icon: ChevronRight, desc: "Drafter → Critic → Expander → Adversary → Synthesizer", badge: "5-role chain", badgeColor: "bg-violet-50 text-violet-800 border-violet-200", cost: "high" },
   { value: "boil_the_ocean", label: "Boil the ocean",  icon: Flame,        desc: "All models × 5 agents + synthesis + adversarial + Omega", badge: "Maximum power", badgeColor: "bg-red-50 text-red-800 border-red-200", cost: "extreme" },
+  { value: "refract",        label: "Refract",         icon: Sparkles,     desc: "5-lens analysis: Technical, Business, User, Risk, Adversarial — then synthesis", badge: "5 perspectives", badgeColor: "bg-cyan-50 text-cyan-800 border-cyan-200", cost: "high" },
 ];
 
 const COST_LABEL: Record<string, { label: string; color: string }> = {

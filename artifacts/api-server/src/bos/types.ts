@@ -12,7 +12,7 @@ export type TaskType =
   | "safety_review"
   | "general";
 
-export type ExecutionMode = "single" | "parallel" | "consensus" | "series_pass" | "boil_the_ocean" | "auto";
+export type ExecutionMode = "single" | "parallel" | "consensus" | "series_pass" | "boil_the_ocean" | "refract" | "auto";
 
 export type ProviderStatus = "HEALTHY" | "DEGRADED" | "OPEN_CIRCUIT" | "RECOVERY_TEST";
 
@@ -182,6 +182,14 @@ export interface TaskContext {
    * memory themselves so all five modes share the same retrieval path.
    */
   memory_context?: string;
+  /**
+   * 2026-08-09: when true, skip the self-critique reflection pass that
+   * normally runs after the first answer. The reflection pass improves
+   * the answer by catching the "please clarify" reflex and tightening
+   * specificity, but it costs an extra LLM call. Operators can opt out
+   * for latency-sensitive tasks. Defaults to false (reflection ON).
+   */
+  disable_reflection?: boolean;
 }
 
 export interface VisionImage {
