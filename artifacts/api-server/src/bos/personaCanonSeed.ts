@@ -64,7 +64,7 @@ const SLOT_DEFAULTS: Record<PersonaSlot, SlotDefault> = {
  * per affected slot (idempotent on subsequent boots once the marker
  * is present).
  */
-const PERSONA_LENS_NOT_CAGE_MARKER = "lens not a cage";
+const PERSONA_LENS_NOT_CAGE_MARKER = "lens, not a cage";
 const PERSONA_CONTENT_VERSION = "2026-08-09-lens-not-cage-v1";
 
 export async function seedPersonaSlots(): Promise<void> {
