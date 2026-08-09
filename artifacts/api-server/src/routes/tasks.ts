@@ -221,7 +221,6 @@ router.post("/", expensiveLimiter, async (req, res) => {
     res.status(500).json({
       error: "Internal pipeline error",
       code: "SYSTEM_ERROR",
-      detail: err instanceof Error ? err.message : String(err),
     });
   }
 });

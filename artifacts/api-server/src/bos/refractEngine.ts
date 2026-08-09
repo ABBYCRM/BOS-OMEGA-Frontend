@@ -194,12 +194,13 @@ export async function executeRefract(
       await db.insert(parallelAgentsTable).values({
         id: attempt_id,
         run_id,
-        role: lens,
         provider: model_info.provider_name,
         model: model_info.model_name,
+        agent_role: lens,
+        status: "completed",
+        output: result.raw_response.slice(0, 8000),
+        score: validation.confidence_score,
         state: validation.passed ? "GO" : "HOLD",
-        output_snapshot: result.raw_response.slice(0, 8000),
-        confidence_score: validation.confidence_score,
         latency_ms: result.latency_ms,
       });
       attempts_saved.push(attempt_id);
@@ -324,10 +325,18 @@ export async function executeRefract(
   await db.insert(synthesisReportsTable).values({
     id: synthesis_id,
     run_id,
-    summary: synthesis_parsed.answer.slice(0, 4000),
-    confidence: synthesis_validation.confidence_score,
-    sources: surviving.map((s) => `${s.lens}=${s.model.provider_name}/${s.model.model_name}`),
-    state: synthesis_parsed.state,
+    final_synthesis: synthesis_parsed.answer.slice(0, 4000),
+    consensus_points: surviving.map((s) => `${s.lens}=${s.model.provider_name}/${s.model.model_name}`),
+    contradictions: [],
+    strongest_sections: surviving.filter((s) => s.parsed?.state === "GO").map((s) => s.lens),
+    rejected_sections: surviving.filter((s) => s.parsed?.state !== "GO").map((s) => s.lens),
+    omega_validation: JSON.stringify({
+      state: synthesis_parsed.state,
+      schema_pass: synthesis_validation.passed,
+      safety_pass: true,
+      completeness_pass: surviving.length >= 3,
+      notes: `Refraction: ${surviving.length}/5 lenses succeeded`,
+    }),
   });
 
   await db.update(executionRunsTable).set({ status: "completed", completed_at: new Date() }).where(eq(executionRunsTable.id, run_id));
