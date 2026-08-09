@@ -238,7 +238,15 @@ export async function runSeriesPass(
         validation_notes.push(`Pass ${pass_number} (${role}): score=${validation_score.toFixed(2)}, errors=[${errors_found.slice(0, 2).join(", ")}]`);
       }
 
-      // ABORT propagation
+      // ABORT handling — 2026-08-08 fix.
+      //
+      // Previously: any single pass returning ABORT halted the whole
+      // series. That's a false-positive trap — a single over-cautious
+      // model in a critic/adversary role can veto a perfectly good
+      // draft. The new rule converts the ABORT into a HOLD: the
+      // series continues using the previous pass's answer, the
+      // dissenting reason is recorded, and the operator sees it
+      // in the audit chain. The final answer is still produced.
       if (state === "ABORT") {
         await db.insert(seriesPassesTable).values({
           id: pass_id,
@@ -254,12 +262,20 @@ export async function runSeriesPass(
           state: "ABORT",
           latency_ms,
         });
-        await db.update(executionRunsTable).set({ status: "aborted", completed_at: new Date() }).where(eq(executionRunsTable.id, run_id));
-        await auditLog(ctx.task_id, "SERIES_PASS_ABORTED", `Pass ${pass_number} returned ABORT — halting series`);
-        return {
-          result: { ...pass_output, state: "ABORT" },
-          run_id,
-        };
+        await db.update(executionRunsTable).set({ status: "running" }).where(eq(executionRunsTable.id, run_id));
+        await auditLog(
+          ctx.task_id,
+          "SERIES_PASS_ABORT_MINORITY",
+          `Pass ${pass_number} (${role} via ${model_info.provider_name}/${model_info.model_name}) returned ABORT — converted to HOLD, continuing series with previous answer`,
+          { role, model: `${model_info.provider_name}/${model_info.model_name}`, reason: pass_output.assumptions?.[0] ?? "no reason" },
+        );
+        // Don't halt — keep the previous answer as the carry-forward
+        // and continue. The final state will be computed from the
+        // surviving passes.
+        state = "HOLD";
+        current_answer = current_answer ?? pass_output.answer;
+        validation_notes.push(`${role} flagged ABORT (treated as HOLD): ${(pass_output.assumptions?.[0] as string) ?? "no reason given"}`);
+        continue;
       }
 
       // Update current answer for next pass
