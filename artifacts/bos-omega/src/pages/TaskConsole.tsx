@@ -77,7 +77,17 @@ type Mode = "auto" | "single" | "parallel" | "consensus" | "series_pass" | "boil
 // live as canon-style memory rows on the server. The UI here is purely
 // presentational (icon + accent colour); the persona text the model sees
 // comes from the server-side row resolved at pipeline time.
-const PERSONA_LS_KEY = "bos.persona_slot.v1";
+// BOP.PERSONA_SLOTS.v1 — three editable persona slots whose title/content
+// live as canon-style memory rows on the server. The UI here is purely
+// presentational (icon + accent colour); the persona text the model sees
+// comes from the server-side row resolved at pipeline time.
+//
+// 2026-08-09: bumped LS key to v2 so existing browsers that have a stale
+// "A" (Legal Counsel) selection from a prior session drop back to the
+// default (null = no persona). The persona is still selectable from the
+// UI; this just resets the "stuck on Legal Counsel from two days ago"
+// case where every task got a legal-memo skeleton regardless of input.
+const PERSONA_LS_KEY = "bos.persona_slot.v2";
 
 type PersonaPresentation = {
   icon: React.ComponentType<{ className?: string }>;
@@ -106,8 +116,29 @@ const PERSONA_PRESENTATION: Record<PersonaSlotKey, PersonaPresentation> = {
 function readStoredPersonaSlot(): PersonaSlotKey | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(PERSONA_LS_KEY);
-    if (raw === "A" || raw === "B" || raw === "C") return raw;
+    // 2026-08-09: check the new key first, then fall back to the old
+    // v1 key (which had "A" hardcoded as the default for fresh browsers
+    // and which many operators never changed away from). When we read
+    // from the old key we migrate the value forward and delete the
+    // old key, so this migration only runs once per browser.
+    const newRaw = window.localStorage.getItem(PERSONA_LS_KEY);
+    if (newRaw === "A" || newRaw === "B" || newRaw === "C") return newRaw;
+    const oldRaw = window.localStorage.getItem("bos.persona_slot.v1");
+    if (oldRaw === "A" || oldRaw === "B" || oldRaw === "C") {
+      // Migrate: write the v2 key, delete the v1 key.
+      window.localStorage.setItem(PERSONA_LS_KEY, oldRaw);
+      window.localStorage.removeItem("bos.persona_slot.v1");
+      // ...but if the operator's stuck-on-A is forcing a legal memo
+      // on every task, the right thing is to drop the persona entirely
+      // so the new kernel (no false-positive refusals) takes effect.
+      // 2026-08-09: do NOT migrate 'A' — clear it instead so casual
+      // chat stops being routed through the legal lens.
+      if (oldRaw === "A") {
+        window.localStorage.removeItem(PERSONA_LS_KEY);
+        return null;
+      }
+      return oldRaw;
+    }
   } catch {
     // ignore
   }
@@ -117,8 +148,14 @@ function readStoredPersonaSlot(): PersonaSlotKey | null {
 function writeStoredPersonaSlot(p: PersonaSlotKey | null): void {
   if (typeof window === "undefined") return;
   try {
-    if (p === null) window.localStorage.removeItem(PERSONA_LS_KEY);
-    else window.localStorage.setItem(PERSONA_LS_KEY, p);
+    if (p === null) {
+      window.localStorage.removeItem(PERSONA_LS_KEY);
+      // Also clear the legacy v1 key so a future migration from another
+      // device doesn't resurrect the stuck-on-A state.
+      window.localStorage.removeItem("bos.persona_slot.v1");
+    } else {
+      window.localStorage.setItem(PERSONA_LS_KEY, p);
+    }
   } catch {
     // ignore
   }
