@@ -7,7 +7,7 @@
  */
 
 /**
- * Execution mode: auto=BOS selects best mode, series_pass=5-role sequential refinement, boil_the_ocean=parallel multi-LLM × N agents + synthesis + adversarial
+ * Execution mode: auto=BOS selects best mode, series_pass=5-role sequential refinement, boil_the_ocean=parallel multi-LLM × N agents + synthesis + adversarial, refract=5-lens multi-perspective analysis
  */
 export type CreateTaskBodyMode =
   (typeof CreateTaskBodyMode)[keyof typeof CreateTaskBodyMode];
@@ -18,5 +18,6 @@ export const CreateTaskBodyMode = {
   consensus: "consensus",
   series_pass: "series_pass",
   boil_the_ocean: "boil_the_ocean",
+  refract: "refract",
   auto: "auto",
 } as const;

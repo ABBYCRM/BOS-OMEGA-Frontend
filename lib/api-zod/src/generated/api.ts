@@ -31,11 +31,12 @@ export const CreateTaskBody = zod.object({
       "consensus",
       "series_pass",
       "boil_the_ocean",
+      "refract",
       "auto",
     ])
     .default(createTaskBodyModeDefault)
     .describe(
-      "Execution mode: auto=BOS selects best mode, series_pass=5-role sequential refinement, boil_the_ocean=parallel multi-LLM × N agents + synthesis + adversarial",
+      "Execution mode: auto=BOS selects best mode, series_pass=5-role sequential refinement, boil_the_ocean=parallel multi-LLM × N agents + synthesis + adversarial, refract=5-lens multi-perspective analysis",
     ),
   task_type_override: zod
     .string()
