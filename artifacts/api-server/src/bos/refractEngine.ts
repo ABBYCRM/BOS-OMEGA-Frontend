@@ -152,7 +152,25 @@ export async function executeRefract(
   // We need 5 distinct model selections, one per lens. If we have ≥5
   // models, use the first 5. Otherwise round-robin the available models
   // (a single model can cover multiple lenses — better than dropping a
-  // lens entirely).
+  // lens entirely). If we have zero models, fail fast with a clear
+  // error rather than crashing on the non-null assertion.
+  if (selected_models.length === 0) {
+    await db.update(executionRunsTable).set({ status: "failed", completed_at: new Date() }).where(eq(executionRunsTable.id, run_id));
+    await auditLog(ctx.task_id, "REFRACT_ABORTED", "No models available for refraction");
+    return {
+      result: {
+        state: "HOLD",
+        task_type: ctx.task_type,
+        answer: "BOS-OMEGA Refraction: no LLM providers are available. Check /api/providers for health and circuit-breaker status.",
+        assumptions: [],
+        uncertainties: ["The provider pool is empty (all providers disabled or in OPEN_CIRCUIT)."],
+        missing_inputs: [],
+        failure_modes: ["Provider pool empty — refraction cannot run."],
+        recommended_next_action: "Check /api/providers, restore at least one healthy provider, then retry.",
+      },
+      attempts_saved,
+    };
+  }
   const models_per_lens = LENS_ORDER.map((_, i) => selected_models[i % selected_models.length]!);
 
   const lens_results: Array<{ lens: RefractLens; model: ModelScore; result: LLMCallResult; parsed: BosOutput | null }> = [];

@@ -662,6 +662,7 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
   // Fetch models — fetch more for BTO and series pass
   const fetch_count = resolved_mode === "boil_the_ocean" ? 10 :
     resolved_mode === "series_pass" ? 7 :
+    resolved_mode === "refract" ? 8 :
     (pipelineInput.parallel_models || 3) + 2;
 
   const models = await selectModel(task_type, gate.sanitized_input.length, resolved_mode as "single" | "parallel" | "consensus", fetch_count);
@@ -953,6 +954,15 @@ export async function runBosPipeline(pipelineInput: PipelineInput): Promise<Pipe
     );
     result = bto_result.result;
     run_id = bto_result.run_id;
+  } else if (resolved_mode === "refract") {
+    // Refract wants >=5 distinct models so each lens can land on a
+    // different provider. If the registry is thinner, round-robin
+    // (a single model can cover multiple lenses — better than
+    // dropping a lens). Pass the full model list; refract handles
+    // the round-robin internally.
+    const refract_models = models.slice(0, Math.max(5, models.length));
+    const { result: exec_result } = await executePipeline(ctx, refract_models);
+    result = exec_result;
   } else {
     // Normal / parallel / consensus → existing engine
     const parallel_count = resolved_mode === "parallel" || resolved_mode === "consensus"
