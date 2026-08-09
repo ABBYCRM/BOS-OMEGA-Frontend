@@ -54,3 +54,4 @@ artifacts/*/.data/
 
 # Uploaded credential files — never commit
 attached_assets/
+.mavis/
